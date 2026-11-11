@@ -49,18 +49,46 @@ public sealed class BazarrController : ControllerBase
     public async Task<IActionResult> TestBazarr([FromBody] TestBazarrRequest? request, CancellationToken cancellationToken)
     {
         var config = Plugin.Instance?.Configuration;
-        var url = string.IsNullOrWhiteSpace(request?.Url) ? config?.BazarrUrl : request.Url;
-        var key = string.IsNullOrWhiteSpace(request?.ApiKey) ? config?.BazarrApiKey : request.ApiKey;
         var mappingErrors = BazarrPathMapper.Parse(request?.PathMappings ?? config?.BazarrPathMappings).Errors;
-
-        if (!BazarrConnection.TryCreate(url, key, out var connection, out var error))
+        if (ResolveTestConnection(request, config?.BazarrUrl, config?.BazarrApiKey, out var connection) is { } error)
         {
-            return Json(new TestBazarrDto(false, null, error!, mappingErrors));
+            return Json(new TestBazarrDto(false, null, error, mappingErrors));
         }
 
         var status = await _client.GetStatusAsync(connection!, cancellationToken).ConfigureAwait(false);
         return Json(new TestBazarrDto(status.Ok, status.Version, status.Message, mappingErrors));
     }
+
+    /// <summary>
+    /// Picks the address and key to test: form values first, saved settings for empty fields. The saved key is only
+    /// ever sent to the saved address, so a typed address cannot be used to send it somewhere else.
+    /// </summary>
+    /// <param name="request">Form values.</param>
+    /// <param name="savedUrl">Saved address.</param>
+    /// <param name="savedKey">Saved key.</param>
+    /// <param name="connection">The connection to test.</param>
+    /// <returns>Null when ready, otherwise what to tell the admin.</returns>
+    internal static string? ResolveTestConnection(TestBazarrRequest? request, string? savedUrl, string? savedKey, out BazarrConnection? connection)
+    {
+        connection = null;
+        var url = string.IsNullOrWhiteSpace(request?.Url) ? savedUrl : request.Url;
+        var typedKey = !string.IsNullOrWhiteSpace(request?.ApiKey);
+        if (!typedKey && !string.IsNullOrWhiteSpace(savedKey) && !SameAddress(url, savedUrl))
+        {
+            return "Enter the API key to test an address other than the saved one.";
+        }
+
+        return BazarrConnection.TryCreate(url, typedKey ? request!.ApiKey : savedKey, out connection, out var error) ? null : error;
+    }
+
+    /// <summary>Whether two typed addresses name the same Bazarr, after the same normalization the client applies.</summary>
+    /// <param name="a">First address.</param>
+    /// <param name="b">Second address.</param>
+    /// <returns>True when both are valid and equal.</returns>
+    internal static bool SameAddress(string? a, string? b) =>
+        BazarrConnection.TryCreate(a, "x", out var ca, out _)
+        && BazarrConnection.TryCreate(b, "x", out var cb, out _)
+        && Uri.Compare(ca!.BaseUri, cb!.BaseUri, UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0;
 
     private static ContentResult Json(object value) => new()
     {

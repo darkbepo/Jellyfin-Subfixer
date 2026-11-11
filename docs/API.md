@@ -54,7 +54,7 @@ Cancels the caller's own running and queued items; an administrator cancels all 
 
 ## Admin
 - `POST /Admin/TestSubSync` -> `{ "ok":true, "version":"1.2.0", "mode":"GPU|CPU|unknown", "message":"..." }`
-- `POST /Admin/TestBazarr` with `{ "url":"...", "apiKey":"...", "pathMappings":"..." }` (unsaved form values; an empty `url` or `apiKey`, or a null `pathMappings`, uses the saved setting) -> always `200 { "ok":true, "version":"1.5.3", "message":"...", "pathMappingErrors":["Line 2: ..."] }`. Calls Bazarr's `GET /api/system/status` server-side. Works whether or not `BazarrEnabled` is on. The response never contains the API key.
+- `POST /Admin/TestBazarr` with `{ "url":"...", "apiKey":"...", "pathMappings":"..." }` (unsaved form values; an empty `url` or `apiKey`, or a null `pathMappings`, uses the saved setting; the saved key is only sent to the saved address, so testing another address needs the key typed in) -> always `200 { "ok":true, "version":"1.5.3", "message":"...", "pathMappingErrors":["Line 2: ..."] }`. Calls Bazarr's `GET /api/system/status` server-side. Works whether or not `BazarrEnabled` is on. The response never contains the API key.
 
 ## Error codes
 | Code | HTTP | Meaning |

@@ -285,3 +285,54 @@ internal sealed class StubFactory : IHttpClientFactory
 
     public HttpClient CreateClient(string name) => new(_handler, disposeHandler: false);
 }
+
+public sealed class BazarrTestTargetTests
+{
+    private const string SavedUrl = "http://bazarr:6767";
+    private const string SavedKey = "saved-key";
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("http://bazarr:6767")]
+    [InlineData("HTTP://Bazarr:6767/")]
+    public void Saved_key_is_used_for_the_saved_address(string? url)
+    {
+        var error = BazarrController.ResolveTestConnection(new TestBazarrRequest(url, null, null), SavedUrl, SavedKey, out var c);
+
+        Assert.Null(error);
+        Assert.Equal(SavedKey, c!.ApiKey);
+    }
+
+    [Theory]
+    [InlineData("http://evil.example")]
+    [InlineData("http://bazarr:6768")]
+    [InlineData("https://bazarr:6767")]
+    [InlineData("http://bazarr:6767/other")]
+    public void Saved_key_is_never_sent_to_another_address(string url)
+    {
+        var error = BazarrController.ResolveTestConnection(new TestBazarrRequest(url, " ", null), SavedUrl, SavedKey, out var c);
+
+        Assert.NotNull(error);
+        Assert.Contains("API key", error, StringComparison.Ordinal);
+        Assert.Null(c);
+    }
+
+    [Fact]
+    public void Typed_key_may_go_to_a_typed_address()
+    {
+        var error = BazarrController.ResolveTestConnection(new TestBazarrRequest("http://other:6767", "typed", null), SavedUrl, SavedKey, out var c);
+
+        Assert.Null(error);
+        Assert.Equal("typed", c!.ApiKey);
+        Assert.Equal("http://other:6767/", c.BaseUri.ToString());
+    }
+
+    [Fact]
+    public void Without_a_saved_key_a_missing_key_is_reported()
+    {
+        var error = BazarrController.ResolveTestConnection(new TestBazarrRequest("http://other:6767", null, null), SavedUrl, null, out _);
+
+        Assert.Contains("Set the Bazarr API key", error, StringComparison.Ordinal);
+    }
+}
