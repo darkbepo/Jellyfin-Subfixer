@@ -21,6 +21,7 @@
 | D15 | Progress is episode-level; optional SubSync progress file later | Proposed | CLI has no live progress |
 | D16 | No Newtonsoft.Json dependency; build File Transformation's `JObject` payload by reflection | Proposed | `RegisterTransformation` takes the server's Newtonsoft `JObject` (File Transformation doesn't bundle Newtonsoft). Shipping our own copy would make the types differ. Take the type from the method's parameter and call `Parse` (M0 S1) |
 | D17 | `Microsoft.Data.Sqlite` as a compile-only reference (`ExcludeAssets=runtime`), version not above the server's (12.4 ships 10.0.14) | Proposed | The server already loads it and its native library; a plugin falling back to the default load context gets that copy. Nothing native in our zip. JSONL store stays the fallback behind `StateStore` (M0 S7) |
+| D19 | One shared queue, visible to every allowed user; each user cancels only their own items, admins cancel all; inaccessible items are shown without their name | Owner (queue visibility), Proposed (cancel scope, hiding) | A second Start appends to the queue and never starts a second SubSync |
 | D18 | Plugin license | Open (owner) | The official template, File Transformation and Plugin Pages are GPL-3.0, and the server is GPL-2.0. The plugin compiles against GPL server packages, so GPL-3.0 is the usual choice for Jellyfin plugins. Needed before the first release |
 
 ## Deferred

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Subtitle Fixer</title>
+    <link rel="stylesheet" href="Page/styles.css">
+</head>
+<body>
+    <header class="top">
+        <div>
+            <h1>Subtitle Fixer</h1>
+            <p class="disclaimer">Only fixes English subtitles on English audio.</p>
+        </div>
+        <a class="back" href="../web/">Back to Jellyfin</a>
+    </header>
+
+    <main>
+        <p id="who" class="muted" role="status">Checking your sign-in…</p>
+
+        <section id="signin" class="card" hidden>
+            <p>You are not signed in to Jellyfin in this browser.</p>
+            <a class="button" href="../web/">Sign in to Jellyfin</a>
+        </section>
+
+        <section id="denied" class="card" hidden>
+            <p>An administrator has not allowed your account to use Subtitle Fixer.</p>
+        </section>
+
+        <div id="app" hidden>
+            <p class="note">Test build (M1). The full file browser arrives in M3. This page runs the checks in
+                <code>docs/M0-LIVE-CHECKS.md</code> Part B: browse and search timings, the selection rules, and the admin diagnostics.</p>
+
+            <section class="card">
+                <h2>Browse</h2>
+                <nav id="crumbs" aria-label="Breadcrumb"></nav>
+                <ul id="list" class="rows"></ul>
+                <div class="row-actions">
+                    <button id="more" type="button" hidden>Load more</button>
+                    <button id="preview" type="button" disabled>Preview selection</button>
+                    <button id="clear" type="button" disabled>Clear selection</button>
+                </div>
+                <p id="selection" class="muted"></p>
+            </section>
+
+            <section class="card">
+                <h2>Search</h2>
+                <label class="field">Series or episode name
+                    <input id="q" type="search" autocomplete="off">
+                </label>
+                <ul id="results" class="rows"></ul>
+            </section>
+
+            <section class="card">
+                <h2>Request timings</h2>
+                <ol id="timings" class="timings"></ol>
+            </section>
+
+            <section id="admin" class="card" hidden>
+                <h2>Diagnostics (admin)</h2>
+                <dl id="diag" class="kv"></dl>
+                <div class="row-actions">
+                    <button id="diag-refresh" type="button">Refresh</button>
+                    <button id="diag-write" type="button">Write test row to state.db</button>
+                    <button id="subsync" type="button">Run SubSync check</button>
+                </div>
+                <pre id="subsync-out" class="out" hidden></pre>
+            </section>
+        </div>
+
+        <p id="error" class="error" role="alert" hidden></p>
+    </main>
+
+    <script src="Page/app.js"></script>
+</body>
+</html>

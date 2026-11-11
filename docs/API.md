@@ -1,6 +1,6 @@
 # REST API
 
-Base path `/SubtitleFixer`. All data endpoints require an authenticated user (`[Authorize]`) and the `AllowedUsers` policy. Settings and test endpoints require an administrator (`[Authorize(Policy = Policies.RequiresElevation)]`). Authenticated calls send `Authorization: MediaBrowser Client="Subtitle Fixer", Device="…", DeviceId="…", Version="…", Token="<token>"`. Legacy headers (`X-Emby-Token`, `X-Emby-Authorization`, `api_key`) are off by default on 12 (spike S2). A missing or bad token gets `401` from Jellyfin before our code runs. Errors are `{ "error": "<code>", "message": "<human text>" }`.
+Base path `/SubtitleFixer`. All data endpoints require an authenticated user (`[Authorize]`) and the `AllowedUsers` policy. Settings and test endpoints require an administrator (`[Authorize(Policy = Policies.RequiresElevation)]`). Authenticated calls send only `Authorization: MediaBrowser Token="<token>"`: Jellyfin overwrites the device's stored name and version whenever a request sends a different `Device` or `Version`, so sending ours would rename the user's browser session. Responses are camelCase (Jellyfin's own API is PascalCase). Legacy headers (`X-Emby-Token`, `X-Emby-Authorization`, `api_key`) are off by default on 12 (spike S2). A missing or bad token gets `401` from Jellyfin before our code runs. Errors are `{ "error": "<code>", "message": "<human text>" }`.
 
 ## Static (anonymous)
 `GET /Page` (the page HTML), `GET /Page/app.js`, `GET /Page/styles.css`, `GET /menu.js` (avatar-menu script). These contain no data.
@@ -22,7 +22,7 @@ Empty `parentId` lists TV libraries. Library -> series, series -> seasons, seaso
   ]
 }
 ```
-`type` is `Library|Series|Season|Episode`. For episodes: `eligible` true/false, `reason` one of `no_english_audio|no_sidecar|already_synced|null`, `status` one of `none|done|attempted` (attempted = `check` or `failed`, with `message`). Counts are filled for seasons only.
+`type` is `Library|Series|Season|Episode`. For episodes: `eligible` true/false, `reason` one of `no_video_file|already_synced|no_english_audio|no_sidecar|null` (checked in that order), `status` one of `none|done|attempted` (attempted = `check` or `failed`, with `message`). Counts are filled for seasons only. Rows also carry `seriesName`, `indexNumber`, `parentIndexNumber`. `limit` is capped at 200. An unknown or inaccessible `parentId` returns `404 not_found`.
 
 ## GET /Search?q=&startIndex=0&limit=30
 Series and episodes the user can access. Items as above plus `seriesId`, `seriesName`.
@@ -31,9 +31,10 @@ Series and episodes the user can access. Items as above plus `seriesId`, `series
 Request `{ "itemIds": ["..."] }` (seasons and episodes only).
 ```json
 { "seriesId":"...", "seriesName":"Show", "selected":47, "eligible":35,
-  "skipped": { "alreadySynced":12, "noEnglishAudio":0, "noSidecar":0 },
+  "skipped": { "alreadySynced":12, "noEnglishAudio":0, "noSidecar":0, "noVideoFile":0 },
   "attemptedBefore":2 }
 ```
+Returns `400` for `unsupported_item_type`, `multiple_series`, `cap_exceeded`, and `nothing_eligible` only when no ids were sent. A valid selection with nothing eligible returns `200` with `eligible: 0`, so the footer can still show the skipped counts; `POST /Jobs` rejects that case with `nothing_eligible`.
 
 ## POST /Jobs
 Same request; validates exactly like Preview, then queues the eligible episodes. `202 { "queued":35, "skipped":12, "queueLength":35 }`.
@@ -44,12 +45,12 @@ Same request; validates exactly like Preview, then queues the eligible episodes.
   "current": { "itemId":"...", "name":"S01E04 ...", "startedUtc":"..." },
   "totals": { "queued":35, "done":3, "check":0, "failed":0, "cancelled":0 },
   "etaSeconds": 2100,
-  "items": [ { "itemId":"...", "name":"...", "status":"queued|running|done|check|failed|cancelled", "message":null } ] }
+  "items": [ { "itemId":"...", "name":"...", "status":"queued|running|done|check|failed|cancelled", "message":null, "mine":true } ] }
 ```
-Global queue, visible to every allowed user (names only). ETA = remaining episodes x average `seconds` of finished ones; null until one has finished.
+One global queue shared by everyone, visible to every allowed user. A second Start appends to it; it never starts a second SubSync. `mine` marks items the caller queued. For items in a library the caller can't access, `itemId` is null and `name` is "Episode in another library". ETA = remaining episodes x average `seconds` of finished ones; null until one has finished.
 
 ## POST /Jobs/Cancel
-Cancels the current and all queued items. `200`. Restores the subtitle of the running episode (`JOB-FLOW.md`).
+Cancels the caller's own running and queued items; an administrator cancels all items. `200`. Restores the subtitle of the running episode if it is cancelled (`JOB-FLOW.md`).
 
 ## Admin
 - `POST /Admin/TestSubSync` -> `{ "ok":true, "version":"1.2.0", "mode":"GPU|CPU|unknown", "message":"..." }`

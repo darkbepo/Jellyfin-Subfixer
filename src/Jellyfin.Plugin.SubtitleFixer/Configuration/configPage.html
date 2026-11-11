@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Subtitle Fixer</title>
+</head>
+<body>
+    <div id="SubtitleFixerConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+        <div data-role="content">
+            <div class="content-primary">
+                <h2>Subtitle Fixer</h2>
+                <p>Only fixes English subtitles on English audio. Users open it from the avatar menu.</p>
+                <form id="SubtitleFixerConfigForm">
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="SubSyncFolder">SubSync folder</label>
+                        <input id="SubSyncFolder" type="text" is="emby-input" />
+                        <div class="fieldDescription">The folder that contains subsync-cli.exe. The Jellyfin service account needs write access to it, so not Program Files.</div>
+                    </div>
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="AllowedUsers">Who can use it</label>
+                        <select is="emby-select" id="AllowedUsers" class="emby-select-withcolor emby-select">
+                            <option value="AdminOnly">Administrators only</option>
+                            <option value="AllAuthenticated">All signed-in users</option>
+                        </select>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="MaxEpisodesPerRequest">Most episodes per request</label>
+                        <input id="MaxEpisodesPerRequest" type="number" is="emby-input" min="1" />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="MaxQueuedEpisodes">Most episodes in the queue</label>
+                        <input id="MaxQueuedEpisodes" type="number" is="emby-input" min="1" />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="EpisodeTimeoutMinutes">Episode timeout (minutes)</label>
+                        <input id="EpisodeTimeoutMinutes" type="number" is="emby-input" min="1" />
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="TidyUpLines" type="checkbox" is="emby-checkbox" />
+                            <span>Tidy up lines</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">Re-cuts subtitles by sentence and speaker. Words are never changed.</div>
+                    </div>
+                    <div class="checkboxContainer">
+                        <label class="emby-checkbox-label">
+                            <input id="ForceCpu" type="checkbox" is="emby-checkbox" />
+                            <span>Force CPU</span>
+                        </label>
+                    </div>
+                    <div>
+                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                            <span>Save</span>
+                        </button>
+                    </div>
+                </form>
+                <p><a is="emby-linkbutton" class="button-link" href="../SubtitleFixer/Page" target="_blank">Open the Subtitle Fixer page (includes diagnostics)</a></p>
+            </div>
+        </div>
+        <script type="text/javascript">
+            (function () {
+                var pluginId = 'aca97159-ff3b-469e-a552-db44d9b77806';
+                var page = document.querySelector('#SubtitleFixerConfigPage');
+                function el(id) { return page.querySelector('#' + id); }
+                function intOr(value, fallback) { var n = parseInt(value, 10); return isNaN(n) || n < 1 ? fallback : n; }
+
+                page.addEventListener('pageshow', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        el('SubSyncFolder').value = config.SubSyncFolder || '';
+                        el('AllowedUsers').value = config.AllowedUsers || 'AdminOnly';
+                        el('MaxEpisodesPerRequest').value = config.MaxEpisodesPerRequest;
+                        el('MaxQueuedEpisodes').value = config.MaxQueuedEpisodes;
+                        el('EpisodeTimeoutMinutes').value = config.EpisodeTimeoutMinutes;
+                        el('TidyUpLines').checked = !!config.TidyUpLines;
+                        el('ForceCpu').checked = !!config.ForceCpu;
+                        Dashboard.hideLoadingMsg();
+                    });
+                });
+
+                el('SubtitleFixerConfigForm').addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        config.SubSyncFolder = el('SubSyncFolder').value.trim();
+                        config.AllowedUsers = el('AllowedUsers').value;
+                        config.MaxEpisodesPerRequest = intOr(el('MaxEpisodesPerRequest').value, 150);
+                        config.MaxQueuedEpisodes = intOr(el('MaxQueuedEpisodes').value, 300);
+                        config.EpisodeTimeoutMinutes = intOr(el('EpisodeTimeoutMinutes').value, 30);
+                        config.TidyUpLines = el('TidyUpLines').checked;
+                        config.ForceCpu = el('ForceCpu').checked;
+                        ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
+                            Dashboard.processPluginConfigurationUpdateResult(result);
+                        });
+                    });
+                    return false;
+                });
+            })();
+        </script>
+    </div>
+</body>
+</html>

@@ -34,7 +34,7 @@ An episode is eligible only if all hold:
 - It has an external sidecar named exactly `<videoBase>.en.srt` or `<videoBase>.eng.srt` (video name without extension). Any other name is treated as not English and ignored. No naming heuristics. If both exist, only `.en.srt` is processed.
 - No `done` record whose fingerprint still matches.
 
-Ineligible items are shown with a reason: `no_english_audio`, `no_sidecar`, `already_synced`. Items with status `check` or `failed` stay selectable, labelled "previously attempted".
+Ineligible items are shown with a reason: `no_video_file`, `already_synced`, `no_english_audio`, `no_sidecar`. Items with status `check` or `failed` stay selectable, labelled "previously attempted".
 
 ## 5. When an episode counts as "synced"
 A `done` record stores video path, size and mtime (UTC). It is valid while all three still match. A replaced video makes the episode eligible again. Files are never hashed. `check` (SubSync matched too few lines and wrote nothing) is not done. Details: `docs/ARCHITECTURE.md` (state schema).

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/Jellyfin.Plugin.SubtitleFixer/Jellyfin.Plugin.SubtitleFixer.csproj" />
+  <Project Path="tests/Jellyfin.Plugin.SubtitleFixer.Tests/Jellyfin.Plugin.SubtitleFixer.Tests.csproj" />
+</Solution>

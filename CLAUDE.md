@@ -18,6 +18,7 @@ Read `SPEC.md` (scope and hard rules), then only the doc for your task:
 | Web page behavior | `docs/UI.md` |
 | Tests | `docs/TESTING.md` |
 | Why something is the way it is | `docs/DECISIONS.md` |
+| Bazarr subtitle search (separate track) | `docs/BAZARR-PLAN.md` |
 
 ## Non-negotiables
 1. One series per request, enforced on the server (multiple seasons of that series are fine). Season IDs expand to episodes; series and library IDs are rejected.
@@ -33,11 +34,12 @@ Read `SPEC.md` (scope and hard rules), then only the doc for your task:
 Jellyfin 12 APIs, File Transformation behavior and web-client DOM are not in your training data reliably (10.11 memory is wrong in places). Verify against the real 12.x packages or source, then record the answer in `docs/M0-SPIKES.md` (findings) or `docs/DECISIONS.md`. If a verified fact contradicts a doc, fix the doc in the same change.
 
 ## Commands
-Fill in after scaffolding (keep this list short):
 ```
-dotnet build -c Release
-dotnet test
+dotnet build Jellyfin.Plugin.SubtitleFixer.slnx -c Release
+dotnet test Jellyfin.Plugin.SubtitleFixer.slnx -c Release
+powershell -ExecutionPolicy Bypass -File build\package.ps1   # artifacts\SubtitleFixer_<ver>.zip + .md5
 ```
+The plugin output must contain only our DLL: Jellyfin, Newtonsoft and SQLite come from the server (D16, D17). Tests reference the runtime packages themselves.
 
 ## Conventions
 - C# 13/.NET 10, nullable enabled, async everywhere with `CancellationToken`, `ILogger` for logging, no blocking calls on request threads.
@@ -48,8 +50,9 @@ dotnet test
 
 ## Layout
 ```
-src/Jellyfin.Plugin.SubtitleFixer/   Api/ Services/ Worker/ State/ Web/
+src/Jellyfin.Plugin.SubtitleFixer/   Api/ Configuration/ Domain/ Services/ State/ Web/ Worker/
 tests/Jellyfin.Plugin.SubtitleFixer.Tests/
+build/package.ps1   .github/workflows/build.yml
 docs/  SPEC.md  CLAUDE.md  README.md
 ```
 

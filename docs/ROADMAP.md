@@ -9,13 +9,14 @@ Do `M0-SPIKES.md`. Acceptance: every spike has findings; docs corrected.
 - [ ] Owner live checks, Part B (S1, S2, S3, S6, S7): needs the M1 test build.
 
 ## M1 Foundation (A)
-- [ ] Solution scaffold from the official template (net10.0), plugin GUID, `meta.json`, build and test commands in `CLAUDE.md`, CI that builds and tests.
-- [ ] Test build for `M0-LIVE-CHECKS.md` Part B: menu injection, `GET /Me`, and an admin diagnostics page that times Browse/Search calls, runs `subsync-cli check`/`version`, and writes and reads one `state.db` row.
-- [ ] Plugin configuration class with the settings in `SPEC.md` section 6.
-- [ ] `StateStore` with schema and migrations (per S7 result).
-- [ ] `EligibilityService` (rules in `SPEC.md` section 4) and `SeriesResolver`, `SelectionValidator` (hard rules 1, 2, 4).
-- [ ] `GET /Browse`, `GET /Search`, `POST /Jobs/Preview` per `API.md`.
-Acceptance: unit tests for validator, eligibility, fingerprint match and invalidation pass; Browse and Preview work against the real server with real timings recorded in `ARCHITECTURE.md`.
+- [x] Solution scaffold (net10.0, Jellyfin 12.4.0 packages, template conventions), plugin GUID, `meta.json` via `build/package.ps1`, build and test commands in `CLAUDE.md`, CI that builds and tests (`.github/workflows/build.yml`).
+- [x] Test build for `M0-LIVE-CHECKS.md` Part B: menu injection, `GET /Me`, and an admin diagnostics page that times Browse/Search calls, runs `subsync-cli check`/`version`, and writes and reads one `state.db` row.
+- [x] Plugin configuration class and settings page with the settings in `SPEC.md` section 6.
+- [x] `SqliteStateStore` with schema and migrations (per S7 result).
+- [x] `EligibilityService` (rules in `SPEC.md` section 4) and `SelectionValidator` (hard rules 1, 2, 4). Series resolution lives in `ILibraryFacade.GetNode` (every node carries its `SeriesId`), so there is no separate `SeriesResolver`.
+- [x] `GET /Browse`, `GET /Search`, `POST /Jobs/Preview`, `GET /Me` per `API.md`.
+- [ ] Owner: Browse and Preview against the real server, timings recorded in `ARCHITECTURE.md` (`M0-LIVE-CHECKS.md` Part B).
+Acceptance: unit tests for validator, eligibility, fingerprint match and invalidation pass (56 tests, 2026-11-11); Browse and Preview work against the real server with real timings recorded in `ARCHITECTURE.md` (pending owner).
 
 ## M2 Job engine (A)
 - [ ] `ISubSyncWorker` and `CliWorker` (process, report parsing, kill tree, timeout).

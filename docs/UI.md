@@ -33,7 +33,14 @@ After each selection change (debounce about 300 ms) call `/Jobs/Preview` and sho
 ## Progress panel
 Polls `/Status` every 1 s while running and every 5 s when idle and the tab is visible; stops when hidden. Shows overall bar (done / total), elapsed and ETA, current episode name with an indeterminate working indicator, and a Cancel button. Per-row status in the explorer updates (queued, syncing, done, check, failed). Reopening the page mid-job shows the running job.
 
-When finished: summary "12 done, 1 check, 0 failed" with the non-done episodes and their reasons, and a "Clear" button. If another user's job is running, show "Queue: N episodes ahead".
+**The queue is shared.** There is one global queue and one SubSync process at a time. When a second person presses Start, their episodes go to the end of the same queue. The progress panel always shows that whole queue to every allowed user who opens the page, not only to whoever started it:
+- the current episode;
+- the totals;
+- the list of queued items, with the viewer's own items marked "yours".
+
+Episodes from libraries the viewer can't access are shown as "Episode in another library". When the viewer's own items are behind someone else's, show "Queue: N episodes ahead of yours". Cancel only cancels the viewer's own items, except for admins, who can cancel everything (see `API.md`).
+
+When finished: summary "12 done, 1 check, 0 failed" with the non-done episodes and their reasons, and a "Clear" button.
 
 ## Errors
 Map API error codes to plain messages (`API.md`). `subsync_unavailable`: "SubSync is not configured. Ask an administrator." Network error: retry banner.

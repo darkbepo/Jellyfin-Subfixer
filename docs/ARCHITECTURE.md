@@ -12,7 +12,8 @@ Browser page (embedded JS)  <->  Plugin REST API  <->  Job queue (1 worker, in m
 | Folder | Responsibility | Track |
 |---|---|---|
 | `Api/` | Controllers, request validation, DTOs (`API.md`) | A |
-| `Services/` | `EligibilityService`, `SeriesResolver`, `SelectionValidator`, `JobQueue`, `JobRunner`, `BackupService`, `RecoveryService`, `RefreshService`, `StatusService` | A |
+| `Domain/` | Rules with no Jellyfin types, unit-tested: `EligibilityService`, `SelectionValidator`, `ILibraryFacade` (the only seam to Jellyfin's library) | A |
+| `Services/` | Jellyfin-facing services: `JellyfinLibraryFacade`, `AccessService` (`AllowedUsers`), `StartupService`; later `JobQueue`, `JobRunner`, `BackupService`, `RecoveryService`, `RefreshService`, `StatusService` | A |
 | `Worker/` | `ISubSyncWorker`, `CliWorker` (spawns `subsync-cli.exe`), `WorkerResult` | A |
 | `State/` | SQLite state store, migrations | A |
 | `Web/` | Embedded `index.html`, `app.js`, `styles.css`, menu-injection script, mock data | B |
@@ -45,7 +46,9 @@ CREATE TABLE synced_items (
   updated_utc        TEXT NOT NULL
 );
 CREATE INDEX ix_synced_status ON synced_items(status);
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- small settings and the diagnostics row
 ```
+Migrations are numbered steps in `SqliteStateStore`; a database with a newer version than the code knows is refused, not touched. The file is `state.db` in the plugin's data folder.
 `done` is valid while `video_path`, `video_size` and `video_mtime_utc` still match the file. Lookups are batched per page of IDs.
 
 ## Libraries and queries
