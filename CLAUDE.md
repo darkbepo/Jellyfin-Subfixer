@@ -10,7 +10,8 @@ Read `SPEC.md` (scope and hard rules), then only the doc for your task:
 | Task | Doc |
 |---|---|
 | What to build next, acceptance criteria | `docs/ROADMAP.md` |
-| Unverified Jellyfin 12 / File Transformation questions | `docs/M0-SPIKES.md` |
+| Jellyfin 12 / File Transformation facts (verified from 12.4 source) | `docs/M0-SPIKES.md` |
+| Checks the owner runs on the real server | `docs/M0-LIVE-CHECKS.md` |
 | Components, repo layout, state schema | `docs/ARCHITECTURE.md` |
 | REST contract (backend and UI both build to this) | `docs/API.md` |
 | Per-episode sync, backup, recovery, failure matrix | `docs/JOB-FLOW.md` |

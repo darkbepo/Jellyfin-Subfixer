@@ -15,11 +15,11 @@ Input subtitle = the matching sidecar (`<videoBase>.en.srt` or `.eng.srt`). The 
 
 ## Steps
 1. Re-validate eligibility and the series rule (state may have changed since queuing).
-2. **Backup**: copy the subtitle to `<subtitle>.bak` next to it (suffix must be ignored by Jellyfin's scanner; spike S4). If the copy fails, do not run the CLI; record `failed`.
+2. **Backup**: copy the subtitle to `<subtitle>.bak` next to it. Jellyfin ignores `.bak` because it isn't a subtitle or media extension (spike S4). If the copy fails, do not run the CLI; record `failed`.
 3. Run the CLI for this pair, report to a temp file. Enforce `EpisodeTimeoutMinutes`.
 4. Read report and exit code. `synced` -> verify output (exists, non-empty, parses as SRT, at least one cue).
 5. **Success**: delete the `.bak`, write the `done` record (store `subsync_version`), then refresh.
-6. **Refresh**: queue a validation-only metadata refresh for the item (no metadata or image replacement) so the new subtitle is served immediately. Per episode, not at the end. Exact options: spike S4.
+6. **Refresh**: per episode, not at the end. Use `IProviderManager.QueueRefresh(item.Id, new MetadataRefreshOptions(new DirectoryService(fileSystem)), RefreshPriority.High)`, the same call Jellyfin makes after a subtitle upload (default mode, no replace flags). External `.srt` files are read from disk on every request, so the new subtitle is served even before this runs; the refresh is insurance (spike S4).
 7. **Anything else**: kill the process tree on cancel or timeout, restore the subtitle from the `.bak` (always, even if the CLI wrote nothing), delete the `.bak`, record per the matrix.
 8. **Startup recovery**: scan for `.bak` files. For each: restore it over the subtitle, delete the `.bak`, mark the episode not synced.
 

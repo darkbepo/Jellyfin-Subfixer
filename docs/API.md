@@ -1,6 +1,12 @@
 # REST API
 
-Base path `/SubtitleFixer`. All endpoints require an authenticated user and the `AllowedUsers` policy; settings and test endpoints require an administrator. Authenticated calls must use Jellyfin 12's current `Authorization: MediaBrowser ...` header (legacy authorization is off on 12; verify in spike S2). Errors are `{ "error": "<code>", "message": "<human text>" }`.
+Base path `/SubtitleFixer`. All data endpoints require an authenticated user (`[Authorize]`) and the `AllowedUsers` policy. Settings and test endpoints require an administrator (`[Authorize(Policy = Policies.RequiresElevation)]`). Authenticated calls send `Authorization: MediaBrowser Client="Subtitle Fixer", Device="…", DeviceId="…", Version="…", Token="<token>"`. Legacy headers (`X-Emby-Token`, `X-Emby-Authorization`, `api_key`) are off by default on 12 (spike S2). A missing or bad token gets `401` from Jellyfin before our code runs. Errors are `{ "error": "<code>", "message": "<human text>" }`.
+
+## Static (anonymous)
+`GET /Page` (the page HTML), `GET /Page/app.js`, `GET /Page/styles.css`, `GET /menu.js` (avatar-menu script). These contain no data.
+
+## GET /Me
+`{ "userId":"...", "name":"...", "isAdmin":false, "allowed":true }`. The page calls this first: `401` means show the sign-in link, `allowed:false` means show "not allowed" (no `403`, so the page can explain).
 
 ## GET /Browse?parentId=&startIndex=0&limit=50
 Empty `parentId` lists TV libraries. Library -> series, series -> seasons, season -> episodes.
