@@ -6,7 +6,7 @@ Check items off as they land. Tracks: **A** backend (`Api/ Services/ Worker/ Sta
 Do `M0-SPIKES.md`. Acceptance: every spike has findings; docs corrected.
 - [x] Source research for S0, S1, S2, S3, S4, S7 (2026-11-11, against Jellyfin 12.4), docs corrected.
 - [ ] Owner live checks, `M0-LIVE-CHECKS.md` Part A (S0, S4, S5): no plugin needed.
-- [ ] Owner live checks, Part B (S1, S2, S3, S6, S7): needs the M1 test build.
+- [ ] Owner live checks, Part B (S1, S2, S3, S6, S7). Done on Testflix, 2026-11-11: S7 passes; S1 and S2 pass for an admin at desktop width. Still open: S1 and S2 for a non-admin and at phone width, S3 timings (needs a TV library), S6 (needs SubSync).
 
 ## M1 Foundation (A)
 - [x] Solution scaffold (net10.0, Jellyfin 12.4.0 packages, template conventions), plugin GUID, `meta.json` via `build/package.ps1`, build and test commands in `CLAUDE.md`, CI that builds and tests (`.github/workflows/build.yml`).

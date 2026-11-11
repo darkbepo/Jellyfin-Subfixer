@@ -18,7 +18,10 @@ Record exact Jellyfin server version, jellyfin-web version, .NET SDK, SubSync ve
 - Dev machine: .NET SDK `10.0.404`; a `net10.0` class library builds clean.
 - The official template is still on `net9.0`, `Jellyfin.Controller` `10.11.5` and `targetAbi` `10.11.0.0`. The scaffold has to raise all three: `net10.0`, `12.4.0`, `targetAbi` `12.0.0.0`. Achievement Badges already ships 12.x builds with `targetAbi` `12.0.0.0`.
 - The template references Jellyfin packages with `<ExcludeAssets>runtime</ExcludeAssets>`. Keep that; the server supplies those assemblies.
-- **Live check (owner):** server version, SubSync version, GPU, `subsync-cli check`, and that an empty plugin built this way loads on 12.4.
+- **Live, 2026-11-11 on the owner's local test server "Testflix" (Jellyfin 12.4.0, Windows tray app):** the plugin built this way loads (`Loaded plugin: "Subtitle Fixer" "0.1.0.0"`), with no errors in the log once `meta.json` is written without a BOM.
+  - Found live: Jellyfin's `System.Text.Json` rejects a UTF-8 BOM in `meta.json` ("'0xEF' is an invalid start of a value"), then rewrites the file itself. Windows PowerShell 5.1's `-Encoding utf8` always writes a BOM, so `build/package.ps1` now writes it BOM-free.
+  - The plugin's data folder is `<datadir>\plugins\Jellyfin.Plugin.SubtitleFixer\` (named after the assembly), not under `configurations`.
+- **Still to check (owner):** SubSync version, GPU and `subsync-cli check` (SubSync isn't installed on Testflix).
 
 ## S1 Menu injection through File Transformation
 How does a plugin register a transformation (its API or interface)? Inject a script into the served web client that adds a "Subtitle Fixer" item to the avatar menu (MUI menu, so use a MutationObserver), placed below "Profile". Pass if: appears for admin and non-admin on desktop and mobile layouts, survives navigation, is absent when the plugin is disabled, and uses the `#/` route style if it links into the SPA. Fallbacks: JavaScript Injector plugin, or a direct page URL.
@@ -39,7 +42,10 @@ How does a plugin register a transformation (its API or interface)? Inject a scr
   - Achievement Badges (MIT) does the same on 12.0; we follow the approach without copying code.
 - **Disabled plugin:** if the plugin is disabled, it never loads (after the restart Jellyfin requires), never registers, and the tag isn't injected.
 - **Design note for the owner:** neither Achievement Badges nor Jellyfin Enhanced uses File Transformation on 12; both inject through their own `IStartupFilter` middleware. File Transformation still works on 12.4 and has 12.x releases, so D3 stands. The middleware approach is a known fallback if it stops keeping up with Jellyfin releases.
-- **Live check (owner):**
+- **Live, 2026-11-11 on Testflix (File Transformation 3.0.3.0, alongside JavaScript Injector, Jellyfin Enhanced and KefinTweaks):**
+  - Registration by reflection works ("Registering transformation for 'index.html'"), and `/web/index.html` contains our `<script plugin="SubtitleFixer" …>` tag.
+  - The entry appears directly below "Profil" (Danish UI), styled like its neighbours, with the other plugins' entries further down. Clicking it closes the menu and opens `/SubtitleFixer/Page`. Desktop layout, admin user.
+- **Still to check (owner):**
   - The entry appears below Profile for admin and non-admin, on desktop width and phone width.
   - It survives navigating between pages and opening the menu several times.
   - It is absent after disabling the plugin and restarting.
@@ -56,7 +62,8 @@ Serve an embedded HTML page from a controller route. Read the token from jellyfi
 - **Current user:** in a controller, use the claim `Jellyfin-UserId`. That's `Jellyfin.Api.Constants.InternalClaimTypes.UserId`; `Jellyfin.Api` isn't on NuGet, so keep the string as our own constant. Alternatively inject `MediaBrowser.Controller.Net.IAuthorizationContext` and call `GetAuthorizationInfo(Request)`, which returns the `User`. Then apply our `AllowedUsers` check.
 - **Stored credentials:** jellyfin-web keeps them in `localStorage["jellyfin_credentials"]` as JSON `{ Servers: [ { Id, AccessToken, UserId, ManualAddress, LocalAddress, DateLastAccessed, … } ] }`. Our page is on the same origin, so it can read this. Pick the entry with the latest `DateLastAccessed` that has an `AccessToken`; if none, show the "sign in to Jellyfin" link.
 - **Serving the page:** a controller action marked `[AllowAnonymous]` at `GET /SubtitleFixer/Page` returns the embedded `index.html`; `app.js` and `styles.css` come the same way. The HTML holds no data, and every data call is authenticated. Achievement Badges serves its standalone page the same way. Use relative URLs throughout so a base URL keeps working. Don't put the token in the URL.
-- **Live check (owner):**
+- **Live, 2026-11-11 on Testflix:** `GET /SubtitleFixer/Me`, `/Browse` and `/Status` return `401` with no token and with a made-up token. Signed in, the page reads the token from `jellyfin_credentials` and gets 200 from every endpoint (14–51 ms). It shows "Signed in as manly (administrator)" and the admin diagnostics. Static routes (`/Page`, `/Page/app.js`, `/menu.js`) are served anonymously.
+- **Still to check (owner):**
   - Open the page while signed in: `GET /SubtitleFixer/Me` returns your user id.
   - Signed out, or with a bad token: it returns `401` and the page shows the sign-in link.
   - A non-admin gets `403` from an admin endpoint.
@@ -113,7 +120,7 @@ Does `Microsoft.Data.Sqlite` load in the plugin's load context (native library i
   - Reference `Microsoft.Data.Sqlite` `10.0.x` (not above the server's) with `<ExcludeAssets>runtime</ExcludeAssets>`. Nothing SQLite-related goes in our zip.
   - At runtime we get the server's copy, with its native library already working.
   - Risk: a future Jellyfin could change the major version; `StateStore` hides SQLite so we can switch to the JSONL fallback. See D17.
-- **Live check (owner):** the plugin creates its database, writes and reads a row, and survives a restart.
+- **Live, 2026-11-11 on Testflix: passes.** The database is created and migrated to v2 inside Jellyfin, using the server's SQLite with nothing bundled. The diagnostics row was written, then read back after a full Jellyfin restart.
 
 ## Exit criteria
 All spikes have findings; docs corrected; owner informed of any design change.

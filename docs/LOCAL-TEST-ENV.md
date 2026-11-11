@@ -28,4 +28,14 @@ Read a key in PowerShell without printing others:
 ## Not done
 - No TV: add a TV library to Testflix (copied episodes), install Sonarr (`winget install TeamSonarr.Sonarr`), and connect it in Bazarr to test episodes.
 - Restarting the Bazarr service from a normal (non-admin) shell is refused; use Bazarr's own restart (`POST /api/system?action=restart`) or an admin shell.
-- The plugin is not installed on Testflix yet (`build\package.ps1`, then unzip into `C:\ProgramData\Jellyfin\Server\plugins\SubtitleFixer_<version>\` and restart the tray app).
+- SubSync is not installed on this PC, so syncing can't run here yet.
+
+## Subtitle Fixer on Testflix
+- **Installed 2026-11-11:** `C:\ProgramData\Jellyfin\Server\plugins\SubtitleFixer_0.1.0.0\` (DLL plus `meta.json`). Its state database is `C:\ProgramData\Jellyfin\Server\plugins\Jellyfin.Plugin.SubtitleFixer\state.db`.
+- **Other plugins:** Testflix also runs File Transformation 3.0.3.0, which the menu entry needs, plus JavaScript Injector, Jellyfin Enhanced and KefinTweaks. The `/CustomTabs/Config` 404s in the browser console on Jellyfin pages come from one of those, not from us.
+- **Reinstall after a change:**
+  1. Build the zip with `build\package.ps1`.
+  2. Exit the tray app and wait for `jellyfin.exe` to exit.
+  3. Run `Expand-Archive artifacts\SubtitleFixer_<ver>.zip -DestinationPath 'C:\ProgramData\Jellyfin\Server\plugins\SubtitleFixer_<ver>' -Force`.
+  4. Start `C:\Program Files\Jellyfin\Server\jellyfin-windows-tray\Jellyfin.Windows.Tray.exe` again.
+- **Sign-in:** a test admin account exists. Ask the owner, and never write the password into the repo.

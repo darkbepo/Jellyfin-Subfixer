@@ -755,6 +755,8 @@
         if (!MOCK && !token()) { showGate('signin'); return; }
         api('GET', 'Me').then(function (m) {
             me = m;
+            $('who').textContent = 'Signed in as ' + m.name + (m.isAdmin ? ' (administrator)' : '');
+            $('who').hidden = false;
             if (!m.allowed) { showGate('denied'); return; }
             showGate('app');
             wire();
