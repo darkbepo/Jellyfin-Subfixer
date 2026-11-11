@@ -9,6 +9,21 @@ Fix out-of-sync English subtitles from inside Jellyfin. Pick seasons or episodes
 - The **File Transformation** plugin (adds the menu entry).
 - SubSync installed in a folder the Jellyfin service account can write to (not `Program Files`); first start downloads about 3.2 GB. An NVIDIA GPU is strongly recommended.
 
+## How long it takes
+SubSync listens to the whole soundtrack (Whisper speech recognition) to place each line, so time grows with the video's length, and the graphics card matters most. Rough estimates per item:
+
+| Hardware | 45-min episode | 2-hour movie | 10-episode season |
+|---|---|---|---|
+| High-end NVIDIA GPU (RTX 3080, 4070 or better) | about 1 min | 2 to 4 min | about 10 min |
+| Entry NVIDIA GPU (GTX 1660, RTX 3050, 3060) | 1 to 2 min | 4 to 6 min | 15 to 25 min |
+| Modern CPU only, 8+ cores (recent Core i7/i9, Ryzen 7/9) | 10 to 15 min | 30 to 40 min | 2 to 2.5 hours |
+| Older or low-power CPU (4 cores, mini PC, NAS) | 30 to 45 min | 1.5 to 3 hours | most of a day |
+
+- Only two rows rest on measurements: an RTX 3050 (1 to 2 min per 45-minute episode), and an i7-13850HX on CPU (a 22-minute episode in about 6.5 minutes, roughly a third of real time). The rest are scaled from those, so expect your own numbers to differ.
+- AMD and Intel graphics cards don't help: SubSync's GPU mode needs NVIDIA (CUDA), so those servers run at CPU speed.
+- SubSync works on one item at a time, so a queue takes the sum of its items.
+- On CPU-only servers, raise **Episode timeout** in the plugin settings before fixing movies. The default 30 minutes stops a movie partway (the subtitle is put back untouched). 60 minutes covers most films on a modern CPU.
+
 ## Install
 1. Install File Transformation from its plugin repository.
 2. Install Subtitle Fixer (repository or manual zip into `plugins/`), restart Jellyfin.
