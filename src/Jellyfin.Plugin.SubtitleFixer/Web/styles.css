@@ -280,3 +280,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 @media (prefers-reduced-motion: reduce) {
     .bar span, .bar.working span, .row.flash, .find-status[data-state="busy"]::before, .hit-get.working .icon { animation: none; transition: none; }
 }
+
+/* ---------- inside the pop-up from the avatar menu (menu.js adds ?embedded=1) ---------- */
+.embedded .back { display: none; }
+.embedded .top { padding-right: 60px; } /* room for the pop-up's close button */

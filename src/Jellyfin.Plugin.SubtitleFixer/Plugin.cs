@@ -47,6 +47,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 Name = "SubtitleFixer",
                 EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Configuration.configPage.html", GetType().Namespace),
+
+                // Listed in the dashboard's plugin section, so admins reach the settings in one click
+                // (jellyfin-web 12.4 PluginDrawerSection; MenuIcon is a Material Icons ligature).
+                EnableInMainMenu = true,
+                DisplayName = "Subtitle Fixer",
+                MenuIcon = "subtitles",
             },
         ];
     }

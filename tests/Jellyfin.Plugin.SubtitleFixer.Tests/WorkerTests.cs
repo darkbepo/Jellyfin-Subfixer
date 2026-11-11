@@ -254,3 +254,25 @@ public sealed class ProcessRunnerTests
         return null;
     }
 }
+
+public sealed class SpeechRecognitionTests
+{
+    [Theory]
+    [InlineData("Loading\nSpeech recognition: GPU (NVIDIA RTX 3080)\nDone", "GPU")]
+    [InlineData("Speech recognition: CPU (no usable NVIDIA GPU – slower)\r\n", "CPU")]
+    [InlineData("Installation is complete and intact.", null)]
+    [InlineData("", null)]
+    public void ModeOf_reads_the_speech_recognition_line(string output, string? expected)
+    {
+        Assert.Equal(expected, SpeechRecognition.ModeOf(output));
+    }
+
+    [Fact]
+    public void Observe_keeps_the_last_line_and_ignores_output_without_one()
+    {
+        SpeechRecognition.Observe("x\nSpeech recognition: CPU (no usable NVIDIA GPU – slower)\ny");
+        SpeechRecognition.Observe("nothing here");
+        Assert.Equal("CPU (no usable NVIDIA GPU – slower)", SpeechRecognition.LastLine);
+        Assert.Equal("CPU", SpeechRecognition.LastMode);
+    }
+}

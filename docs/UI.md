@@ -6,7 +6,11 @@ Vanilla JS and CSS served from embedded resources (`index.html`, `app.js`, `styl
 - **Menu item:** "Subtitle Fixer" in the avatar menu, added by `menu.js`, which File Transformation injects into `index.html` (`M0-SPIKES.md` S1).
   - The script finds `#app-user-menu ul[role=menu]`, clones the Profile item (`a[href*="/userprofile"]`), sets its icon and text, and inserts it right after Profile.
   - A `MutationObserver` puts the entry back when React re-renders the list.
-  - On click it closes the menu (click `#app-user-menu .MuiBackdrop-root`) and goes to `../SubtitleFixer/Page`, a plain relative URL so a base URL keeps working.
+  - On click it closes the menu (click `#app-user-menu .MuiBackdrop-root`) and opens the page as a pop-up over Jellyfin (D35): a fixed overlay with an iframe at `../SubtitleFixer/Page?embedded=1`. Ctrl, Cmd, Shift or middle click keeps the plain link (`../SubtitleFixer/Page`, relative so a base URL keeps working) and opens the full page.
+  - The pop-up closes with its ✕ button, a click on the backdrop, or Esc. Esc inside the page also closes it, unless a dialog is open or the search box has text. The page asks the parent to close with `postMessage({type: "subtitle-fixer-close"})`, checked against the same origin.
+  - Embedded mode (`?embedded=1` and inside a frame) hides "Back to Jellyfin" and leaves room for the ✕; links to Jellyfin open in the top window.
+- **Settings link:** the settings page is also listed in the dashboard sidebar's plugin section (D36).
+- **No translate prompt:** `index.html` has `translate="no"` and `<meta name="google" content="notranslate">` (D37).
 - **Auth:** the page reads `localStorage["jellyfin_credentials"]` (same origin), takes the `Servers` entry with the latest `DateLastAccessed` that has an `AccessToken`, and calls the API with the `Authorization: MediaBrowser … Token="…"` header (S2). It calls `GET /Me` first. No token or `401`: link back to Jellyfin login. Not allowed: show the message from `/Me` ("isn't set up yet" until an admin sets the SubSync folder, or "not allowed"). Never put the token in a URL.
 - "Back to Jellyfin" link always visible. Neutral dark styling, no dependency on Jellyfin themes.
 - The disclaimer "Only fixes English subtitles on English audio." is always visible under the title.

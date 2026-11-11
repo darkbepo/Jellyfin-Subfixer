@@ -111,6 +111,7 @@ public sealed class CliWorker : ISubSyncWorker
             var report = File.Exists(reportPath)
                 ? SubSyncReport.Parse(await File.ReadAllTextAsync(reportPath, CancellationToken.None).ConfigureAwait(false))
                 : null;
+            SpeechRecognition.Observe(outcome.Output);
             var exit = outcome.ExitCode ?? -1;
             var (status, reason) = SubSyncOutcome.Decide(exit, report);
             if (status is WorkerStatus.Crashed or WorkerStatus.Failed or WorkerStatus.Unavailable)

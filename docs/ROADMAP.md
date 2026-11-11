@@ -41,6 +41,7 @@ Acceptance: the `UI.md` behaviors work on desktop and phone width against the re
 ## M4 Settings and hardening (A, page markup B)
 - [ ] Admin settings page with Test SubSync, `AllowedUsers` enforcement, caps, clear error messages and logging.
 - [ ] Stop-after-3-consecutive-crashes rule, timeouts, log hygiene.
+- [x] Dashboard sidebar link to the settings (D36), pop-up page (D35), no translate prompt (D37), GPU/CPU from the last sync (D38). Verified on Testflix 2026-11-11.
 Acceptance: all settings take effect; non-admin and admin paths verified.
 
 ## M5 Release

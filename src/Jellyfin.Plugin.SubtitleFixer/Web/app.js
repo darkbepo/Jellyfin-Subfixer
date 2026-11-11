@@ -1006,6 +1006,20 @@
         });
     }
 
+    // Opened as the pop-up from the avatar menu (menu.js): no "Back to Jellyfin", Esc closes the pop-up, and links
+    // that leave the page open in the whole window.
+    var EMBEDDED = params.get('embedded') === '1' && window.parent !== window;
+    if (EMBEDDED) {
+        document.documentElement.classList.add('embedded');
+        Array.prototype.forEach.call(document.querySelectorAll('a[href="../web/"]'), function (a) { a.target = '_top'; });
+        document.addEventListener('keydown', function (e) {
+            if (e.key !== 'Escape' || e.defaultPrevented) { return; }
+            if (document.querySelector('dialog[open]')) { return; }           // Esc closes the Find dialog first
+            if (document.activeElement === $('q') && $('q').value) { return; } // Esc clears the search first
+            window.parent.postMessage({ type: 'subtitle-fixer-close' }, window.location.origin);
+        });
+    }
+
     if (MOCK) {
         $('mock-badge').hidden = false;
         var s = document.createElement('script');

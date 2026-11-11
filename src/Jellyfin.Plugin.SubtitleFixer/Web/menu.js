@@ -73,13 +73,85 @@
         var text = item.querySelector('.MuiListItemText-root .MuiTypography-root') || item.querySelector('.MuiListItemText-root');
         if (text) { text.textContent = 'Subtitle Fixer'; }
         item.addEventListener('click', function (e) {
+            // Ctrl/Cmd/Shift/middle click keeps the browser's own behaviour (full page in a new tab or window).
+            if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) { closeMenu(); return; }
             e.preventDefault();
             e.stopPropagation();
             closeMenu();
-            window.location.href = pageUrl;
+            openOverlay();
         });
         profile.parentNode.insertBefore(item, profile.nextSibling);
     }
+
+    // ---------- pop-up over Jellyfin: the page in an iframe, so Jellyfin stays where it was ----------
+    var OVERLAY_ID = 'subtitle-fixer-overlay';
+    var lastFocus = null;
+
+    function addStyles() {
+        if (document.getElementById(OVERLAY_ID + '-style')) { return; }
+        var css = document.createElement('style');
+        css.id = OVERLAY_ID + '-style';
+        css.textContent =
+            '#' + OVERLAY_ID + '{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;' +
+            'background:rgba(0,0,0,.6);animation:sfFade .15s ease-out}' +
+            '#' + OVERLAY_ID + ' .sf-panel{position:relative;width:min(1100px,94vw);height:min(900px,90vh);border-radius:12px;overflow:hidden;' +
+            'background:#0f1113;box-shadow:0 20px 60px rgba(0,0,0,.6);border:1px solid #2a3036}' +
+            '#' + OVERLAY_ID + ' iframe{display:block;width:100%;height:100%;border:0;background:#0f1113}' +
+            '#' + OVERLAY_ID + ' .sf-close{position:absolute;top:10px;right:10px;z-index:1;width:36px;height:36px;border-radius:50%;' +
+            'border:1px solid #2a3036;background:#1f2327;color:#e8eaed;font:20px/1 system-ui,sans-serif;cursor:pointer}' +
+            '#' + OVERLAY_ID + ' .sf-close:focus-visible{outline:2px solid #8ab8ff;outline-offset:2px}' +
+            '@media (max-width:640px){#' + OVERLAY_ID + ' .sf-panel{width:100vw;height:100vh;height:100dvh;border-radius:0;border:0}}' +
+            '@keyframes sfFade{from{opacity:0}to{opacity:1}}' +
+            '@media (prefers-reduced-motion:reduce){#' + OVERLAY_ID + '{animation:none}}';
+        document.head.appendChild(css);
+    }
+
+    function openOverlay() {
+        if (document.getElementById(OVERLAY_ID)) { return; }
+        addStyles();
+        lastFocus = document.activeElement;
+        var overlay = document.createElement('div');
+        overlay.id = OVERLAY_ID;
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-label', 'Subtitle Fixer');
+        var panel = document.createElement('div');
+        panel.className = 'sf-panel';
+        var close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'sf-close';
+        close.setAttribute('aria-label', 'Close Subtitle Fixer');
+        close.title = 'Close (Esc)';
+        close.textContent = '×';
+        close.addEventListener('click', closeOverlay);
+        var frame = document.createElement('iframe');
+        frame.title = 'Subtitle Fixer';
+        frame.src = pageUrl + '?embedded=1';
+        panel.appendChild(close);
+        panel.appendChild(frame);
+        overlay.appendChild(panel);
+        overlay.addEventListener('mousedown', function (e) { if (e.target === overlay) { closeOverlay(); } });
+        document.addEventListener('keydown', onKey, true);
+        document.body.appendChild(overlay);
+        document.documentElement.style.overflow = 'hidden';
+        frame.addEventListener('load', function () { try { frame.contentWindow.focus(); } catch (err) { /* same origin; ignore */ } });
+    }
+
+    function closeOverlay() {
+        var overlay = document.getElementById(OVERLAY_ID);
+        if (!overlay) { return; }
+        overlay.remove();
+        document.removeEventListener('keydown', onKey, true);
+        document.documentElement.style.overflow = '';
+        if (lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch (err) { /* gone */ } }
+    }
+
+    function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); closeOverlay(); } }
+
+    // The page inside asks to close (its Close button, or Esc pressed inside it).
+    window.addEventListener('message', function (e) {
+        if (e.origin === window.location.origin && e.data && e.data.type === 'subtitle-fixer-close') { closeOverlay(); }
+    });
 
     var pending = false;
     function schedule() {

@@ -58,13 +58,13 @@ public sealed class SubSyncProbe
         var version = await RunAsync(cli, "version", cancellationToken).ConfigureAwait(false);
         var check = await RunAsync(cli, "check", cancellationToken).ConfigureAwait(false);
         var output = check.Output;
-        var mode = output.Contains("CUDA", StringComparison.OrdinalIgnoreCase) || output.Contains("GPU", StringComparison.OrdinalIgnoreCase)
-            ? "GPU"
-            : output.Contains("CPU", StringComparison.OrdinalIgnoreCase) ? "CPU" : "unknown";
+        // `check` doesn't say GPU or CPU (S5); a real sync does, so fall back to what the last sync printed.
+        var mode = SpeechRecognition.ModeOf(output) ?? SpeechRecognition.LastMode ?? "unknown";
+        var detail = SpeechRecognition.LastLine is { } line ? " Last sync: " + line + "." : " GPU or CPU shows after the first sync.";
 
         var message = check.ExitCode switch
         {
-            0 => "SubSync is ready.",
+            0 => "SubSync is ready." + detail,
             IncompleteInstallExitCode => "SubSync is not fully installed. Run 'subsync-cli setup' on the server (about 3.2 GB).",
             null => "SubSync did not finish in time.",
             _ => $"subsync-cli check failed with exit code {check.ExitCode}.",
@@ -132,5 +132,71 @@ public sealed class SubSyncProbe
         {
             return (process.ExitCode, output.ToString());
         }
+    }
+}
+
+/// <summary>
+/// Remembers SubSync's "Speech recognition: GPU (…)" / "CPU (…)" line from the last real sync. `check` doesn't
+/// print it (verified live, S5), so this is the only reliable source, and it also catches a GPU server that
+/// silently fell back to CPU (for example under a service account, S6).
+/// </summary>
+public static class SpeechRecognition
+{
+    private const string Prefix = "Speech recognition:";
+    private static string? _lastLine;
+
+    /// <summary>Gets the last line seen, for example "CPU (no usable NVIDIA GPU – slower)".</summary>
+    public static string? LastLine => Volatile.Read(ref _lastLine);
+
+    /// <summary>Gets GPU or CPU from the last line seen, or null.</summary>
+    public static string? LastMode => ModeOf(LastLine is { } l ? Prefix + " " + l : null);
+
+    /// <summary>Remembers the line from a sync's output, if it has one.</summary>
+    /// <param name="output">CLI output.</param>
+    public static void Observe(string? output)
+    {
+        var line = Find(output);
+        if (line is not null)
+        {
+            Volatile.Write(ref _lastLine, line);
+        }
+    }
+
+    /// <summary>Reads GPU or CPU from output that contains the speech-recognition line.</summary>
+    /// <param name="output">CLI output.</param>
+    /// <returns>GPU, CPU or null.</returns>
+    public static string? ModeOf(string? output)
+    {
+        var line = Find(output);
+        if (line is null)
+        {
+            return null;
+        }
+
+        if (line.StartsWith("GPU", StringComparison.OrdinalIgnoreCase))
+        {
+            return "GPU";
+        }
+
+        return line.StartsWith("CPU", StringComparison.OrdinalIgnoreCase) ? "CPU" : null;
+    }
+
+    private static string? Find(string? output)
+    {
+        if (string.IsNullOrEmpty(output))
+        {
+            return null;
+        }
+
+        foreach (var raw in output.Split('\n'))
+        {
+            var text = raw.Trim();
+            if (text.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return text[Prefix.Length..].Trim();
+            }
+        }
+
+        return null;
     }
 }
