@@ -15,6 +15,8 @@ public sealed class FakeWorker : ISubSyncWorker
 
     public int Calls { get; private set; }
 
+    public WorkerOptions? LastOptions { get; private set; }
+
     public bool IsConfigured { get; set; } = true;
 
     public static WorkerResult Result(WorkerStatus status, string? reason = null) =>
@@ -23,6 +25,7 @@ public sealed class FakeWorker : ISubSyncWorker
     public Task<WorkerResult> RunAsync(string videoPath, string subtitlePath, string languageTag, WorkerOptions options, CancellationToken cancellationToken)
     {
         Calls++;
+        LastOptions = options;
         return Behavior(videoPath, subtitlePath, cancellationToken);
     }
 }
@@ -293,6 +296,45 @@ public sealed class JobRunnerFaultTests : IDisposable
         Assert.Equal(SyncStatus.Done, record.Status);
         Assert.Equal("1.2.0", record.SubSyncVersion);
         Assert.Equal(new[] { _episode.Node.Id }, _refresh.Requested);
+    }
+
+    [Theory]
+    [InlineData(112, 30, 234)] // 22 Jump Street on CPU: the fixed 30 minutes stopped it partway (live, 2026-11-11)
+    [InlineData(22, 30, 54)]
+    [InlineData(10, 30, 30)]   // short items keep the setting
+    [InlineData(112, 300, 300)] // a larger setting wins
+    public void Time_limit_scales_with_the_video_length(int runtimeMinutes, int settingMinutes, int expectedMinutes)
+    {
+        var options = new WorkerOptions(true, false, TimeSpan.FromMinutes(settingMinutes));
+
+        var effective = JobRunner.WithTimeLimit(options, TimeSpan.FromMinutes(runtimeMinutes));
+
+        Assert.Equal(TimeSpan.FromMinutes(expectedMinutes), effective.Timeout);
+        Assert.Equal(options.TidyUpLines, effective.TidyUpLines);
+        Assert.Equal(options.ForceCpu, effective.ForceCpu);
+    }
+
+    [Fact]
+    public void Unknown_length_keeps_the_setting()
+    {
+        var options = new WorkerOptions(true, false, TimeSpan.FromMinutes(30));
+        Assert.Equal(options, JobRunner.WithTimeLimit(options, null));
+        Assert.Equal(options, JobRunner.WithTimeLimit(options, TimeSpan.Zero));
+    }
+
+    [Fact]
+    public async Task Runner_passes_the_scaled_limit_to_SubSync()
+    {
+        _library.SetRuntime(_episode.Node.Id, TimeSpan.FromMinutes(22));
+        _worker.Behavior = (_, sub, _) =>
+        {
+            File.WriteAllText(sub, Synced);
+            return Task.FromResult(FakeWorker.Result(WorkerStatus.Synced));
+        };
+
+        await _runner.RunAsync(Job(), CancellationToken.None);
+
+        Assert.Equal(TimeSpan.FromMinutes(54), _worker.LastOptions!.Timeout);
     }
 
     [Fact]

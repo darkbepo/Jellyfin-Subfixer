@@ -50,7 +50,7 @@ A `done` record stores video path, size and mtime (UTC). It is valid while all t
 | `MaxQueuedEpisodes` | 300 | |
 | `TidyUpLines` | on | Off passes `--keep-layout`. Tidy up re-cuts subtitles by sentence and speaker; words are never changed |
 | `ForceCpu` | off | Passes `--cpu` |
-| `EpisodeTimeoutMinutes` | 30 | Kill and restore when exceeded |
+| `EpisodeTimeoutMinutes` | 30 | Minimum time limit per item. The effective limit is the larger of this and twice the video's length plus 10 minutes (D34); kill and restore when exceeded |
 | `BazarrEnabled` | off | Bazarr subtitle search (`docs/BAZARR-PLAN.md`) |
 | `BazarrUrl` | none | Bazarr base address as the server reaches it, including any base path |
 | `BazarrApiKey` | none | Write-only on the settings page; never returned by our endpoints (D20) |

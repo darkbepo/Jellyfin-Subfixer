@@ -237,6 +237,7 @@ public sealed class JellyfinLibraryFacade : ILibraryFacade
             .Where(s => s.Type == MediaStreamType.Audio)
             .Select(s => s.Language)
             .ToList();
-        return new VideoFacts(ToNode(episode), string.IsNullOrEmpty(episode.Path) ? null : episode.Path, languages);
+        var runtime = episode.RunTimeTicks is > 0 ? TimeSpan.FromTicks(episode.RunTimeTicks.Value) : (TimeSpan?)null;
+        return new VideoFacts(ToNode(episode), string.IsNullOrEmpty(episode.Path) ? null : episode.Path, languages, runtime);
     }
 }

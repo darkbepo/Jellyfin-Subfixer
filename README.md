@@ -22,7 +22,7 @@ SubSync listens to the whole soundtrack (Whisper speech recognition) to place ea
 - Only two rows rest on measurements: an RTX 3050 (1 to 2 min per 45-minute episode), and an i7-13850HX on CPU (a 22-minute episode in about 6.5 minutes, roughly a third of real time). The rest are scaled from those, so expect your own numbers to differ.
 - AMD and Intel graphics cards don't help: SubSync's GPU mode needs NVIDIA (CUDA), so those servers run at CPU speed.
 - SubSync works on one item at a time, so a queue takes the sum of its items.
-- On CPU-only servers, raise **Episode timeout** in the plugin settings before fixing movies. The default 30 minutes stops a movie partway (the subtitle is put back untouched). 60 minutes covers most films on a modern CPU.
+- The time limit per item adjusts itself: twice the video's length plus 10 minutes, or the **Minimum time limit** setting if that is longer (30 minutes by default). A 2-hour movie gets about 4 hours, so CPU-only servers need no change. If a run is stopped anyway, the subtitle is put back untouched.
 
 ## Install
 1. Install File Transformation from its plugin repository.

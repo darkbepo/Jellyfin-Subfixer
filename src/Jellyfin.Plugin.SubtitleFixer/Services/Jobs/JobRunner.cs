@@ -112,7 +112,7 @@ public sealed class JobRunner
         // 3 to 7. From here the original must come back unless the new file is verified.
         try
         {
-            var result = await _worker.RunAsync(video.Path, sidecar.Path, sidecar.LanguageTag, _options(), cancellationToken).ConfigureAwait(false);
+            var result = await _worker.RunAsync(video.Path, sidecar.Path, sidecar.LanguageTag, WithTimeLimit(_options(), facts.Runtime), cancellationToken).ConfigureAwait(false);
             return await FinishAsync(job, video, sidecar, backup, result).ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -122,6 +122,26 @@ public sealed class JobRunner
             await RecordAsync(job.ItemId, video, sidecar.Path, SyncStatus.Failed, "unexpected error: " + ex.Message, null).ConfigureAwait(false);
             return new RunOutcome(JobItemStatus.Failed, "Unexpected error: " + ex.Message, null, WorkerStatus.Crashed);
         }
+    }
+
+    /// <summary>
+    /// The time limit for one item (D34): the larger of the setting and twice the video's length plus 10 minutes.
+    /// SubSync's time grows with the video's length, and on a slow CPU it can approach 1.5x real time, so a fixed
+    /// limit stops movies partway on CPU-only servers. The limit is only a guard against a hung run, so it errs long.
+    /// When Jellyfin doesn't know the length, the setting is used as is.
+    /// </summary>
+    /// <param name="options">Options from the settings.</param>
+    /// <param name="runtime">Video length, or null.</param>
+    /// <returns>Options with the effective time limit.</returns>
+    internal static WorkerOptions WithTimeLimit(WorkerOptions options, TimeSpan? runtime)
+    {
+        if (runtime is not { } length || length <= TimeSpan.Zero)
+        {
+            return options;
+        }
+
+        var scaled = (length * 2) + TimeSpan.FromMinutes(10);
+        return scaled > options.Timeout ? options with { Timeout = scaled } : options;
     }
 
     private static string SubtitleGuess(string videoPath) =>

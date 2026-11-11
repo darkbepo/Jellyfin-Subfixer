@@ -87,6 +87,20 @@ public sealed class FakeLibrary : ILibraryFacade
         return facts;
     }
 
+    public void SetRuntime(Guid itemId, TimeSpan runtime)
+    {
+        var facts = _episodes[itemId] with { Runtime = runtime };
+        _episodes[itemId] = facts;
+        foreach (var list in _seasonEpisodes.Values)
+        {
+            var i = list.FindIndex(e => e.Node.Id == itemId);
+            if (i >= 0)
+            {
+                list[i] = facts;
+            }
+        }
+    }
+
     public LibraryNode AddOther(string name)
     {
         var node = new LibraryNode(Guid.NewGuid(), name, NodeKind.Other);
