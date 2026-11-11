@@ -5,64 +5,390 @@
     <title>Subtitle Fixer</title>
 </head>
 <body>
-    <div id="SubtitleFixerConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <div id="SubtitleFixerConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button">
+        <style>
+            /* Scoped to this page. Icons use the Material Icons font jellyfin-web already ships (no CDN). */
+            #SubtitleFixerConfigPage .sf {
+                --sf-accent: #00a4dc;
+                --sf-accent-soft: rgba(0, 164, 220, 0.16);
+                --sf-ok: #3ecf8e;
+                --sf-ok-soft: rgba(62, 207, 142, 0.14);
+                --sf-bad: #ff6b6b;
+                --sf-bad-soft: rgba(255, 107, 107, 0.14);
+                --sf-surface: color-mix(in srgb, currentColor 5%, transparent);
+                --sf-surface-2: color-mix(in srgb, currentColor 9%, transparent);
+                --sf-line: color-mix(in srgb, currentColor 12%, transparent);
+                --sf-muted: color-mix(in srgb, currentColor 62%, transparent);
+                --sf-radius: 14px;
+                max-width: 52em;
+                margin: 0 auto;
+                padding: 1.5em 0 6em;
+                font-size: 15px;
+                line-height: 1.5;
+            }
+            #SubtitleFixerConfigPage .sf .material-icons { font-size: 20px; line-height: 1; vertical-align: middle; }
+
+            #SubtitleFixerConfigPage .sf-hero { display: flex; align-items: center; gap: 1em; margin-bottom: 1.75em; }
+            #SubtitleFixerConfigPage .sf-hero-icon {
+                display: grid; place-items: center; flex: none;
+                width: 52px; height: 52px; border-radius: 16px;
+                background: linear-gradient(135deg, #00a4dc, #aa5cc3); color: #fff;
+                box-shadow: 0 8px 24px rgba(0, 164, 220, 0.25);
+            }
+            #SubtitleFixerConfigPage .sf-hero-icon .material-icons { font-size: 28px; }
+            #SubtitleFixerConfigPage .sf-hero h2 { margin: 0; font-size: 1.6em; font-weight: 600; letter-spacing: -0.01em; }
+            #SubtitleFixerConfigPage .sf-hero p { margin: 0.15em 0 0; color: var(--sf-muted); }
+            #SubtitleFixerConfigPage .sf-hero a { color: var(--sf-accent); text-decoration: none; white-space: nowrap; }
+            #SubtitleFixerConfigPage .sf-hero a:hover { text-decoration: underline; }
+
+            #SubtitleFixerConfigPage .sf-card {
+                background: var(--sf-surface); border: 1px solid var(--sf-line);
+                border-radius: var(--sf-radius); padding: 1.25em 1.4em 1.4em; margin-bottom: 1.25em;
+            }
+            #SubtitleFixerConfigPage .sf-card-head { display: flex; align-items: center; gap: 0.85em; margin-bottom: 1.1em; }
+            #SubtitleFixerConfigPage .sf-card-icon {
+                display: grid; place-items: center; flex: none; width: 38px; height: 38px;
+                border-radius: 11px; background: var(--sf-accent-soft); color: var(--sf-accent);
+            }
+            #SubtitleFixerConfigPage .sf-card-title { flex: 1; min-width: 0; }
+            #SubtitleFixerConfigPage .sf-card-title h3 { margin: 0; font-size: 1.1em; font-weight: 600; }
+            #SubtitleFixerConfigPage .sf-card-title p { margin: 0.1em 0 0; color: var(--sf-muted); font-size: 0.9em; }
+
+            #SubtitleFixerConfigPage .sf-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1em; }
+            #SubtitleFixerConfigPage .sf-field { display: block; margin-bottom: 1em; }
+            #SubtitleFixerConfigPage .sf-grid .sf-field { margin-bottom: 0; }
+            #SubtitleFixerConfigPage .sf-label { display: block; font-size: 0.85em; font-weight: 500; margin-bottom: 0.4em; color: var(--sf-muted); }
+            #SubtitleFixerConfigPage .sf-hint { display: block; font-size: 0.82em; color: var(--sf-muted); margin-top: 0.4em; }
+
+            #SubtitleFixerConfigPage .sf-input {
+                display: flex; align-items: center; gap: 0.5em;
+                background: color-mix(in srgb, currentColor 4%, transparent); border: 1px solid var(--sf-line); border-radius: 10px;
+                padding: 0 0.75em; transition: border-color 0.15s, box-shadow 0.15s;
+            }
+            #SubtitleFixerConfigPage .sf-input:focus-within { border-color: var(--sf-accent); box-shadow: 0 0 0 3px var(--sf-accent-soft); }
+            #SubtitleFixerConfigPage .sf-input > .material-icons { color: var(--sf-muted); font-size: 18px; }
+            #SubtitleFixerConfigPage .sf-input input,
+            #SubtitleFixerConfigPage .sf-input select {
+                flex: 1; min-width: 0; height: 2.6em; padding: 0; border: 0; outline: 0;
+                background: transparent; color: inherit; font: inherit;
+            }
+            #SubtitleFixerConfigPage .sf-input select option { background: #202020; color: #fff; }
+            #SubtitleFixerConfigPage .sf-input .sf-suffix { color: var(--sf-muted); font-size: 0.85em; }
+
+            #SubtitleFixerConfigPage .sf-iconbtn {
+                display: grid; place-items: center; width: 32px; height: 32px; flex: none;
+                border: 0; border-radius: 8px; background: transparent; color: var(--sf-muted); cursor: pointer;
+            }
+            #SubtitleFixerConfigPage .sf-iconbtn:hover { background: var(--sf-surface-2); color: inherit; }
+            #SubtitleFixerConfigPage .sf-iconbtn:focus-visible { outline: 2px solid var(--sf-accent); }
+
+            #SubtitleFixerConfigPage .sf-option {
+                display: flex; align-items: center; gap: 1em; padding: 0.85em 0;
+                border-top: 1px solid var(--sf-line); cursor: pointer;
+            }
+            #SubtitleFixerConfigPage .sf-option-text { flex: 1; }
+            #SubtitleFixerConfigPage .sf-option-text strong { display: block; font-weight: 500; }
+            #SubtitleFixerConfigPage .sf-option-text span { display: block; font-size: 0.85em; color: var(--sf-muted); }
+
+            #SubtitleFixerConfigPage .sf-switch { position: relative; flex: none; width: 42px; height: 24px; }
+            #SubtitleFixerConfigPage .sf-switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+            #SubtitleFixerConfigPage .sf-switch i {
+                position: absolute; inset: 0; border-radius: 99px; background: color-mix(in srgb, currentColor 22%, transparent);
+                transition: background 0.2s; pointer-events: none;
+            }
+            #SubtitleFixerConfigPage .sf-switch i::after {
+                content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
+                background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); transition: transform 0.2s;
+            }
+            #SubtitleFixerConfigPage .sf-switch input:checked + i { background: var(--sf-accent); }
+            #SubtitleFixerConfigPage .sf-switch input:checked + i::after { transform: translateX(18px); }
+            #SubtitleFixerConfigPage .sf-switch input:focus-visible + i { box-shadow: 0 0 0 3px var(--sf-accent-soft); }
+
+            #SubtitleFixerConfigPage .sf-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75em; margin-top: 0.5em; }
+            #SubtitleFixerConfigPage .sf-btn {
+                display: inline-flex; align-items: center; gap: 0.45em; height: 2.5em; padding: 0 1.1em;
+                border: 1px solid var(--sf-line); border-radius: 10px; background: var(--sf-surface-2);
+                color: inherit; font: inherit; font-weight: 500; cursor: pointer; transition: background 0.15s, transform 0.05s;
+            }
+            #SubtitleFixerConfigPage .sf-btn:hover { background: color-mix(in srgb, currentColor 14%, transparent); }
+            #SubtitleFixerConfigPage .sf-btn:active { transform: translateY(1px); }
+            #SubtitleFixerConfigPage .sf-btn:focus-visible { outline: 2px solid var(--sf-accent); outline-offset: 2px; }
+            #SubtitleFixerConfigPage .sf-btn[disabled] { opacity: 0.6; cursor: default; }
+            #SubtitleFixerConfigPage .sf-btn-primary { background: var(--sf-accent); border-color: transparent; color: #fff; }
+            #SubtitleFixerConfigPage .sf-btn-primary:hover { background: #1bb3e8; }
+            #SubtitleFixerConfigPage .sf-btn-ghost { background: transparent; border-style: dashed; color: var(--sf-muted); }
+
+            #SubtitleFixerConfigPage .sf-pill {
+                display: inline-flex; align-items: center; gap: 0.4em; padding: 0.3em 0.75em;
+                border-radius: 99px; font-size: 0.85em; background: var(--sf-surface-2); color: var(--sf-muted);
+            }
+            #SubtitleFixerConfigPage .sf-pill .material-icons { font-size: 16px; }
+            #SubtitleFixerConfigPage .sf-pill[data-state="ok"] { background: var(--sf-ok-soft); color: var(--sf-ok); }
+            #SubtitleFixerConfigPage .sf-pill[data-state="bad"] { background: var(--sf-bad-soft); color: var(--sf-bad); }
+            #SubtitleFixerConfigPage .sf-pill[data-state="busy"] .material-icons { animation: sf-spin 1s linear infinite; }
+            @keyframes sf-spin { to { transform: rotate(360deg); } }
+            #SubtitleFixerConfigPage .sf-result { font-size: 0.88em; color: var(--sf-muted); margin: 0.75em 0 0; }
+            #SubtitleFixerConfigPage .sf-result:empty { display: none; }
+
+            #SubtitleFixerConfigPage .sf-body { transition: opacity 0.2s; }
+            #SubtitleFixerConfigPage .sf-card[data-off] .sf-body { opacity: 0.45; }
+
+            #SubtitleFixerConfigPage .sf-map { display: flex; align-items: center; gap: 0.5em; margin-bottom: 0.5em; }
+            #SubtitleFixerConfigPage .sf-map .sf-input { flex: 1; min-width: 0; }
+            #SubtitleFixerConfigPage .sf-map-arrow { color: var(--sf-muted); flex: none; }
+            #SubtitleFixerConfigPage .sf-map-empty { font-size: 0.85em; color: var(--sf-muted); margin: 0 0 0.6em; }
+
+            #SubtitleFixerConfigPage .sf-savebar {
+                position: sticky; bottom: 1em; z-index: 2; display: flex; justify-content: flex-end;
+                width: fit-content; margin: 1.5em 0 0 auto;
+            }
+            #SubtitleFixerConfigPage .sf-savebar .sf-btn {
+                height: 2.9em; padding: 0 1.6em; border-radius: 12px; box-shadow: 0 10px 28px rgba(0, 164, 220, 0.35);
+            }
+
+            @media (max-width: 640px) {
+                #SubtitleFixerConfigPage .sf { padding-top: 1em; }
+                #SubtitleFixerConfigPage .sf-grid { grid-template-columns: 1fr; }
+                #SubtitleFixerConfigPage .sf-card { padding: 1em; }
+                #SubtitleFixerConfigPage .sf-hero { flex-wrap: wrap; }
+                #SubtitleFixerConfigPage .sf-map {
+                    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.4em 0.5em;
+                    padding-bottom: 0.6em; border-bottom: 1px solid var(--sf-line);
+                }
+                #SubtitleFixerConfigPage .sf-map-arrow { display: none; }
+                #SubtitleFixerConfigPage .sf-map .sf-iconbtn { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+                #SubtitleFixerConfigPage .sf-savebar .sf-btn { flex: 1; justify-content: center; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                #SubtitleFixerConfigPage .sf * { transition: none !important; animation: none !important; }
+            }
+        </style>
         <div data-role="content">
             <div class="content-primary">
-                <h2>Subtitle Fixer</h2>
-                <p>Only fixes English subtitles on English audio. Users open it from the avatar menu.</p>
-                <form id="SubtitleFixerConfigForm">
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="SubSyncFolder">SubSync folder</label>
-                        <input id="SubSyncFolder" type="text" is="emby-input" />
-                        <div class="fieldDescription">The folder that contains subsync-cli.exe. The Jellyfin service account needs write access to it, so not Program Files.</div>
-                    </div>
-                    <div class="selectContainer">
-                        <label class="selectLabel" for="AllowedUsers">Who can use it</label>
-                        <select is="emby-select" id="AllowedUsers" class="emby-select-withcolor emby-select">
-                            <option value="AdminOnly">Administrators only</option>
-                            <option value="AllAuthenticated">All signed-in users</option>
-                        </select>
-                    </div>
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="MaxEpisodesPerRequest">Most episodes per request</label>
-                        <input id="MaxEpisodesPerRequest" type="number" is="emby-input" min="1" />
-                    </div>
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="MaxQueuedEpisodes">Most episodes in the queue</label>
-                        <input id="MaxQueuedEpisodes" type="number" is="emby-input" min="1" />
-                    </div>
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="EpisodeTimeoutMinutes">Episode timeout (minutes)</label>
-                        <input id="EpisodeTimeoutMinutes" type="number" is="emby-input" min="1" />
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label class="emby-checkbox-label">
-                            <input id="TidyUpLines" type="checkbox" is="emby-checkbox" />
-                            <span>Tidy up lines</span>
+                <form id="SubtitleFixerConfigForm" class="sf" novalidate>
+                    <header class="sf-hero">
+                        <div class="sf-hero-icon"><span class="material-icons" aria-hidden="true">subtitles</span></div>
+                        <div style="flex:1;min-width:12em">
+                            <h2>Subtitle Fixer</h2>
+                            <p>Re-times English subtitles on English audio. Users open it from the avatar menu.</p>
+                        </div>
+                        <a href="../SubtitleFixer/Page" target="_blank" rel="noopener">Open page and diagnostics <span class="material-icons" aria-hidden="true">open_in_new</span></a>
+                    </header>
+
+                    <section class="sf-card" aria-labelledby="sfSubSyncTitle">
+                        <div class="sf-card-head">
+                            <div class="sf-card-icon"><span class="material-icons" aria-hidden="true">graphic_eq</span></div>
+                            <div class="sf-card-title">
+                                <h3 id="sfSubSyncTitle">SubSync</h3>
+                                <p>The engine that re-times each subtitle to the audio.</p>
+                            </div>
+                            <span class="sf-pill" id="SubSyncStatus"><span class="material-icons" aria-hidden="true">help_outline</span><span>Not tested</span></span>
+                        </div>
+                        <label class="sf-field">
+                            <span class="sf-label">SubSync folder</span>
+                            <span class="sf-input">
+                                <span class="material-icons" aria-hidden="true">folder</span>
+                                <input id="SubSyncFolder" type="text" spellcheck="false" autocomplete="off" placeholder="C:\SubSync" />
+                            </span>
+                            <span class="sf-hint">The folder with subsync-cli.exe. The Jellyfin service account needs write access, so not Program Files.</span>
                         </label>
-                        <div class="fieldDescription checkboxFieldDescription">Re-cuts subtitles by sentence and speaker. Words are never changed.</div>
-                    </div>
-                    <div class="checkboxContainer">
-                        <label class="emby-checkbox-label">
-                            <input id="ForceCpu" type="checkbox" is="emby-checkbox" />
-                            <span>Force CPU</span>
+                        <label class="sf-option">
+                            <span class="sf-option-text"><strong>Tidy up lines</strong><span>Re-cuts subtitles by sentence and speaker. Words are never changed.</span></span>
+                            <span class="sf-switch"><input id="TidyUpLines" type="checkbox" /><i></i></span>
                         </label>
-                    </div>
-                    <div>
-                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
-                            <span>Save</span>
-                        </button>
+                        <label class="sf-option">
+                            <span class="sf-option-text"><strong>Force CPU</strong><span>Skip the GPU. Much slower; use only if CUDA fails.</span></span>
+                            <span class="sf-switch"><input id="ForceCpu" type="checkbox" /><i></i></span>
+                        </label>
+                        <div class="sf-actions">
+                            <button type="button" class="sf-btn" id="TestSubSync"><span class="material-icons" aria-hidden="true">play_circle_outline</span>Test SubSync</button>
+                        </div>
+                        <p class="sf-result" id="TestSubSyncResult" role="status" aria-live="polite"></p>
+                    </section>
+
+                    <section class="sf-card" aria-labelledby="sfAccessTitle">
+                        <div class="sf-card-head">
+                            <div class="sf-card-icon"><span class="material-icons" aria-hidden="true">tune</span></div>
+                            <div class="sf-card-title">
+                                <h3 id="sfAccessTitle">Access and limits</h3>
+                                <p>Who can use it and how much one request can queue.</p>
+                            </div>
+                        </div>
+                        <label class="sf-field">
+                            <span class="sf-label">Who can use it</span>
+                            <span class="sf-input">
+                                <span class="material-icons" aria-hidden="true">group</span>
+                                <select id="AllowedUsers">
+                                    <option value="AdminOnly">Administrators only</option>
+                                    <option value="AllAuthenticated">All signed-in users</option>
+                                </select>
+                            </span>
+                        </label>
+                        <div class="sf-grid">
+                            <label class="sf-field">
+                                <span class="sf-label">Per request</span>
+                                <span class="sf-input"><input id="MaxEpisodesPerRequest" type="number" min="1" inputmode="numeric" /><span class="sf-suffix">episodes</span></span>
+                            </label>
+                            <label class="sf-field">
+                                <span class="sf-label">Queue size</span>
+                                <span class="sf-input"><input id="MaxQueuedEpisodes" type="number" min="1" inputmode="numeric" /><span class="sf-suffix">episodes</span></span>
+                            </label>
+                            <label class="sf-field">
+                                <span class="sf-label">Episode timeout</span>
+                                <span class="sf-input"><input id="EpisodeTimeoutMinutes" type="number" min="1" inputmode="numeric" /><span class="sf-suffix">min</span></span>
+                            </label>
+                        </div>
+                    </section>
+
+                    <section class="sf-card" id="BazarrCard" aria-labelledby="sfBazarrTitle">
+                        <div class="sf-card-head">
+                            <div class="sf-card-icon"><span class="material-icons" aria-hidden="true">cloud_download</span></div>
+                            <div class="sf-card-title">
+                                <h3 id="sfBazarrTitle">Bazarr</h3>
+                                <p>Search your Bazarr for subtitles, then re-time what it downloads.</p>
+                            </div>
+                            <label class="sf-switch" title="Enable Bazarr subtitle search">
+                                <input id="BazarrEnabled" type="checkbox" aria-label="Enable Bazarr subtitle search" /><i></i>
+                            </label>
+                        </div>
+                        <div class="sf-body">
+                            <label class="sf-field">
+                                <span class="sf-label">Address</span>
+                                <span class="sf-input">
+                                    <span class="material-icons" aria-hidden="true">link</span>
+                                    <input id="BazarrUrl" type="url" spellcheck="false" autocomplete="off" placeholder="http://localhost:6767" />
+                                </span>
+                                <span class="sf-hint">As the Jellyfin server reaches it. Include Bazarr's base URL path if it has one.</span>
+                            </label>
+                            <div class="sf-field">
+                                <label class="sf-label" for="BazarrApiKey">API key</label>
+                                <span class="sf-input">
+                                    <span class="material-icons" aria-hidden="true">vpn_key</span>
+                                    <input id="BazarrApiKey" type="password" spellcheck="false" autocomplete="new-password" />
+                                    <button type="button" class="sf-iconbtn" id="BazarrApiKeyToggle" aria-label="Show key" title="Show key"><span class="material-icons" aria-hidden="true">visibility</span></button>
+                                </span>
+                                <span class="sf-hint">Bazarr, Settings, General, Security. Stays on the server; users' browsers never see it.</span>
+                            </div>
+                            <div class="sf-field">
+                                <span class="sf-label">Path mappings</span>
+                                <div id="BazarrPathMappings"></div>
+                                <p class="sf-map-empty" id="BazarrMappingsEmpty">None. Add one only if Bazarr sees your files under different paths.</p>
+                                <button type="button" class="sf-btn sf-btn-ghost" id="BazarrAddMapping"><span class="material-icons" aria-hidden="true">add</span>Add mapping</button>
+                            </div>
+                            <div class="sf-actions">
+                                <button type="button" class="sf-btn" id="TestBazarr"><span class="material-icons" aria-hidden="true">network_check</span>Test connection</button>
+                                <span class="sf-pill" id="BazarrStatus"><span class="material-icons" aria-hidden="true">help_outline</span><span>Not tested</span></span>
+                            </div>
+                            <p class="sf-result" id="TestBazarrResult" role="status" aria-live="polite"></p>
+                        </div>
+                    </section>
+
+                    <div class="sf-savebar">
+                        <button type="submit" class="sf-btn sf-btn-primary"><span class="material-icons" aria-hidden="true">save</span>Save</button>
                     </div>
                 </form>
-                <p><a is="emby-linkbutton" class="button-link" href="../SubtitleFixer/Page" target="_blank">Open the Subtitle Fixer page (includes diagnostics)</a></p>
             </div>
         </div>
         <script type="text/javascript">
             (function () {
                 var pluginId = 'aca97159-ff3b-469e-a552-db44d9b77806';
                 var page = document.querySelector('#SubtitleFixerConfigPage');
+                var savedKeyHint = 'Saved. Leave empty to keep it.';
                 function el(id) { return page.querySelector('#' + id); }
                 function intOr(value, fallback) { var n = parseInt(value, 10); return isNaN(n) || n < 1 ? fallback : n; }
+
+                function icon(name) {
+                    var s = document.createElement('span');
+                    s.className = 'material-icons';
+                    s.setAttribute('aria-hidden', 'true');
+                    s.textContent = name;
+                    return s;
+                }
+
+                // state: idle | busy | ok | bad
+                function setPill(id, state, text) {
+                    var pill = el(id);
+                    var names = { idle: 'help_outline', busy: 'autorenew', ok: 'check_circle', bad: 'error_outline' };
+                    pill.setAttribute('data-state', state);
+                    pill.replaceChildren(icon(names[state]), document.createTextNode(text));
+                }
+
+                function post(path, body) {
+                    return ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl(path),
+                        contentType: 'application/json',
+                        dataType: 'json',
+                        data: JSON.stringify(body || {})
+                    });
+                }
+
+                // Path mappings: rows in the page, one "from => to" line each in the saved setting.
+                function addMapping(from, to) {
+                    var row = document.createElement('div');
+                    row.className = 'sf-map';
+                    function box(value, placeholder, label) {
+                        var wrap = document.createElement('span');
+                        wrap.className = 'sf-input';
+                        var input = document.createElement('input');
+                        input.type = 'text';
+                        input.spellcheck = false;
+                        input.autocomplete = 'off';
+                        input.placeholder = placeholder;
+                        input.value = value || '';
+                        input.setAttribute('aria-label', label);
+                        wrap.appendChild(input);
+                        return wrap;
+                    }
+                    var arrow = icon('arrow_forward');
+                    arrow.classList.add('sf-map-arrow');
+                    var remove = document.createElement('button');
+                    remove.type = 'button';
+                    remove.className = 'sf-iconbtn';
+                    remove.title = 'Remove mapping';
+                    remove.setAttribute('aria-label', 'Remove mapping');
+                    remove.appendChild(icon('delete_outline'));
+                    remove.addEventListener('click', function () { row.remove(); syncMappingsEmpty(); });
+                    row.append(box(from, 'Jellyfin path, e.g. D:\\TV', 'Jellyfin path'), arrow, box(to, 'Bazarr path, e.g. /tv', 'Bazarr path'), remove);
+                    el('BazarrPathMappings').appendChild(row);
+                    syncMappingsEmpty();
+                    return row;
+                }
+
+                function syncMappingsEmpty() {
+                    el('BazarrMappingsEmpty').hidden = el('BazarrPathMappings').children.length > 0;
+                }
+
+                function loadMappings(text) {
+                    el('BazarrPathMappings').replaceChildren();
+                    (text || '').split('\n').forEach(function (line) {
+                        line = line.trim();
+                        if (!line) { return; }
+                        var i = line.indexOf('=>');
+                        if (i < 0) { addMapping(line, ''); } else { addMapping(line.slice(0, i).trim(), line.slice(i + 2).trim()); }
+                    });
+                    syncMappingsEmpty();
+                }
+
+                function mappingsText() {
+                    var lines = [];
+                    el('BazarrPathMappings').querySelectorAll('.sf-map').forEach(function (row) {
+                        var inputs = row.querySelectorAll('input');
+                        var from = inputs[0].value.trim();
+                        var to = inputs[1].value.trim();
+                        if (from || to) { lines.push(from + ' => ' + to); }
+                    });
+                    return lines.join('\n');
+                }
+
+                function syncBazarrEnabled() {
+                    el('BazarrCard').toggleAttribute('data-off', !el('BazarrEnabled').checked);
+                }
+
+                function setKeyHint(hasKey) {
+                    el('BazarrApiKey').value = '';
+                    el('BazarrApiKey').placeholder = hasKey ? savedKeyHint : 'Paste the key from Bazarr';
+                }
 
                 page.addEventListener('pageshow', function () {
                     Dashboard.showLoadingMsg();
@@ -74,8 +400,30 @@
                         el('EpisodeTimeoutMinutes').value = config.EpisodeTimeoutMinutes;
                         el('TidyUpLines').checked = !!config.TidyUpLines;
                         el('ForceCpu').checked = !!config.ForceCpu;
+                        el('BazarrEnabled').checked = !!config.BazarrEnabled;
+                        el('BazarrUrl').value = config.BazarrUrl || '';
+                        // The saved key is never put back in the form; an empty field keeps it.
+                        setKeyHint(!!config.BazarrApiKey);
+                        loadMappings(config.BazarrPathMappings);
+                        syncBazarrEnabled();
+                        setPill('SubSyncStatus', 'idle', 'Not tested');
+                        setPill('BazarrStatus', 'idle', 'Not tested');
+                        el('TestSubSyncResult').textContent = '';
+                        el('TestBazarrResult').textContent = '';
                         Dashboard.hideLoadingMsg();
                     });
+                });
+
+                el('BazarrEnabled').addEventListener('change', syncBazarrEnabled);
+                el('BazarrAddMapping').addEventListener('click', function () { addMapping('', '').querySelector('input').focus(); });
+
+                el('BazarrApiKeyToggle').addEventListener('click', function () {
+                    var input = el('BazarrApiKey');
+                    var show = input.type === 'password';
+                    input.type = show ? 'text' : 'password';
+                    this.setAttribute('aria-label', show ? 'Hide key' : 'Show key');
+                    this.title = show ? 'Hide key' : 'Show key';
+                    this.replaceChildren(icon(show ? 'visibility_off' : 'visibility'));
                 });
 
                 el('SubtitleFixerConfigForm').addEventListener('submit', function (e) {
@@ -89,11 +437,57 @@
                         config.EpisodeTimeoutMinutes = intOr(el('EpisodeTimeoutMinutes').value, 30);
                         config.TidyUpLines = el('TidyUpLines').checked;
                         config.ForceCpu = el('ForceCpu').checked;
+                        config.BazarrEnabled = el('BazarrEnabled').checked;
+                        config.BazarrUrl = el('BazarrUrl').value.trim();
+                        config.BazarrPathMappings = mappingsText();
+                        var key = el('BazarrApiKey').value.trim();
+                        if (key) {
+                            config.BazarrApiKey = key;
+                        }
                         ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
+                            setKeyHint(!!config.BazarrApiKey);
                             Dashboard.processPluginConfigurationUpdateResult(result);
                         });
                     });
                     return false;
+                });
+
+                el('TestSubSync').addEventListener('click', function () {
+                    var btn = this;
+                    btn.disabled = true;
+                    setPill('SubSyncStatus', 'busy', 'Testing');
+                    el('TestSubSyncResult').textContent = 'Uses the saved folder. Save first if you changed it.';
+                    post('SubtitleFixer/Admin/TestSubSync').then(function (r) {
+                        setPill('SubSyncStatus', r.ok ? 'ok' : 'bad', r.ok ? (r.version ? 'Ready, ' + r.version + (r.mode && r.mode !== 'unknown' ? ' on ' + r.mode : '') : 'Ready') : 'Not ready');
+                        el('TestSubSyncResult').textContent = r.message;
+                    }, function () {
+                        setPill('SubSyncStatus', 'bad', 'No answer');
+                        el('TestSubSyncResult').textContent = 'The server did not answer the test.';
+                    }).finally(function () { btn.disabled = false; });
+                });
+
+                el('TestBazarr').addEventListener('click', function () {
+                    var btn = this;
+                    btn.disabled = true;
+                    setPill('BazarrStatus', 'busy', 'Testing');
+                    el('TestBazarrResult').textContent = '';
+                    // Unsaved form values; an empty key means "use the saved key" on the server.
+                    post('SubtitleFixer/Admin/TestBazarr', {
+                        url: el('BazarrUrl').value.trim(),
+                        apiKey: el('BazarrApiKey').value.trim(),
+                        pathMappings: mappingsText()
+                    }).then(function (r) {
+                        setPill('BazarrStatus', r.ok ? 'ok' : 'bad', r.ok ? 'Connected, Bazarr ' + r.version : 'Failed');
+                        // The pill already says "Connected"; only explain failures and bad mappings.
+                        var text = r.ok ? '' : r.message;
+                        if (r.pathMappingErrors && r.pathMappingErrors.length) {
+                            text += ' Path mappings: ' + r.pathMappingErrors.join(' ');
+                        }
+                        el('TestBazarrResult').textContent = text;
+                    }, function () {
+                        setPill('BazarrStatus', 'bad', 'No answer');
+                        el('TestBazarrResult').textContent = 'The server did not answer the test.';
+                    }).finally(function () { btn.disabled = false; });
                 });
             })();
         </script>

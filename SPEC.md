@@ -49,8 +49,12 @@ A `done` record stores video path, size and mtime (UTC). It is valid while all t
 | `TidyUpLines` | on | Off passes `--keep-layout`. Tidy up re-cuts subtitles by sentence and speaker; words are never changed |
 | `ForceCpu` | off | Passes `--cpu` |
 | `EpisodeTimeoutMinutes` | 30 | Kill and restore when exceeded |
+| `BazarrEnabled` | off | Bazarr subtitle search (`docs/BAZARR-PLAN.md`) |
+| `BazarrUrl` | none | Bazarr base address as the server reaches it, including any base path |
+| `BazarrApiKey` | none | Write-only on the settings page; never returned by our endpoints (D20) |
+| `BazarrPathMappings` | none | One `jellyfin prefix => bazarr prefix` per line; whole folders, case-insensitive, longest prefix wins |
 
-The language tag (`en` or `eng`) always matches the existing file and is not configurable. A "Test SubSync" button runs `check` and `version`.
+The language tag (`en` or `eng`) always matches the existing file and is not configurable. A "Test SubSync" button runs `check` and `version`. A "Test Bazarr" button calls Bazarr's status endpoint with the form's unsaved values and shows the version.
 
 ## 7. Environment constraints
 - The Jellyfin service account needs write access to the media folders and to the SubSync folder (SubSync writes its runtime, `cache\transcripts` and `logs` there). `Program Files` will not work.

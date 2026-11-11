@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.SubtitleFixer.Api;
+using Jellyfin.Plugin.SubtitleFixer.Bazarr;
 using Jellyfin.Plugin.SubtitleFixer.Domain;
 using Jellyfin.Plugin.SubtitleFixer.Services;
 using Jellyfin.Plugin.SubtitleFixer.State;
@@ -36,6 +37,7 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<SelectionValidator>();
         serviceCollection.AddSingleton<BrowseService>();
         serviceCollection.AddSingleton<SubSyncProbe>();
+        serviceCollection.AddSingleton<IBazarrClient, BazarrClient>();
         serviceCollection.AddHostedService<StartupService>();
     }
 }

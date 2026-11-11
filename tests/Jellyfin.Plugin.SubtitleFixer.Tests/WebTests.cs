@@ -61,4 +61,27 @@ public sealed class WebTests
         using var stream = typeof(Plugin).Assembly.GetManifestResourceStream($"{typeof(Plugin).Namespace}.Configuration.configPage.html");
         Assert.NotNull(stream);
     }
+
+    [Fact]
+    public void Config_page_has_a_field_for_every_setting_and_no_external_resources()
+    {
+        using var stream = typeof(Plugin).Assembly.GetManifestResourceStream($"{typeof(Plugin).Namespace}.Configuration.configPage.html")!;
+        using var reader = new StreamReader(stream);
+        var html = reader.ReadToEnd();
+
+        foreach (var property in typeof(Configuration.PluginConfiguration).GetProperties())
+        {
+            if (property.DeclaringType != typeof(Configuration.PluginConfiguration))
+            {
+                continue;
+            }
+
+            Assert.Contains($"id=\"{property.Name}\"", html, StringComparison.Ordinal);
+            Assert.Contains($"config.{property.Name} =", html, StringComparison.Ordinal);
+        }
+
+        // No CDNs (CLAUDE.md): icons come from the Material Icons font jellyfin-web already loads.
+        Assert.DoesNotContain("https://", html, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("<link", html, StringComparison.OrdinalIgnoreCase);
+    }
 }
