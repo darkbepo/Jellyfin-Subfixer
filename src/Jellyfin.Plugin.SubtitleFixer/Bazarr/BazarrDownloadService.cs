@@ -281,18 +281,9 @@ public sealed class BazarrDownloadService
             return (null, error);
         }
 
-        Sidecar? sidecar;
-        try
-        {
-            sidecar = await WaitForSidecarAsync(videoPath, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // The caller went away mid-download: still leave the folder as it was.
-            RemoveNewAccepted(videoPath, before);
-            await RestoreAsync(copies, _logger).ConfigureAwait(false);
-            throw;
-        }
+        // From here on the caller's token is ignored: Bazarr has accepted the job and will write the file anyway, so
+        // closing the dialog must not undo a download that is about to land unqueued. The wait is bounded (D33).
+        var sidecar = await WaitForSidecarAsync(videoPath, CancellationToken.None).ConfigureAwait(false);
 
         if (sidecar is null)
         {
@@ -310,7 +301,7 @@ public sealed class BazarrDownloadService
         await RestoreAsync(copies, _logger).ConfigureAwait(false);
 
         // A fresh subtitle must be synced even if this video was synced before (BAZARR-PLAN.md rule 5).
-        await _state.DeleteAsync(video.Node.Id, cancellationToken).ConfigureAwait(false);
+        await _state.DeleteAsync(video.Node.Id, CancellationToken.None).ConfigureAwait(false);
 
         var note = "downloaded from " + stored.Result.Provider;
         var series = video.Node.SeriesName ?? string.Empty;

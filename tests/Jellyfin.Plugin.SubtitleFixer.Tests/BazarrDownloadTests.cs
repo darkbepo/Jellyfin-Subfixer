@@ -162,7 +162,7 @@ public sealed class BazarrDownloadTests : IDisposable
     }
 
     [Fact]
-    public async Task Cancelled_request_still_restores_and_removes_a_half_written_sidecar()
+    public async Task Closing_the_page_mid_download_still_restores_and_removes_a_half_written_sidecar()
     {
         var plain = _dir.File("Film.srt", "keep");
         using var cts = new CancellationTokenSource();
@@ -170,15 +170,36 @@ public sealed class BazarrDownloadTests : IDisposable
         {
             File.WriteAllText(plain, "clobbered");
             File.WriteAllText(Path.Combine(_dir.Path, "Film.en.srt"), "1\r\n00:00:01,000 -->");
-            cts.CancelAfter(TimeSpan.FromMilliseconds(30));
+            cts.Cancel();
             return BazarrResult<bool>.Success(true);
         };
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Service().DownloadAsync(_user, _movie.Node.Id, _resultId, cts.Token));
+        var (_, error) = await Service().DownloadAsync(_user, _movie.Node.Id, _resultId, cts.Token);
 
+        Assert.Equal("download_failed", error!.Code);
         Assert.Equal("keep", File.ReadAllText(plain));
         Assert.False(File.Exists(Path.Combine(_dir.Path, "Film.en.srt")));
         Assert.True(_state.Records.ContainsKey(_movie.Node.Id));
+    }
+
+    [Fact]
+    public async Task Closing_the_page_mid_download_does_not_lose_a_download_that_lands_late()
+    {
+        using var cts = new CancellationTokenSource();
+        _bazarr.OnDownload = (_, _) =>
+        {
+            cts.Cancel();
+
+            // Bazarr's job writes the file a moment after accepting the request.
+            _ = Task.Delay(80).ContinueWith(_ => File.WriteAllText(Path.Combine(_dir.Path, "Film.en.srt"), Srt), TaskScheduler.Default);
+            return BazarrResult<bool>.Success(true);
+        };
+
+        var (result, error) = await Service().DownloadAsync(_user, _movie.Node.Id, _resultId, cts.Token);
+
+        Assert.Null(error);
+        Assert.True(result!.Queued);
+        Assert.Single(_queue.Snapshot().Items);
     }
 
     [Theory]
