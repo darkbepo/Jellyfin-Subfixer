@@ -17,7 +17,7 @@ public enum IneligibleReason
     /// <summary>No audio stream tagged <c>en</c> or <c>eng</c>.</summary>
     NoEnglishAudio,
 
-    /// <summary>No <c>&lt;video&gt;.en.srt</c> or <c>&lt;video&gt;.eng.srt</c>.</summary>
+    /// <summary>No <c>&lt;video&gt;.en.srt</c>, <c>.eng.srt</c>, <c>.en.hi.srt</c> or <c>.eng.hi.srt</c>.</summary>
     NoSidecar,
 }
 
@@ -36,7 +36,7 @@ public enum EpisodeStatus
 
 /// <summary>A sidecar subtitle that may be processed.</summary>
 /// <param name="Path">Full path of the subtitle.</param>
-/// <param name="LanguageTag">Tag in the file name: <c>en</c> or <c>eng</c>. Passed to SubSync as <c>--suffix</c>.</param>
+/// <param name="LanguageTag">Tag in the file name: <c>en</c>, <c>eng</c>, <c>en.hi</c> or <c>eng.hi</c>. Passed to SubSync as <c>--suffix</c>, so the result keeps the same name.</param>
 public sealed record Sidecar(string Path, string LanguageTag);
 
 /// <summary>Result of evaluating one episode.</summary>
@@ -56,8 +56,11 @@ public sealed record Eligibility(IneligibleReason Reason, EpisodeStatus Status, 
 /// </summary>
 public static class EligibilityService
 {
-    /// <summary>Sidecar tags in priority order: if both exist, only <c>.en.srt</c> is processed.</summary>
-    private static readonly string[] SidecarTags = ["en", "eng"];
+    /// <summary>
+    /// Sidecar tags in priority order; only the first that exists is processed (one subtitle per episode).
+    /// Plain English before hearing-impaired, <c>en</c> before <c>eng</c> (D6).
+    /// </summary>
+    private static readonly string[] SidecarTags = ["en", "eng", "en.hi", "eng.hi"];
 
     /// <summary>Gets the API wire name of a reason (API.md), or null for eligible.</summary>
     /// <param name="reason">Reason.</param>
@@ -94,7 +97,7 @@ public static class EligibilityService
     }
 
     /// <summary>
-    /// Finds the sidecar named exactly <c>&lt;videoBase&gt;.en.srt</c> or <c>&lt;videoBase&gt;.eng.srt</c>.
+    /// Finds the sidecar named exactly <c>&lt;videoBase&gt;.en.srt</c>, <c>.eng.srt</c>, <c>.en.hi.srt</c> or <c>.eng.hi.srt</c>.
     /// No other names are considered (D6).
     /// </summary>
     /// <param name="videoPath">Video path.</param>

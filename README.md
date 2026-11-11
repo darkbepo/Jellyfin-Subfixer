@@ -17,12 +17,15 @@ Fix out-of-sync English subtitles from inside Jellyfin. Pick seasons or episodes
 ## Use
 Avatar menu > Subtitle Fixer. Search or browse to a series, tick seasons or episodes, press Start. You can pick several seasons of one series, but not several series at once.
 
+Every signed-in user can use it by default (Dashboard > Plugins > Subtitle Fixer can limit it to administrators). Until an administrator has set the SubSync folder, only administrators see it. There is one shared queue: everyone sees what is being synced, and SubSync works on one episode at a time.
+
 ## What it touches
-Only `<video>.en.srt` or `<video>.eng.srt` next to an episode with English audio. Before each change the plugin keeps a temporary backup and restores it on any problem. Episodes already fixed are skipped.
+Only `<video>.en.srt`, `<video>.eng.srt`, `<video>.en.hi.srt` or `<video>.eng.hi.srt` next to an episode with English audio, one per episode (in that order). Before each change the plugin keeps a temporary backup and restores it on any problem. Episodes already fixed are skipped.
 
 ## Troubleshooting
 - "SubSync is not configured": set and test the folder in plugin settings.
 - Queue stopped with a SubSync message: close the SubSync window, finish its setup, start again.
 - Logs: the SubSync `logs` folder (`cli.log`, `worker.log`) and the Jellyfin log.
 
-License: to be decided by the owner. SubSync is MIT licensed.
+## License
+Free and open source under the [GNU General Public License v3.0](LICENSE), like Jellyfin's official plugin template and most Jellyfin plugins. SubSync is a separate project under the MIT license and is not included.

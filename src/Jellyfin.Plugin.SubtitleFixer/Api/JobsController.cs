@@ -265,7 +265,7 @@ public sealed class JobsController : ControllerBase
 
         return caller.Allowed
             ? null
-            : ApiResults.Error(StatusCodes.Status403Forbidden, ErrorCodes.Forbidden, "An administrator has not allowed your account to use Subtitle Fixer.");
+            : ApiResults.Error(StatusCodes.Status403Forbidden, ErrorCodes.Forbidden, AccessService.DenialMessage(caller.Denial));
     }
 }
 

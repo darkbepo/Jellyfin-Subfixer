@@ -19,11 +19,12 @@ Read `SPEC.md` (scope and hard rules), then only the doc for your task:
 | Tests | `docs/TESTING.md` |
 | Why something is the way it is | `docs/DECISIONS.md` |
 | Bazarr subtitle search (separate track) | `docs/BAZARR-PLAN.md` |
+| Movies (next) | `docs/MOVIES-PLAN.md` |
 
 ## Non-negotiables
 1. One series per request, enforced on the server (multiple seasons of that series are fine). Season IDs expand to episodes; series and library IDs are rejected.
 2. One SubSync process at a time. Queue is global and capped (`MaxEpisodesPerRequest`, `MaxQueuedEpisodes`).
-3. Only subtitles named exactly `<video>.en.srt` or `<video>.eng.srt` are touched, and only on episodes with English audio.
+3. Only subtitles named exactly `<video>.en.srt`, `.eng.srt`, `.en.hi.srt` or `.eng.hi.srt` are touched (one per item, in that order), and only on items with English audio.
 4. Never lose a subtitle: backup, run, verify, then delete the backup. Any failure, cancel or crash restores it. Startup recovery restores leftover `.bak` files.
 5. An episode already synced (video fingerprint unchanged) is never processed again unless the video file changed.
 6. Never load a whole library at once. Library is about 40,000 episodes: page everything, no per-file hashing.

@@ -52,10 +52,42 @@ public sealed class EligibilityTests : IDisposable
     }
 
     [Theory]
+    [InlineData("Show S01E01.en.hi.srt", "en.hi")]
+    [InlineData("Show S01E01.eng.hi.srt", "eng.hi")]
+    public void Hearing_impaired_sidecars_are_accepted(string subtitleName, string tag)
+    {
+        var video = _dir.File("Show S01E01.mkv");
+        var sub = _dir.File(subtitleName);
+
+        var result = EligibilityService.Evaluate(Episode(video, "eng"), null);
+
+        Assert.True(result.IsEligible);
+        Assert.Equal(sub, result.Sidecar!.Path);
+        Assert.Equal(tag, result.Sidecar.LanguageTag);
+    }
+
+    [Theory]
+    [InlineData(new[] { "en.srt", "eng.srt", "en.hi.srt", "eng.hi.srt" }, "en")]
+    [InlineData(new[] { "eng.srt", "en.hi.srt", "eng.hi.srt" }, "eng")]
+    [InlineData(new[] { "en.hi.srt", "eng.hi.srt" }, "en.hi")]
+    public void Only_the_first_by_priority_is_processed(string[] present, string expectedTag)
+    {
+        var video = _dir.File("Show S01E01.mkv");
+        foreach (var suffix in present)
+        {
+            _dir.File("Show S01E01." + suffix);
+        }
+
+        Assert.Equal(expectedTag, EligibilityService.Evaluate(Episode(video, "eng"), null).Sidecar!.LanguageTag);
+    }
+
+    [Theory]
     [InlineData("Show S01E01.srt")]
     [InlineData("Show S01E01.english.srt")]
-    [InlineData("Show S01E01.en.hi.srt")]
+    [InlineData("Show S01E01.hi.srt")]
+    [InlineData("Show S01E01.en.sdh.srt")]
     [InlineData("Show S01E01.en.forced.srt")]
+    [InlineData("Show S01E01.en.hi.forced.srt")]
     [InlineData("Show S01E01.en.ass")]
     [InlineData("Show S01E01.en.vtt")]
     [InlineData("Show S01E01.en.srt.bak")]

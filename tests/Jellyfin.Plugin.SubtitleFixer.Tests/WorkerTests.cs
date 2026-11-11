@@ -68,6 +68,9 @@ public sealed class SubSyncReportTests
         Assert.Contains("--keep-layout", tuned);
         Assert.Contains("--cpu", tuned);
         Assert.Equal("eng", tuned[tuned.ToList().IndexOf("--suffix") + 1]);
+
+        var hi = CliWorker.BuildArguments(video, @"D:\x.en.hi.srt", "en.hi", "r.json", new WorkerOptions(true, false, TimeSpan.FromMinutes(30)));
+        Assert.Equal("en.hi", hi[hi.ToList().IndexOf("--suffix") + 1]);
     }
 
     [Fact]

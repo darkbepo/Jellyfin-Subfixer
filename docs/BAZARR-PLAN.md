@@ -21,7 +21,7 @@ The user presses **Get**. The plugin tells Bazarr to download that result. When 
 
 ## Hard rules for this feature
 1. **The Bazarr API key never reaches the browser.** It's stored in plugin settings (admin only), and the plugin calls Bazarr server-side. The page only talks to our own endpoints.
-2. **Same permissions as the rest of the plugin:** `AllowedUsers`, and users only see items they can access in Jellyfin. Check access on the Jellyfin item before any Bazarr call.
+2. **Same permissions as the rest of the plugin:** `AccessService` (everyone by default, admins only until SubSync is configured, D10), and users only see items they can access in Jellyfin. Check access on the Jellyfin item before any Bazarr call.
 3. **Never lose a subtitle.** A Bazarr download can overwrite an existing sidecar, so back up the current `<video>.<tag>.srt` before asking Bazarr to download. Restore it if the download fails or produces nothing. After a good download, the SubSync job makes its own backup as usual.
 4. **One SubSync at a time.** Downloads queue into the same global queue (`JobQueue`, M2); never start SubSync directly.
 5. **A fresh download must be synced, even on an already-synced episode.** The `done` record is keyed on the video fingerprint, so a successful download has to delete that item's record before queuing. Otherwise the job is skipped as `already_synced`.
@@ -70,28 +70,22 @@ Settings, added to `PluginConfiguration` and the config page: `BazarrUrl`, `Baza
   - `download_failed` (502)
 
 ## UI (add to `UI.md` in the same change)
-- **Find subtitles** button on an episode row. It opens a dialog with the Resource line and the table above, sorted by score. HI is shown as a badge, and match details appear on hover or long-press.
-- The dialog must work at phone width: the table collapses into cards.
-- **Get** has a confirmation step when a subtitle already exists: "This replaces the current English subtitle. It will be re-timed afterwards."
+- **Only where there is no subtitle (owner, D28).** **Find subtitles** appears only on episodes and movies that have no English sidecar, which are the rows the explorer marks `reason: no_sidecar`. Everywhere else the page only offers SubSync re-timing. The server enforces the same rule: Search and Download for an item that already has an accepted sidecar (`.en`, `.eng`, `.en.hi`, `.eng.hi` `.srt`) return `409 has_subtitle`.
+- **Dialog:** opens with the Resource line and the table above, sorted by score. HI is shown as a badge; match details appear on hover or long-press.
+- **Phone width:** the table collapses into cards.
+- **No replace confirmation is needed**, because Find subtitles never shows where a subtitle exists. The backup in hard rule 3 stays as a safeguard against races (a subtitle appearing between search and download).
 - After Get, close the dialog and show the item in the shared queue panel.
 
-## Conflicts with the current spec (owner decides before building)
-1. **Hearing-impaired subtitles.** Bazarr names them `<video>.en.hi.srt`, which v1 rules ignore (D6).
-   - Options: (a) only allow non-HI downloads at first; (b) save HI results as `.en.srt`; (c) extend the naming rule to `.en.hi.srt`.
-   - Suggested: (a) at first.
-2. **Movies.** v1 is TV only, and Bazarr search covers movies. The SubSync side would need Movie support in eligibility, browse and refresh.
-   - Suggested: episodes first, movies as phase 3.
-3. **Bazarr's own sync.** Bazarr has its own automatic subtitle synchronization option. If it's on, downloads get synced twice.
-   - Suggested: the owner turns it off in Bazarr for this flow, or the plugin skips SubSync when Bazarr already synced. Decide after checking the owner's Bazarr settings.
-4. **Who may download.** Downloads use the owner's provider quotas.
-   - Suggested: a separate `BazarrAllowedUsers` setting, default `AdminOnly`.
-
-Record the answers in `DECISIONS.md`.
+## Owner decisions (2026-11-11, recorded in `DECISIONS.md`)
+1. **Hearing-impaired subtitles are allowed (D6, D27).** The fixer now accepts `<video>.en.hi.srt` and `<video>.eng.hi.srt` as well as `.en.srt`/`.eng.srt`, one per episode in that order. Bazarr's HI downloads (saved as `.en.hi.srt` with Bazarr's default `hi_extension: hi`) are therefore re-timed like any other.
+2. **Movies: yes.** See `MOVIES-PLAN.md`. Movie search and download through Radarr fit there; the local test setup already has Radarr with one movie (`LOCAL-TEST-ENV.md`).
+3. **Bazarr's own sync stays off.** It is already off on the local test Bazarr (`subsync.use_subsync: false`). The Test Bazarr button should warn when it is on (`GET /api/system/settings`, `subsync.use_subsync`), since downloads would then be synced twice.
+4. **Everyone can search and download (D28).** There is no separate Bazarr permission: whoever may use Subtitle Fixer (`AllowedUsers`, `AccessService`) may search and download. The rate limits in hard rule 6 protect the provider quotas.
 
 ## Phases and dependencies
 - **Phase 1:** Bazarr client, resolver, settings, Search endpoint and the read-only dialog. Needs M1 (on `main`). Doesn't need the job engine.
 - **Phase 2:** Download plus SubSync. Needs M2 (`JobQueue`, `JobRunner`, `BackupService`). Until M2 lands, Download can stay behind `BazarrEnabled` and return `501`.
-- **Phase 3:** movies, if the owner wants them.
+- **Phase 3:** movies (the owner wants them). Follow `MOVIES-PLAN.md`; movie search and download can be built as soon as the movie side of browse exists there.
 
 ## Working alongside the main track
 - Work in your own worktree and branch, cut from `main` after M1 is merged.

@@ -23,7 +23,9 @@ public sealed record ErrorDto(string Error, string Message);
 /// <param name="Name">User name.</param>
 /// <param name="IsAdmin">Administrator.</param>
 /// <param name="Allowed">Allowed by <c>AllowedUsers</c>.</param>
-public sealed record MeDto(Guid UserId, string Name, bool IsAdmin, bool Allowed);
+/// <param name="Reason">Why not: <c>not_configured</c> (SubSync not set up yet; admins only until then) or <c>admins_only</c>; null when allowed.</param>
+/// <param name="Message">Message for people when not allowed.</param>
+public sealed record MeDto(Guid UserId, string Name, bool IsAdmin, bool Allowed, string? Reason, string? Message);
 
 /// <summary>A breadcrumb entry.</summary>
 /// <param name="Id">Item id.</param>

@@ -66,7 +66,13 @@ public sealed class SubtitleFixerController : ControllerBase
         var caller = _access.GetCaller(User);
         return caller is null
             ? Error(StatusCodes.Status401Unauthorized, "unauthorized", "Sign in to Jellyfin with a user account.")
-            : Json(new MeDto(caller.User.Id, caller.User.Username, caller.IsAdmin, caller.Allowed));
+            : Json(new MeDto(
+                caller.User.Id,
+                caller.User.Username,
+                caller.IsAdmin,
+                caller.Allowed,
+                AccessService.DenialCode(caller.Denial),
+                caller.Allowed ? null : AccessService.DenialMessage(caller.Denial)));
     }
 
     /// <summary>TV libraries, or one parent's children, paged.</summary>
@@ -223,7 +229,7 @@ public sealed class SubtitleFixerController : ControllerBase
 
         return caller.Allowed
             ? null
-            : Error(StatusCodes.Status403Forbidden, ErrorCodes.Forbidden, "An administrator has not allowed your account to use Subtitle Fixer.");
+            : Error(StatusCodes.Status403Forbidden, ErrorCodes.Forbidden, AccessService.DenialMessage(caller.Denial));
     }
 }
 

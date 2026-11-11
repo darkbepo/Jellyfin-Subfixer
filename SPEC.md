@@ -14,7 +14,9 @@ Let users re-time English subtitles on English-audio TV episodes from inside Jel
 - After each episode, Jellyfin refreshes that item so the subtitle is served immediately.
 - Hard dependency on the File Transformation plugin.
 
-**Out of scope for v1** (possible later): embedded subtitle extraction, other languages, movies, Linux/macOS, parallel SubSync jobs, subtitles with any name other than `.en.srt` / `.eng.srt` and other formats (`.ass`, `.vtt`).
+**Next, planned:** movies (`docs/MOVIES-PLAN.md`, D26).
+
+**Out of scope for v1** (possible later): embedded subtitle extraction, other languages, Linux/macOS, parallel SubSync jobs, subtitles with any name other than `.en.srt` / `.eng.srt` / `.en.hi.srt` / `.eng.hi.srt`, and other formats (`.ass`, `.vtt`).
 
 ## 3. Hard rules
 Enforced on the server; the UI mirrors them. See `docs/API.md` for error codes.
@@ -25,13 +27,13 @@ Enforced on the server; the UI mirrors them. See `docs/API.md` for error codes.
 5. **One job at a time**; global queue.
 6. **Never re-sync** an episode with a matching `done` record.
 7. **Never lose a subtitle**: backup, run, verify, swap, delete backup; restore on any failure (`docs/JOB-FLOW.md`).
-8. **Permissions**: `AllowedUsers` = `AdminOnly` (default) or `AllAuthenticated`. Users only see what they can access in Jellyfin.
+8. **Permissions**: `AllowedUsers` = `AllAuthenticated` (default) or `AdminOnly`. Admins are always allowed; everyone else only once SubSync is configured, so a fresh install is admin-only until set up (D10). Users only see what they can access in Jellyfin. Bazarr search and download follow the same rule (D28).
 
 ## 4. Eligibility
 An episode is eligible only if all hold:
 - Item type is Episode and its video file exists.
 - At least one audio stream has language `eng` or `en`.
-- It has an external sidecar named exactly `<videoBase>.en.srt` or `<videoBase>.eng.srt` (video name without extension). Any other name is treated as not English and ignored. No naming heuristics. If both exist, only `.en.srt` is processed.
+- It has an external sidecar named exactly `<videoBase>.en.srt`, `.eng.srt`, `.en.hi.srt` or `.eng.hi.srt` (video name without extension; `.hi` = hearing-impaired). Any other name is treated as not English and ignored. No naming heuristics. One subtitle per episode: the first that exists in that order is processed (D6, D27).
 - No `done` record whose fingerprint still matches.
 
 Ineligible items are shown with a reason: `no_video_file`, `already_synced`, `no_english_audio`, `no_sidecar`. Items with status `check` or `failed` stay selectable, labelled "previously attempted".
@@ -43,7 +45,7 @@ A `done` record stores video path, size and mtime (UTC). It is valid while all t
 | Setting | Default | Notes |
 |---|---|---|
 | SubSync folder | none | Validated with `subsync-cli check`; exit code 8 = tell admin to run `subsync-cli setup` (about 3.2 GB) |
-| `AllowedUsers` | `AdminOnly` | or `AllAuthenticated` |
+| `AllowedUsers` | `AllAuthenticated` | or `AdminOnly`. Non-admins wait until SubSync is configured (D10) |
 | `MaxEpisodesPerRequest` | 150 | |
 | `MaxQueuedEpisodes` | 300 | |
 | `TidyUpLines` | on | Off passes `--keep-layout`. Tidy up re-cuts subtitles by sentence and speaker; words are never changed |
@@ -54,7 +56,7 @@ A `done` record stores video path, size and mtime (UTC). It is valid while all t
 | `BazarrApiKey` | none | Write-only on the settings page; never returned by our endpoints (D20) |
 | `BazarrPathMappings` | none | One `jellyfin prefix => bazarr prefix` per line; whole folders, case-insensitive, longest prefix wins |
 
-The language tag (`en` or `eng`) always matches the existing file and is not configurable. A "Test SubSync" button runs `check` and `version`. A "Test Bazarr" button calls Bazarr's status endpoint with the form's unsaved values and shows the version.
+The language tag (`en`, `eng`, `en.hi` or `eng.hi`) always matches the existing file and is not configurable. A "Test SubSync" button runs `check` and `version`. A "Test Bazarr" button calls Bazarr's status endpoint with the form's unsaved values and shows the version.
 
 ## 7. Environment constraints
 - The Jellyfin service account needs write access to the media folders and to the SubSync folder (SubSync writes its runtime, `cache\transcripts` and `logs` there). `Program Files` will not work.

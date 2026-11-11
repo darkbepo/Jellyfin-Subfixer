@@ -7,7 +7,7 @@ Vanilla JS and CSS served from embedded resources (`index.html`, `app.js`, `styl
   - The script finds `#app-user-menu ul[role=menu]`, clones the Profile item (`a[href*="/userprofile"]`), sets its icon and text, and inserts it right after Profile.
   - A `MutationObserver` puts the entry back when React re-renders the list.
   - On click it closes the menu (click `#app-user-menu .MuiBackdrop-root`) and goes to `../SubtitleFixer/Page`, a plain relative URL so a base URL keeps working.
-- **Auth:** the page reads `localStorage["jellyfin_credentials"]` (same origin), takes the `Servers` entry with the latest `DateLastAccessed` that has an `AccessToken`, and calls the API with the `Authorization: MediaBrowser … Token="…"` header (S2). It calls `GET /Me` first. No token or `401`: link back to Jellyfin login. Never put the token in a URL.
+- **Auth:** the page reads `localStorage["jellyfin_credentials"]` (same origin), takes the `Servers` entry with the latest `DateLastAccessed` that has an `AccessToken`, and calls the API with the `Authorization: MediaBrowser … Token="…"` header (S2). It calls `GET /Me` first. No token or `401`: link back to Jellyfin login. Not allowed: show the message from `/Me` ("isn't set up yet" until an admin sets the SubSync folder, or "not allowed"). Never put the token in a URL.
 - "Back to Jellyfin" link always visible. Neutral dark styling, no dependency on Jellyfin themes.
 - The disclaimer "Only fixes English subtitles on English audio." is always visible under the title.
 

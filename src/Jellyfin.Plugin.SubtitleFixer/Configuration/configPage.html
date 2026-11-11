@@ -219,10 +219,11 @@
                             <span class="sf-input">
                                 <span class="material-icons" aria-hidden="true">group</span>
                                 <select id="AllowedUsers">
-                                    <option value="AdminOnly">Administrators only</option>
                                     <option value="AllAuthenticated">All signed-in users</option>
+                                    <option value="AdminOnly">Administrators only</option>
                                 </select>
                             </span>
+                            <span class="sf-hint">Until the SubSync folder is set and found, only administrators can open Subtitle Fixer.</span>
                         </label>
                         <div class="sf-grid">
                             <label class="sf-field">
@@ -394,7 +395,7 @@
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                         el('SubSyncFolder').value = config.SubSyncFolder || '';
-                        el('AllowedUsers').value = config.AllowedUsers || 'AdminOnly';
+                        el('AllowedUsers').value = config.AllowedUsers || 'AllAuthenticated';
                         el('MaxEpisodesPerRequest').value = config.MaxEpisodesPerRequest;
                         el('MaxQueuedEpisodes').value = config.MaxQueuedEpisodes;
                         el('EpisodeTimeoutMinutes').value = config.EpisodeTimeoutMinutes;

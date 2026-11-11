@@ -7,10 +7,10 @@ namespace Jellyfin.Plugin.SubtitleFixer.Configuration;
 /// </summary>
 public enum AllowedUsers
 {
-    /// <summary>Administrators only (default).</summary>
+    /// <summary>Administrators only.</summary>
     AdminOnly = 0,
 
-    /// <summary>Any signed-in user.</summary>
+    /// <summary>Any signed-in user, once SubSync is configured (default, D10).</summary>
     AllAuthenticated = 1,
 }
 
@@ -23,7 +23,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public string SubSyncFolder { get; set; } = string.Empty;
 
     /// <summary>Gets or sets who may use the plugin.</summary>
-    public AllowedUsers AllowedUsers { get; set; } = AllowedUsers.AdminOnly;
+    public AllowedUsers AllowedUsers { get; set; } = AllowedUsers.AllAuthenticated;
 
     /// <summary>Gets or sets the most eligible episodes one request may queue.</summary>
     public int MaxEpisodesPerRequest { get; set; } = 150;

@@ -21,7 +21,7 @@
         no_video_file: 'video file missing',
         already_synced: 'already synced',
         no_english_audio: 'no English audio',
-        no_sidecar: 'no .en.srt or .eng.srt subtitle'
+        no_sidecar: 'no English .srt subtitle (.en, .eng, .en.hi or .eng.hi)'
     };
 
     // ---------- state ----------
@@ -757,7 +757,11 @@
             me = m;
             $('who').textContent = 'Signed in as ' + m.name + (m.isAdmin ? ' (administrator)' : '');
             $('who').hidden = false;
-            if (!m.allowed) { showGate('denied'); return; }
+            if (!m.allowed) {
+                if (m.message) { $('gate-denied-text').textContent = m.message; }
+                showGate('denied');
+                return;
+            }
             showGate('app');
             wire();
             if (m.isAdmin) { initAdmin(); }

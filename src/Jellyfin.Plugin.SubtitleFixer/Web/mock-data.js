@@ -244,7 +244,11 @@
         var allowed = userMode !== 'denied';
         var p = url.pathname.replace(/^\//, '');
 
-        if (p === 'Me') { return ok({ userId: ME, name: isAdmin ? 'Mock Admin' : 'Mock Member', isAdmin: isAdmin, allowed: allowed }); }
+        if (p === 'Me') {
+            return ok({ userId: ME, name: isAdmin ? 'Mock Admin' : 'Mock Member', isAdmin: isAdmin, allowed: allowed,
+                reason: allowed ? null : 'not_configured',
+                message: allowed ? null : 'Subtitle Fixer isn’t set up yet. Ask an administrator to finish its settings.' });
+        }
         if (!allowed) { return err('forbidden', 403, 'An administrator has not allowed your account to use Subtitle Fixer.'); }
 
         if (p === 'Browse') {

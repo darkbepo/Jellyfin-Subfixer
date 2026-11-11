@@ -9,11 +9,11 @@
 | D3 | Hard dependency on File Transformation | Owner | Already installed on the target server |
 | D4 | Standalone page served by the plugin; Plugin Pages is the fallback | Proposed | Avoids an extra dependency and GPL-3.0 |
 | D5 | One `subsync-cli` process per episode | Proposed | Per-episode result, backup and refresh; costs a model load each time |
-| D6 | Only `<video>.en.srt` / `<video>.eng.srt` count as English subtitles | Owner | Owner keeps naming tidy; other names later |
+| D6 | Only `<video>.en.srt`, `.eng.srt`, `.en.hi.srt` and `.eng.hi.srt` count as English subtitles; one per item, in that order | Owner | HI added 2026-11-11 (D27). Owner keeps naming tidy; other names later |
 | D7 | Backup exists only during the sync and is deleted on success | Owner | |
 | D8 | One series per request; multiple seasons allowed; UI selection locked to one series | Owner | |
 | D9 | Caps 150 per request and 300 queued, configurable | Proposed | |
-| D10 | `AllowedUsers` defaults to `AdminOnly` | Proposed | Owner to confirm |
+| D10 | `AllowedUsers` defaults to `AllAuthenticated` (everyone signed in), but non-admins are kept out until SubSync is configured (folder set and `subsync-cli.exe` found) | Owner (2026-11-11) | A fresh install stays admin-only until set up. `GET /Me` returns `reason: not_configured`; the menu entry is hidden for them meanwhile. `AdminOnly` remains a setting |
 | D11 | In-memory queue, SQLite state | Proposed | Queue is dropped on restart |
 | D12 | Never hash files; fingerprint = path, size, mtime | Proposed | 40,000 episodes |
 | D13 | `TidyUpLines` default on (SubSync default) | Proposed | Words are never changed |
@@ -28,7 +28,10 @@
 | D23 | Startup recovery reads a backup journal (`in_flight` table, written before each `.bak` is created) instead of scanning for `.bak` files | Proposed | A scan would walk the whole 40,000-episode library (rule 6). No journal, no backup, no run. An existing `.bak` is never overwritten |
 | D24 | When the queue stops itself (exit 7, 3 crashes), remaining queued items are cancelled with the reason, not paused | Proposed | Simple to reason about; users press Start again, and synced episodes are skipped anyway. `stopReason` stays visible until the next Start |
 | D25 | Finished queue items stay listed until their owner clears them or for 24 hours; an episode is never queued twice | Proposed | Lets everyone see recent results after the queue goes idle |
-| D18 | Plugin license | Open (owner) | The official template, File Transformation and Plugin Pages are GPL-3.0, and the server is GPL-2.0. The plugin compiles against GPL server packages, so GPL-3.0 is the usual choice for Jellyfin plugins. Needed before the first release |
+| D18 | License: GPL-3.0 | Owner (2026-11-11: "whatever is convenient for a free to use open source plugin on GitHub") | `LICENSE` in the repo root. Matches Jellyfin's official plugin template and most Jellyfin plugins; the plugin compiles against GPL server packages |
+| D26 | Movies are supported, per `MOVIES-PLAN.md` | Owner (2026-11-11) | Proposed rules inside the plan (no mixing movies and episodes; no series lock for movies) await owner confirmation |
+| D27 | Hearing-impaired sidecars (`.en.hi.srt`, `.eng.hi.srt`) are processed | Owner (2026-11-11) | Lower priority than plain English when several exist. `--suffix en.hi` / `eng.hi` keeps the name; whether SubSync accepts a dotted suffix is unverified (S5) |
+| D28 | Bazarr: everyone who may use Subtitle Fixer can search and download, but Find subtitles appears only on episodes and movies with no English sidecar; everywhere else the page only re-times | Owner (2026-11-11) | No separate Bazarr permission. The server rejects Bazarr calls for items that already have a sidecar (`409 has_subtitle`) |
 
 ## Deferred
 Embedded subtitle extraction, other languages, movies, other names and formats (`.ass`, `.vtt`), Linux sidecar, parallel jobs.

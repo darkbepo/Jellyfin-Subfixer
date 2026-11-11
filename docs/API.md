@@ -6,7 +6,7 @@ Base path `/SubtitleFixer`. All data endpoints require an authenticated user (`[
 `GET /Page` (the page HTML), `GET /Page/app.js`, `GET /Page/styles.css`, `GET /menu.js` (avatar-menu script). These contain no data.
 
 ## GET /Me
-`{ "userId":"...", "name":"...", "isAdmin":false, "allowed":true }`. The page calls this first: `401` means show the sign-in link, `allowed:false` means show "not allowed" (no `403`, so the page can explain).
+`{ "userId":"...", "name":"...", "isAdmin":false, "allowed":true, "reason":null, "message":null }`. The page calls this first: `401` means show the sign-in link; `allowed:false` means show `message` (no `403`, so the page can explain). `reason` is `not_configured` (non-admins wait until SubSync is configured, D10) or `admins_only` (`AllowedUsers = AdminOnly`). The avatar-menu entry is shown only when `allowed` is true. Data endpoints return `403 forbidden` with the same message.
 
 ## GET /Browse?parentId=&startIndex=0&limit=50
 Empty `parentId` lists TV libraries. Library -> series, series -> seasons, season -> episodes.
