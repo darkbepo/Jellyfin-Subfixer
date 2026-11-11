@@ -69,7 +69,7 @@ Never load a whole library. Browse by parent with paging; search with a search t
 `VirtualFolderInfo.ItemId` is still filled in on 12.4 but isn't needed.
 
 ## Packaging
-`net10.0`, `Jellyfin.Controller` / `Jellyfin.Model` / `Jellyfin.Common` 12.4.0 with `ExcludeAssets=runtime`, four-part version, `meta.json`, zip plus MD5 checksum, `manifest.json` with `targetAbi` `12.0.0.0`. The zip contains only our own DLL: no Jellyfin, Newtonsoft or SQLite assemblies, because every DLL in the plugin folder is loaded into the plugin's own context and would shadow the server's copies (D16, D17). Declare the File Transformation dependency in the README and plugin description.
+`net10.0`, `Jellyfin.Controller` / `Jellyfin.Model` / `Jellyfin.Common` 12.4.0 with `ExcludeAssets=runtime`, four-part version, `meta.json`, zip plus MD5 checksum, `manifest.json` with `targetAbi` `12.0.0.0` attached to each GitHub release (`build/release.ps1`, D39). Plugin name, description and targetAbi live in `build/plugin-info.ps1`, shared by the zip's `meta.json` and the manifest. The zip contains only our own DLL: no Jellyfin, Newtonsoft or SQLite assemblies, because every DLL in the plugin folder is loaded into the plugin's own context and would shadow the server's copies (D16, D17). Declare the File Transformation dependency in the README and plugin description.
 
 ## Web client hook
 At startup the plugin registers a File Transformation for `index.html` that adds `<script plugin="SubtitleFixer" src="../SubtitleFixer/menu.js" defer></script>` before `</body>`. Registration is by reflection (spike S1, D16). The page and its assets are served by our own anonymous controller routes; all data endpoints require auth.

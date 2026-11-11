@@ -36,7 +36,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public override Guid Id => PluginId;
 
     /// <inheritdoc />
-    public override string Description => "Re-times English subtitles with SubSync. Requires the File Transformation plugin.";
+    // Jellyfin writes this into the installed meta.json, so keep it in line with build\plugin-info.ps1.
+    public override string Description => "Re-times English subtitles on English-audio episodes and movies with SubSync, from a page in the avatar menu. Windows servers only. Requires the File Transformation plugin and a SubSync install on the server.";
 
     /// <inheritdoc />
     public IEnumerable<PluginPageInfo> GetPages()

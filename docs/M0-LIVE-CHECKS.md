@@ -60,7 +60,7 @@ Then:
 **Record:** exit codes, the full `report.json`, first-run and second-run seconds, behavior with the file held open, and whether any processes were left after the kill.
 
 ## Part B: after the first test build
-Build the zip with `build\package.ps1` (or download `plugin-zip` from the GitHub Actions run). Stop Jellyfin, unzip it into a new folder `plugins\SubtitleFixer_0.1.0.0\` in Jellyfin's data folder (next to the File Transformation plugin's folder), and start Jellyfin. Dashboard > Plugins > Subtitle Fixer: set the SubSync folder and save. The test page is the avatar-menu entry, or `http://<server>:8096/SubtitleFixer/Page`.
+Build the zip with `build\package.ps1` (or download `plugin-zip` from the GitHub Actions run). Stop Jellyfin, unzip it into a new folder `plugins\Subtitle Fixer_0.1.0.0\` (the name Jellyfin's installer uses, so a later repository update replaces it) in Jellyfin's data folder (next to the File Transformation plugin's folder), and start Jellyfin. Dashboard > Plugins > Subtitle Fixer: set the SubSync folder and save. The test page is the avatar-menu entry, or `http://<server>:8096/SubtitleFixer/Page`.
 
 ### S1 Menu entry
 Check as an admin and a non-admin, on desktop width and on a phone (or a narrow window):

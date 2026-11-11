@@ -46,5 +46,6 @@ Acceptance: the `UI.md` behaviors work on desktop and phone width against the re
 Acceptance: all settings take effect; non-admin and admin paths verified.
 
 ## M5 Release
-- [ ] Package zip plus checksum, `manifest.json`, release workflow, final `README.md` (document File Transformation and SubSync requirements).
+- [x] Package zip plus checksum, `manifest.json`, release workflow, final `README.md` (document File Transformation and SubSync requirements). The release is `build\release.ps1`, run by the owner (D39). The repository install was tested on Testflix 2026-11-11 from a local manifest: catalog, checksum, install folder, load.
+- [ ] Owner: publish the first release (`build\release.ps1`), then install it from the real repository URL.
 - [ ] Manual test pass (`TESTING.md` checklist) on a clean Jellyfin 12 server.

@@ -1,15 +1,19 @@
 <#
 .SYNOPSIS
-  Builds the plugin and writes artifacts\SubtitleFixer_<version>.zip plus its MD5, ready to unzip into Jellyfin's plugins folder.
+  Builds the plugin and writes artifacts\SubtitleFixer_<version>.zip plus its MD5, ready for a release or to unzip
+  into Jellyfin's plugins folder.
 .DESCRIPTION
   The zip holds only our DLL and meta.json. Jellyfin, Newtonsoft and SQLite assemblies come from the server (D16, D17).
+  The version comes from Directory.Build.props.
 #>
 param(
-    [string]$Configuration = 'Release'
+    [string]$Configuration = 'Release',
+    [string]$Changelog = 'Local build.'
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'plugin-info.ps1')
 $project = Join-Path $root 'src\Jellyfin.Plugin.SubtitleFixer\Jellyfin.Plugin.SubtitleFixer.csproj'
 
 dotnet build $project -c $Configuration -nologo -v q
@@ -26,14 +30,14 @@ New-Item -ItemType Directory -Force $staging | Out-Null
 Copy-Item $dll $staging
 
 $meta = [ordered]@{
-    category    = 'General'
-    changelog   = 'Test build for M0 live checks.'
-    description = 'Re-times English subtitles on English-audio TV episodes with SubSync. Requires the File Transformation plugin and a SubSync install on the server.'
-    guid        = 'aca97159-ff3b-469e-a552-db44d9b77806'
-    name        = 'Subtitle Fixer'
-    overview    = 'Fix out-of-sync English subtitles from inside Jellyfin.'
-    owner       = 'darkbepo'
-    targetAbi   = '12.0.0.0'
+    category    = $PluginInfo.category
+    changelog   = $Changelog
+    description = $PluginInfo.description
+    guid        = $PluginInfo.guid
+    name        = $PluginInfo.name
+    overview    = $PluginInfo.overview
+    owner       = $PluginInfo.owner
+    targetAbi   = $PluginInfo.targetAbi
     timestamp   = (Get-Date).ToUniversalTime().ToString('o')
     version     = $version
     status      = 'Active'
