@@ -41,7 +41,9 @@ $meta = [ordered]@{
     imagePath   = ''
     assemblies  = @('Jellyfin.Plugin.SubtitleFixer.dll')
 }
-$meta | ConvertTo-Json | Out-File (Join-Path $staging 'meta.json') -Encoding utf8
+# UTF-8 without BOM: Jellyfin's System.Text.Json rejects a BOM ("'0xEF' is an invalid start of a value")
+# and Windows PowerShell 5.1's -Encoding utf8 always writes one.
+[System.IO.File]::WriteAllText((Join-Path $staging 'meta.json'), ($meta | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
 
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $zip
