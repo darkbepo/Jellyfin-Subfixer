@@ -12,13 +12,17 @@ Vanilla JS and CSS served from embedded resources (`index.html`, `app.js`, `styl
 - The disclaimer "Only fixes English subtitles on English audio." is always visible under the title.
 
 ## Layout
-Title, disclaimer, search box, breadcrumb (Libraries > Library > Series > Season), list, footer bar. While a job runs the footer becomes the progress panel.
+Title, disclaimer, search box, breadcrumb (Libraries > Library > Series > Season), list, queue panel, footer bar.
+- The **footer bar** is fixed to the bottom: the selection summary, Clear selection and Start.
+- The **queue panel** sits under the list. It shows whenever the shared queue has anything in it (running, queued or finished), not only while the viewer's own job runs, because the queue is shared (D19). The footer stays usable meanwhile, so a user can add more while a job runs.
+- Admins also get a collapsed **Diagnostics** section (startup state, state.db test row, SubSync check, request timings; used for `M0-LIVE-CHECKS.md` Part B).
 
 ## Explorer
 - Folder-like rows: icon, name, secondary text (seasons: "24 episodes, 3 synced"), status badge (Synced, Attempted, Not eligible with reason on hover/long-press).
 - Libraries and series have no checkbox; click opens them. Seasons and episodes have checkboxes; clicking the season name opens it.
-- Paged loading (infinite scroll or "load more"); never fetch a whole library.
-- Live search: debounce about 250 ms, results are series and episodes; opening a result navigates like browsing.
+- Paged loading: 50 per page (25 in mock mode). A "Load more (N left)" button, which also loads by itself when it scrolls into view. Never fetch a whole library.
+- Live search: debounce about 250 ms, 2+ characters, results are series and episodes (one page of 30; the hint says when there are more). Opening a result navigates like browsing: a series opens the series; an episode's name opens its season, pages until that episode is loaded, scrolls to it and highlights it. Esc clears the search.
+- Episode badges: Synced, Previously attempted (with the last message), "Not eligible: <reason>" (the reason is in the badge text, so it works without hover or long-press), and the live queue status (Queued, Syncing…, Fixed, Check, Failed, Cancelled, Skipped). Episodes already queued or running can't be ticked again.
 
 ## Selection model
 - State: `selected: Set<episodeId>`, `seasonChecks` derived, `lockedSeriesId | null`.
@@ -28,7 +32,9 @@ Title, disclaimer, search box, breadcrumb (Libraries > Library > Series > Season
 - Ineligible episodes cannot be checked. Attempted ones can.
 
 ## Footer
-After each selection change (debounce about 300 ms) call `/Jobs/Preview` and show "47 selected, 12 already synced (skipped)". Start is disabled when `eligible` is 0 or the API returns an error; show the API's message (cap exceeded, queue full, etc.).
+After each selection change (debounce about 300 ms) call `/Jobs/Preview` and show for example "40 selected in The Long Show, 27 will be fixed, 13 skipped (5 already synced), 4 tried before." Start shows the count ("Start (27)") and is disabled when `eligible` is 0 or the API returns an error; the API's message is shown in red (cap exceeded, queue full, etc.).
+- A fully ticked season is sent as the **season id** (so the server reports its skipped episodes); partly ticked seasons are sent as episode ids.
+- After Start the selection clears and the footer says how many were queued and skipped.
 
 ## Progress panel
 Polls `/Status` every 1 s while running and every 5 s when idle and the tab is visible; stops when hidden. Shows overall bar (done / total), elapsed and ETA, current episode name with an indeterminate working indicator, and a Cancel button. Per-row status in the explorer updates (queued, syncing, done, check, failed). Reopening the page mid-job shows the running job.
@@ -46,7 +52,12 @@ When finished: summary "12 done, 1 check, 0 failed" with the non-done episodes a
 Map API error codes to plain messages (`API.md`). `subsync_unavailable`: "SubSync is not configured. Ask an administrator." Network error: retry banner.
 
 ## Mock mode
-`?mock=1` runs against `mock-data.js` (3 libraries, 5 series, one season with 40 episodes, a mix of eligible, synced and ineligible) and simulates progress, so Track B can work without the backend.
+`?mock=1` runs against `mock-data.js` (3 libraries, 5 series, one season with 40 episodes, a mix of eligible, synced, attempted and ineligible) and simulates progress, so Track B can work without the backend. The mock starts with another user's hidden episode running, so the shared-queue display is visible at once.
+- Extra switches: `&user=member` (not admin), `&user=denied` (not allowed), `&subsync=off` (Start fails with `subsync_unavailable`), `&slow=1` (500 ms latency).
+- Without Jellyfin: `powershell -ExecutionPolicy Bypass -File build\dev-server.ps1` serves the page at `http://localhost:5178/SubtitleFixer/Page?mock=1` (also `.claude/launch.json` "page-mock").
+- The plugin serves `mock-data.js` too, so `?mock=1` also works on a real server for demos; it never touches real data.
 
 ## Accessibility
-Keyboard navigable (arrows, space toggles checkbox, enter opens), visible focus, labels on checkboxes, status not conveyed by color alone.
+- Keyboard: the list is one tab stop (roving focus). Up/Down move between rows (Up from the first row goes to search, Down from search enters the list), Home/End, Space toggles the row's checkbox, Enter or Right opens a library, series or season (and a search result), Left or Backspace goes up one level, `/` jumps to search.
+- Visible focus ring on everything; labelled checkboxes ("Select S01E04 Title"); status always has text, never color alone; the progress bar has `role=progressbar` with a value; the queue summary and footer are live regions.
+- Works at 375 px: badges wrap under the name, footer buttons fill the width. Respects reduced motion.

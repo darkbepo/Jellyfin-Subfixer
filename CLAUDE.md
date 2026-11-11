@@ -38,6 +38,7 @@ Jellyfin 12 APIs, File Transformation behavior and web-client DOM are not in you
 dotnet build Jellyfin.Plugin.SubtitleFixer.slnx -c Release
 dotnet test Jellyfin.Plugin.SubtitleFixer.slnx -c Release
 powershell -ExecutionPolicy Bypass -File build\package.ps1   # artifacts\SubtitleFixer_<ver>.zip + .md5
+powershell -ExecutionPolicy Bypass -File build\dev-server.ps1  # page in mock mode: http://localhost:5178/SubtitleFixer/Page?mock=1
 ```
 The plugin output must contain only our DLL: Jellyfin, Newtonsoft and SQLite come from the server (D16, D17). Tests reference the runtime packages themselves.
 

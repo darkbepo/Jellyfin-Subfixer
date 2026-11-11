@@ -250,6 +250,11 @@ public sealed class SubtitleFixerPageController : ControllerBase
     [HttpGet("Page/styles.css")]
     public IActionResult GetStyles() => Resource("styles.css", "text/css");
 
+    /// <summary>Fake data for <c>?mock=1</c> (UI.md, mock mode). Loaded only in mock mode; contains no real data.</summary>
+    /// <returns>JavaScript.</returns>
+    [HttpGet("Page/mock-data.js")]
+    public IActionResult GetMockData() => Resource("mock-data.js", "application/javascript");
+
     /// <summary>Avatar-menu script injected into jellyfin-web.</summary>
     /// <returns>JavaScript.</returns>
     [HttpGet("menu.js")]

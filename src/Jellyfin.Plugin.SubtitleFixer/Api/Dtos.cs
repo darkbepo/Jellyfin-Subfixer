@@ -56,6 +56,9 @@ public sealed record ItemDto
     /// <summary>Gets the series name.</summary>
     public string? SeriesName { get; init; }
 
+    /// <summary>Gets the season id of an episode (search results open their season).</summary>
+    public Guid? SeasonId { get; init; }
+
     /// <summary>Gets the season or episode number.</summary>
     public int? IndexNumber { get; init; }
 

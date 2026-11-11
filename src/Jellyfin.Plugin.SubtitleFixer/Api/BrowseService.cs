@@ -111,6 +111,7 @@ public sealed class BrowseService
         Type = TypeName(node.Kind),
         SeriesId = node.SeriesId,
         SeriesName = node.SeriesName,
+        SeasonId = node.Kind == NodeKind.Episode ? node.SeasonId : null,
         IndexNumber = node.IndexNumber,
         ParentIndexNumber = node.ParentIndexNumber,
     };

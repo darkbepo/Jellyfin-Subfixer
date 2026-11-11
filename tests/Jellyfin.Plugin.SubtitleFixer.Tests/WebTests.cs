@@ -48,11 +48,42 @@ public sealed class WebTests
     [InlineData("app.js")]
     [InlineData("styles.css")]
     [InlineData("menu.js")]
+    [InlineData("mock-data.js")]
     public void Web_files_are_embedded(string name)
     {
         var assembly = typeof(Plugin).Assembly;
         using var stream = assembly.GetManifestResourceStream($"{typeof(Plugin).Namespace}.Web.{name}");
         Assert.NotNull(stream);
+    }
+
+    [Theory]
+    [InlineData("index.html")]
+    [InlineData("app.js")]
+    [InlineData("styles.css")]
+    [InlineData("menu.js")]
+    [InlineData("mock-data.js")]
+    public void Page_files_load_nothing_external(string name)
+    {
+        using var stream = typeof(Plugin).Assembly.GetManifestResourceStream($"{typeof(Plugin).Namespace}.Web.{name}")!;
+        using var reader = new StreamReader(stream);
+        var text = reader.ReadToEnd();
+
+        // The SVG namespace string is not a load; anything else absolute is (UI.md: no external CDNs).
+        var external = System.Text.RegularExpressions.Regex.Matches(text, @"(src|href)\s*=\s*[""']\s*(https?:)?//|url\(\s*[""']?\s*(https?:)?//|@import|fetch\(\s*[""']https?:")
+            .Select(m => m.Value)
+            .ToList();
+        Assert.Empty(external);
+    }
+
+    [Fact]
+    public void Page_uses_the_shared_disclaimer_and_back_link()
+    {
+        using var stream = typeof(Plugin).Assembly.GetManifestResourceStream($"{typeof(Plugin).Namespace}.Web.index.html")!;
+        using var reader = new StreamReader(stream);
+        var html = reader.ReadToEnd();
+
+        Assert.Contains("Only fixes English subtitles on English audio.", html, StringComparison.Ordinal);
+        Assert.Contains("href=\"../web/\"", html, StringComparison.Ordinal);
     }
 
     [Fact]

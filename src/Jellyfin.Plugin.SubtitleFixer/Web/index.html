@@ -3,87 +3,102 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
     <title>Subtitle Fixer</title>
     <link rel="stylesheet" href="Page/styles.css">
 </head>
 <body>
+    <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+        <symbol id="i-library" viewBox="0 0 24 24"><path fill="currentColor" d="M3 5h4v14H3zm6 0h4v14H9zm6.6.4 3.8-1 3.6 13.5-3.8 1z"/></symbol>
+        <symbol id="i-series" viewBox="0 0 24 24"><path fill="currentColor" d="M3 6h18a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-7v2h3v1H7v-1h3v-2H3a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zm1 2v8h16V8z"/></symbol>
+        <symbol id="i-season" viewBox="0 0 24 24"><path fill="currentColor" d="M3 6h7l2 2h9v11H3zm2 4v7h14v-7z"/></symbol>
+        <symbol id="i-episode" viewBox="0 0 24 24"><path fill="currentColor" d="M4 4h16v16H4zm2 2v12h12V6zm3 2.5 6 3.5-6 3.5z"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24"><path fill="currentColor" d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/></symbol>
+        <symbol id="i-back" viewBox="0 0 24 24"><path fill="currentColor" d="M11 5 4 12l7 7 1.4-1.4L7.8 13H20v-2H7.8l4.6-4.6z"/></symbol>
+    </svg>
+
     <header class="top">
-        <div>
-            <h1>Subtitle Fixer</h1>
+        <div class="title">
+            <h1>Subtitle Fixer <span id="mock-badge" class="pill" hidden>Mock data</span></h1>
             <p class="disclaimer">Only fixes English subtitles on English audio.</p>
         </div>
-        <a class="back" href="../web/">Back to Jellyfin</a>
+        <a class="back" href="../web/"><svg class="icon" aria-hidden="true"><use href="#i-back"/></svg>Back to Jellyfin</a>
     </header>
 
-    <main>
-        <p id="who" class="muted" role="status">Checking your sign-in…</p>
+    <div id="banner" class="banner" role="alert" hidden>
+        <span id="banner-text">Can't reach the server.</span>
+        <button id="banner-retry" type="button">Retry</button>
+    </div>
 
-        <section id="signin" class="card" hidden>
+    <main>
+        <p id="gate-loading" class="muted" role="status">Checking your sign-in…</p>
+
+        <section id="gate-signin" class="card gate" hidden>
             <p>You are not signed in to Jellyfin in this browser.</p>
-            <a class="button" href="../web/">Sign in to Jellyfin</a>
+            <a class="button primary" href="../web/">Sign in to Jellyfin</a>
         </section>
 
-        <section id="denied" class="card" hidden>
+        <section id="gate-denied" class="card gate" hidden>
             <p>An administrator has not allowed your account to use Subtitle Fixer.</p>
         </section>
 
         <div id="app" hidden>
-            <p class="note">Test build (M1). The full file browser arrives in M3. This page runs the checks in
-                <code>docs/M0-LIVE-CHECKS.md</code> Part B: browse and search timings, the selection rules, and the admin diagnostics.</p>
+            <div class="searchbar">
+                <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+                <label class="sr-only" for="q">Search series and episodes</label>
+                <input id="q" type="search" placeholder="Search series and episodes" autocomplete="off" spellcheck="false">
+            </div>
 
-            <section class="card">
-                <h2>Browse</h2>
-                <nav id="crumbs" aria-label="Breadcrumb"></nav>
-                <ul id="list" class="rows"></ul>
-                <div class="row-actions">
-                    <button id="more" type="button" hidden>Load more</button>
-                    <button id="preview" type="button" disabled>Preview selection</button>
-                    <button id="start" type="button" class="primary" disabled>Start</button>
-                    <button id="clear" type="button" disabled>Clear selection</button>
-                </div>
-                <p id="selection" class="muted"></p>
+            <nav id="crumbs" class="crumbs" aria-label="Breadcrumb"></nav>
+
+            <section class="explorer" aria-labelledby="list-title">
+                <h2 id="list-title" class="sr-only">Items</h2>
+                <p id="list-hint" class="hint" hidden></p>
+                <ul id="list" class="rows" aria-labelledby="list-title"></ul>
+                <p id="list-empty" class="muted empty" hidden></p>
+                <button id="more" type="button" class="more" hidden>Load more</button>
             </section>
 
-            <section class="card" aria-labelledby="queue-title">
-                <h2 id="queue-title">Queue</h2>
-                <p class="note">One shared queue for everyone, one episode at a time.</p>
-                <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><span></span></div>
-                <p id="queue-summary" role="status">Idle.</p>
+            <section id="queue-panel" class="card queue" aria-labelledby="queue-title" hidden>
+                <div class="queue-head">
+                    <h2 id="queue-title">Queue</h2>
+                    <span class="muted small">Shared by everyone · one episode at a time</span>
+                </div>
+                <div id="bar" class="bar" role="progressbar" aria-label="Queue progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></div>
+                <p id="queue-summary" role="status"></p>
                 <p id="queue-stop" class="error" hidden></p>
-                <ul id="queue" class="rows"></ul>
-                <div class="row-actions">
+                <ul id="queue-list" class="rows compact"></ul>
+                <button id="queue-more" type="button" class="linkish" hidden></button>
+                <div class="actions">
                     <button id="cancel" type="button" disabled>Cancel</button>
                     <button id="clear-finished" type="button" disabled>Clear finished</button>
                 </div>
             </section>
 
-            <section class="card">
-                <h2>Search</h2>
-                <label class="field">Series or episode name
-                    <input id="q" type="search" autocomplete="off">
-                </label>
-                <ul id="results" class="rows"></ul>
-            </section>
-
-            <section class="card">
-                <h2>Request timings</h2>
-                <ol id="timings" class="timings"></ol>
-            </section>
-
-            <section id="admin" class="card" hidden>
-                <h2>Diagnostics (admin)</h2>
-                <dl id="diag" class="kv"></dl>
-                <div class="row-actions">
+            <details id="diag" class="card diag" hidden>
+                <summary>Diagnostics (admin)</summary>
+                <dl id="diag-list" class="kv"></dl>
+                <div class="actions">
                     <button id="diag-refresh" type="button">Refresh</button>
                     <button id="diag-write" type="button">Write test row to state.db</button>
                     <button id="subsync" type="button">Run SubSync check</button>
                 </div>
                 <pre id="subsync-out" class="out" hidden></pre>
-            </section>
+                <h3>Request timings</h3>
+                <ol id="timings" class="timings"></ol>
+            </details>
         </div>
-
-        <p id="error" class="error" role="alert" hidden></p>
     </main>
+
+    <footer id="footer" class="footer" hidden>
+        <div class="footer-inner">
+            <p id="footer-text" role="status">Select seasons or episodes of one series.</p>
+            <div class="actions">
+                <button id="clear-selection" type="button" disabled>Clear selection</button>
+                <button id="start" type="button" class="primary" disabled>Start</button>
+            </div>
+        </div>
+    </footer>
 
     <script src="Page/app.js"></script>
 </body>

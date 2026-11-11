@@ -27,10 +27,11 @@ Acceptance: unit tests for validator, eligibility, fingerprint match and invalid
 Acceptance: fault-injection tests (`TESTING.md`) all leave the original subtitle intact (done, 2026-11-11: 171 tests); real run on one test season updates subtitles and Jellyfin serves them immediately; a second run skips every episode (pending owner).
 
 ## M3 Web UI (B)
-- [ ] Explorer, search, selection with series lock, footer preview, progress panel, disclaimer, error mapping, in mock mode first (`UI.md`).
-- [ ] Menu injection (S1 result) and page serving (S2 result).
-- [ ] Switch from mock to the real API.
-Acceptance: the `UI.md` behaviors work on desktop and phone width against the real server; the series lock cannot be bypassed in the UI, and the API still rejects anything the UI would not send.
+- [x] Explorer, search, selection with series lock, footer preview, progress panel, disclaimer, error mapping, in mock mode first (`UI.md`). Tested 2026-11-11 in mock mode at desktop and 375 px width: drill-down, paging, season tri-state, series lock, keyboard, search-to-season, Start, live row statuses, cancel, member/denied/signed-out/SubSync-off states.
+- [x] Menu injection (S1 result) and page serving (S2 result) (built in M1).
+- [x] Switch from mock to the real API (same code; `?mock=1` only swaps the transport).
+- [ ] Owner: the same behaviors against the real server (needs a TV library; Testflix has only movies, `LOCAL-TEST-ENV.md`).
+Acceptance: the `UI.md` behaviors work on desktop and phone width against the real server (pending); the series lock cannot be bypassed in the UI, and the API still rejects anything the UI would not send (`SelectionValidatorTests`).
 
 ## M4 Settings and hardening (A, page markup B)
 - [ ] Admin settings page with Test SubSync, `AllowedUsers` enforcement, caps, clear error messages and logging.
