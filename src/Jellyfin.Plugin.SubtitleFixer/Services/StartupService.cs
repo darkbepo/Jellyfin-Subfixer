@@ -1,3 +1,4 @@
+using Jellyfin.Plugin.SubtitleFixer.Services.Jobs;
 using Jellyfin.Plugin.SubtitleFixer.State;
 using Jellyfin.Plugin.SubtitleFixer.Web;
 using Microsoft.Data.Sqlite;
@@ -16,6 +17,7 @@ public sealed class StartupService : IHostedService
     private static readonly TimeSpan RegistrationDelay = TimeSpan.FromSeconds(3);
 
     private readonly IStateStore _state;
+    private readonly RecoveryService _recovery;
     private readonly FileTransformationRegistrar _registrar;
     private readonly StartupStatus _status;
     private readonly ILogger<StartupService> _logger;
@@ -26,12 +28,14 @@ public sealed class StartupService : IHostedService
     /// Initializes a new instance of the <see cref="StartupService"/> class.
     /// </summary>
     /// <param name="state">State store.</param>
+    /// <param name="recovery">Startup recovery.</param>
     /// <param name="registrar">File Transformation registrar.</param>
     /// <param name="status">Startup status.</param>
     /// <param name="logger">Logger.</param>
-    public StartupService(IStateStore state, FileTransformationRegistrar registrar, StartupStatus status, ILogger<StartupService> logger)
+    public StartupService(IStateStore state, RecoveryService recovery, FileTransformationRegistrar registrar, StartupStatus status, ILogger<StartupService> logger)
     {
         _state = state;
+        _recovery = recovery;
         _registrar = registrar;
         _status = status;
         _logger = logger;
@@ -62,11 +66,17 @@ public sealed class StartupService : IHostedService
         {
             await _state.InitializeAsync(cancellationToken).ConfigureAwait(false);
             _status.StateReady = true;
+            _status.Recovered = await _recovery.RecoverAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is SqliteException or IOException or UnauthorizedAccessException or InvalidOperationException or TypeLoadException or DllNotFoundException)
         {
             _status.StateError = ex.Message;
             _logger.LogError(ex, "Subtitle Fixer could not open its state database at {Path}", _state.Location);
+        }
+        finally
+        {
+            // Without a working state store every run fails safely at the journal step, so the queue may start.
+            _status.MarkRecoveryDone();
         }
 
         for (var attempt = 1; attempt <= RegistrationAttempts && !cancellationToken.IsCancellationRequested; attempt++)

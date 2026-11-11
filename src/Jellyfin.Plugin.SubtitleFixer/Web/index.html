@@ -38,9 +38,23 @@
                 <div class="row-actions">
                     <button id="more" type="button" hidden>Load more</button>
                     <button id="preview" type="button" disabled>Preview selection</button>
+                    <button id="start" type="button" class="primary" disabled>Start</button>
                     <button id="clear" type="button" disabled>Clear selection</button>
                 </div>
                 <p id="selection" class="muted"></p>
+            </section>
+
+            <section class="card" aria-labelledby="queue-title">
+                <h2 id="queue-title">Queue</h2>
+                <p class="note">One shared queue for everyone, one episode at a time.</p>
+                <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><span></span></div>
+                <p id="queue-summary" role="status">Idle.</p>
+                <p id="queue-stop" class="error" hidden></p>
+                <ul id="queue" class="rows"></ul>
+                <div class="row-actions">
+                    <button id="cancel" type="button" disabled>Cancel</button>
+                    <button id="clear-finished" type="button" disabled>Clear finished</button>
+                </div>
             </section>
 
             <section class="card">

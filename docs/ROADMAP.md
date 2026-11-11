@@ -19,11 +19,12 @@ Do `M0-SPIKES.md`. Acceptance: every spike has findings; docs corrected.
 Acceptance: unit tests for validator, eligibility, fingerprint match and invalidation pass (56 tests, 2026-11-11); Browse and Preview work against the real server with real timings recorded in `ARCHITECTURE.md` (pending owner).
 
 ## M2 Job engine (A)
-- [ ] `ISubSyncWorker` and `CliWorker` (process, report parsing, kill tree, timeout).
-- [ ] `JobQueue` (in memory, caps, single consumer), `JobRunner` implementing `JOB-FLOW.md`.
-- [ ] `BackupService`, verification, `RecoveryService` at startup, `RefreshService`.
-- [ ] `POST /Jobs`, `GET /Status`, `POST /Jobs/Cancel`.
-Acceptance: fault-injection tests (`TESTING.md`) all leave the original subtitle intact; real run on one test season updates subtitles and Jellyfin serves them immediately; a second run skips every episode.
+- [x] `ISubSyncWorker` and `CliWorker` (process, report parsing, kill tree, timeout).
+- [x] `JobQueue` (in memory, caps, single consumer, shared and visible to all, D19), `JobRunner` implementing `JOB-FLOW.md`, `JobProcessor` with the exit-7 and 3-crash stops.
+- [x] `BackupService` with the journal (D23), verification, `RecoveryService` at startup, `RefreshService`.
+- [x] `POST /Jobs`, `GET /Status`, `POST /Jobs/Cancel`, `POST /Jobs/Clear`; Start button and queue panel on the test page.
+- [ ] Owner: real run on one test season (see `M0-LIVE-CHECKS.md` S5 first; the report layout is unverified).
+Acceptance: fault-injection tests (`TESTING.md`) all leave the original subtitle intact (done, 2026-11-11: 171 tests); real run on one test season updates subtitles and Jellyfin serves them immediately; a second run skips every episode (pending owner).
 
 ## M3 Web UI (B)
 - [ ] Explorer, search, selection with series lock, footer preview, progress panel, disclaimer, error mapping, in mock mode first (`UI.md`).

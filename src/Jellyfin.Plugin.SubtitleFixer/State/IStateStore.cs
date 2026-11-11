@@ -32,6 +32,26 @@ public interface IStateStore
     /// <returns>A task.</returns>
     Task DeleteAsync(Guid itemId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Journals a backup before the <c>.bak</c> is created, so startup recovery knows exactly which files to restore
+    /// without scanning the library (D23).
+    /// </summary>
+    /// <param name="entry">Journal entry.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    Task AddInFlightAsync(InFlightBackup entry, CancellationToken cancellationToken);
+
+    /// <summary>Removes the journal entry once the backup is gone (deleted after success, or restored).</summary>
+    /// <param name="itemId">Item id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    Task RemoveInFlightAsync(Guid itemId, CancellationToken cancellationToken);
+
+    /// <summary>Gets every journal entry (normally zero or one).</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Entries.</returns>
+    Task<IReadOnlyList<InFlightBackup>> GetInFlightAsync(CancellationToken cancellationToken);
+
     /// <summary>Reads a value from the key/value meta table.</summary>
     /// <param name="key">Key.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

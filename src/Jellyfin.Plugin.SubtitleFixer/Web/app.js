@@ -60,6 +60,7 @@
     var current = { parentId: null, loaded: 0, total: 0 };
     var selected = new Map();   // episodeId -> seriesId
     var lockedSeries = null;
+    var isAdmin = false;
 
     function badge(item) {
         var span = document.createElement('span');
@@ -176,6 +177,7 @@
         lockedSeries = selected.size ? selected.values().next().value : null;
         $('clear').disabled = selected.size === 0;
         $('preview').disabled = selected.size === 0;
+        $('start').disabled = true;
         $('selection').textContent = selected.size ? selected.size + ' episodes selected' : '';
         // Re-render current rows so the series lock applies.
         var list = $('list');
@@ -186,14 +188,102 @@
     }
 
     function preview() {
+        $('start').disabled = true;
         if (!selected.size) { return; }
         api('POST', 'Jobs/Preview', { itemIds: Array.from(selected.keys()) }).then(function (p) {
             var skipped = p.skipped.alreadySynced + p.skipped.noEnglishAudio + p.skipped.noSidecar + p.skipped.noVideoFile;
             $('selection').textContent = p.selected + ' selected in ' + p.seriesName + ': ' + p.eligible + ' would be fixed, ' +
                 skipped + ' skipped (' + p.skipped.alreadySynced + ' already synced)' +
-                (p.attemptedBefore ? ', ' + p.attemptedBefore + ' previously attempted' : '') + '. Queuing arrives in M2.';
+                (p.attemptedBefore ? ', ' + p.attemptedBefore + ' previously attempted' : '') + '.';
+            $('start').disabled = p.eligible === 0;
         }).catch(function (err) { $('selection').textContent = err.message; });
     }
+
+    function startJobs() {
+        $('start').disabled = true;
+        api('POST', 'Jobs', { itemIds: Array.from(selected.keys()) }).then(function (r) {
+            $('selection').textContent = r.queued + ' queued, ' + r.skipped + ' skipped. Queue length: ' + r.queueLength + '.';
+            selected.clear();
+            selectionChanged();
+            pollNow();
+        }).catch(function (err) { $('selection').textContent = err.message; $('start').disabled = false; });
+    }
+
+    // ---------- queue (GET /Status: every 1 s while running, 5 s when idle, paused while the tab is hidden) ----------
+    var pollTimer = null;
+    var lastState = 'idle';
+
+    function statusBadge(item) {
+        var span = document.createElement('span');
+        span.className = 'badge ' + item.status;
+        span.textContent = item.status === 'running' ? 'syncing' : item.status;
+        if (item.message) { span.title = item.message; }
+        return span;
+    }
+
+    function fmt(seconds) {
+        if (seconds == null) { return 'unknown'; }
+        var m = Math.round(seconds / 60);
+        return m < 1 ? 'under a minute' : m + ' min';
+    }
+
+    function renderQueue(s) {
+        lastState = s.state;
+        var t = s.totals;
+        var finished = t.done + t.check + t.failed + t.cancelled + t.skipped;
+        var total = finished + t.queued + t.running;
+        var bar = $('bar');
+        var pct = total ? Math.round(finished * 100 / total) : 0;
+        bar.firstElementChild.style.width = pct + '%';
+        bar.setAttribute('aria-valuenow', String(pct));
+        bar.classList.toggle('working', s.state !== 'idle');
+
+        var summary;
+        if (s.state === 'idle') {
+            summary = total ? 'Finished: ' + t.done + ' done, ' + t.check + ' check, ' + t.failed + ' failed' +
+                (t.cancelled ? ', ' + t.cancelled + ' cancelled' : '') + (t.skipped ? ', ' + t.skipped + ' skipped' : '') + '.' : 'Idle.';
+        } else {
+            summary = (s.state === 'stopping' ? 'Stopping… ' : '') + finished + ' of ' + total + ' finished. ' +
+                (s.current ? 'Now: ' + s.current.name + '. ' : '') + 'About ' + fmt(s.etaSeconds) + ' left.' +
+                (s.aheadOfYours ? ' Queue: ' + s.aheadOfYours + ' episodes ahead of yours.' : '');
+        }
+        if (!s.subsyncAvailable) { summary += ' SubSync is not configured. Ask an administrator.'; }
+        $('queue-summary').textContent = summary;
+
+        var stop = $('queue-stop');
+        stop.hidden = !s.stopReason;
+        stop.textContent = s.stopReason ? 'Queue stopped: ' + s.stopReason : '';
+
+        var list = $('queue');
+        list.textContent = '';
+        s.items.forEach(function (item) {
+            var li = document.createElement('li');
+            var name = document.createElement('span');
+            name.className = 'name';
+            name.textContent = item.name;
+            var sub = document.createElement('span');
+            sub.className = 'sub';
+            sub.textContent = [item.seriesName, item.message, item.note].filter(Boolean).join(' · ');
+            name.appendChild(sub);
+            li.appendChild(name);
+            if (item.mine) { var mine = document.createElement('span'); mine.className = 'mine'; mine.textContent = 'yours'; li.appendChild(mine); }
+            li.appendChild(statusBadge(item));
+            list.appendChild(li);
+        });
+
+        var minePending = s.items.some(function (i) { return i.mine && (i.status === 'queued' || i.status === 'running'); });
+        $('cancel').disabled = !(minePending || (isAdmin && t.queued + t.running > 0));
+        $('clear-finished').disabled = finished === 0;
+    }
+
+    function pollNow() {
+        clearTimeout(pollTimer);
+        if (document.hidden) { return; }
+        api('GET', 'Status').then(renderQueue).catch(function () { /* the timings list shows failures */ })
+            .then(function () { pollTimer = setTimeout(pollNow, lastState === 'idle' ? 5000 : 1000); });
+    }
+
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) { pollNow(); } });
 
     // ---------- search ----------
     var searchTimer = null;
@@ -252,6 +342,11 @@
             $('more').addEventListener('click', function () { browse(current.parentId, true); });
             $('clear').addEventListener('click', function () { selected.clear(); selectionChanged(); });
             $('preview').addEventListener('click', preview);
+            $('start').addEventListener('click', startJobs);
+            isAdmin = !!me.isAdmin;
+            $('cancel').addEventListener('click', function () { api('POST', 'Jobs/Cancel').then(renderQueue).catch(showError); });
+            $('clear-finished').addEventListener('click', function () { api('POST', 'Jobs/Clear').then(renderQueue).catch(showError); });
+            pollNow();
             $('q').addEventListener('input', function () { clearTimeout(searchTimer); searchTimer = setTimeout(search, 250); });
             browse(null);
             if (me.isAdmin) { initAdmin(); }

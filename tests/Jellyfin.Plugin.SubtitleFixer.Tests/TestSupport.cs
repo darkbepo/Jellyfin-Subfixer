@@ -127,6 +127,23 @@ public sealed class FakeStateStore : IStateStore
         return Task.CompletedTask;
     }
 
+    public Dictionary<Guid, InFlightBackup> InFlight { get; } = new();
+
+    public Task AddInFlightAsync(InFlightBackup entry, CancellationToken cancellationToken)
+    {
+        InFlight[entry.ItemId] = entry;
+        return Task.CompletedTask;
+    }
+
+    public Task RemoveInFlightAsync(Guid itemId, CancellationToken cancellationToken)
+    {
+        InFlight.Remove(itemId);
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<InFlightBackup>> GetInFlightAsync(CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<InFlightBackup>>(InFlight.Values.ToList());
+
     public Task<string?> GetMetaAsync(string key, CancellationToken cancellationToken) => Task.FromResult<string?>(null);
 
     public Task SetMetaAsync(string key, string value, CancellationToken cancellationToken) => Task.CompletedTask;

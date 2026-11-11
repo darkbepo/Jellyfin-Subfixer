@@ -106,6 +106,17 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .kv dd { margin: 0; overflow-wrap: anywhere; }
 .out { white-space: pre-wrap; background: #0d0f11; padding: 12px; border-radius: 6px; overflow-x: auto; }
 
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.bar { height: 8px; background: #0d0f11; border-radius: 999px; overflow: hidden; margin: 8px 0; }
+.bar span { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.3s; }
+.bar.working span { background: repeating-linear-gradient(45deg, var(--accent) 0 10px, #6fb0fb 10px 20px); }
+
+.badge.running { color: var(--accent); border-color: var(--accent); }
+.badge.failed, .badge.cancelled { color: var(--bad); border-color: var(--bad); }
+.badge.check, .badge.skipped { color: var(--warn); border-color: var(--warn); }
+.mine { font-size: 0.75rem; color: var(--muted); border: 1px dashed var(--line); border-radius: 999px; padding: 1px 6px; }
+
 @media (max-width: 600px) {
     .top { flex-direction: column; }
     .rows li { flex-wrap: wrap; }

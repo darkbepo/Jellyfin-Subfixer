@@ -47,6 +47,13 @@ public sealed record VideoFingerprint(string Path, long Size, DateTime MtimeUtc)
     }
 }
 
+/// <summary>A backup that exists on disk while an episode syncs (table <c>in_flight</c>, D23).</summary>
+/// <param name="ItemId">Episode.</param>
+/// <param name="SubtitlePath">The subtitle being synced.</param>
+/// <param name="BackupPath">Its backup, <c>&lt;subtitle&gt;.bak</c>.</param>
+/// <param name="StartedUtc">When the backup was journaled.</param>
+public sealed record InFlightBackup(Guid ItemId, string SubtitlePath, string BackupPath, DateTime StartedUtc);
+
 /// <summary>One row of <c>synced_items</c> (ARCHITECTURE.md, state schema).</summary>
 public sealed record SyncRecord
 {

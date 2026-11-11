@@ -11,7 +11,7 @@ namespace Jellyfin.Plugin.SubtitleFixer.State;
 public sealed class SqliteStateStore : IStateStore, IDisposable
 {
     /// <summary>Schema version this code writes.</summary>
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     private const int MaxIdsPerQuery = 500;
 
@@ -35,6 +35,14 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
         );
         CREATE INDEX ix_synced_status ON synced_items(status);
         CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        """,
+        """
+        CREATE TABLE in_flight (
+          item_id        TEXT PRIMARY KEY,
+          subtitle_path  TEXT NOT NULL,
+          backup_path    TEXT NOT NULL,
+          started_utc    TEXT NOT NULL
+        );
         """,
     ];
 
@@ -197,6 +205,65 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
         {
             _writeLock.Release();
         }
+    }
+
+    /// <inheritdoc />
+    public async Task AddInFlightAsync(InFlightBackup entry, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO in_flight (item_id, subtitle_path, backup_path, started_utc) VALUES ($id, $sp, $bp, $st)
+                ON CONFLICT(item_id) DO UPDATE SET subtitle_path = excluded.subtitle_path, backup_path = excluded.backup_path, started_utc = excluded.started_utc;
+                """;
+            command.Parameters.AddWithValue("$id", FormatId(entry.ItemId));
+            command.Parameters.AddWithValue("$sp", entry.SubtitlePath);
+            command.Parameters.AddWithValue("$bp", entry.BackupPath);
+            command.Parameters.AddWithValue("$st", FormatDate(entry.StartedUtc));
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task RemoveInFlightAsync(Guid itemId, CancellationToken cancellationToken)
+    {
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM in_flight WHERE item_id = $id;";
+            command.Parameters.AddWithValue("$id", FormatId(itemId));
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<InFlightBackup>> GetInFlightAsync(CancellationToken cancellationToken)
+    {
+        var result = new List<InFlightBackup>();
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT item_id, subtitle_path, backup_path, started_utc FROM in_flight;";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add(new InFlightBackup(Guid.ParseExact(reader.GetString(0), "N"), reader.GetString(1), reader.GetString(2), ParseDate(reader.GetString(3))));
+        }
+
+        return result;
     }
 
     /// <inheritdoc />

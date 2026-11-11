@@ -23,10 +23,15 @@ Browser page (embedded JS)  <->  Plugin REST API  <->  Job queue (1 worker, in m
 Tracks A and B are separate worktrees; they meet only at `API.md`. Changing a contract means updating `API.md` in the same change and telling the other track's session.
 
 ## Worker interface
-`ISubSyncWorker.RunAsync(videoPath, subtitlePath, options, CancellationToken)` returns `WorkerResult { Status (Synced|NoMatch|Failed|Cancelled), OutputPath, Reason, AudioLanguage, Seconds, SubSyncVersion, ExitCode }`. v1 implementation spawns one `subsync-cli.exe` per episode. A future implementation can call an HTTP sidecar (Linux). Nothing outside `Worker/` may know about the CLI.
+`ISubSyncWorker.RunAsync(videoPath, subtitlePath, languageTag, options, CancellationToken)` returns `WorkerResult { Status (Synced|NoMatch|Failed|Cancelled|TimedOut|Unavailable|Crashed), OutputPath, Reason, AudioLanguage, Seconds, SubSyncVersion, ExitCode }`. `Unavailable` (exit 7) stops the queue; `Crashed` (exit 10, no report, start failure) counts toward the 3-crash stop. `ProcessRunner` starts the CLI without a window and kills the whole process tree on cancel or timeout, waiting for it to exit before the backup is restored. v1 implementation spawns one `subsync-cli.exe` per episode. A future implementation can call an HTTP sidecar (Linux). Nothing outside `Worker/` may know about the CLI.
 
 ## Queue
 In-memory, single consumer. Dropped on restart (the user can requeue; already-done episodes are skipped by state). Status snapshots are immutable objects read by the API without locking the runner.
+- `Services/Jobs/JobQueue`: the one shared queue (D19, D25). `Enqueue` (caps, no duplicates), `TakeAsync` (consumer only), `Complete`, `Cancel` (own items, admins all), `Stop`, `ClearFinished`, `Snapshot`.
+- `JobProcessor` (hosted): waits for startup recovery, then takes one entry at a time and applies the stop rules.
+- `JobRunner`: one episode through `JOB-FLOW.md` with `BackupService`, `SubtitleVerifier`, `ISubSyncWorker`, `IRefreshService`.
+- `RecoveryService`: runs in `StartupService` right after the state store opens.
+- `/Status` hides other users' items in libraries the viewer can't access, using `VisibilityCache` (5-minute per-user cache) so 1-second polling stays cheap.
 
 ## State store
 SQLite file in the plugin data folder, WAL mode, one writer (`StateStore`). `Microsoft.Data.Sqlite` is a compile-only reference: at runtime the plugin uses the copy Jellyfin 12.4 already loads (10.0.14), native library included (spike S7, D17). Live load check pending.
@@ -48,6 +53,8 @@ CREATE TABLE synced_items (
 );
 CREATE INDEX ix_synced_status ON synced_items(status);
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- small settings and the diagnostics row
+-- v2: backup journal for startup recovery (D23)
+CREATE TABLE in_flight (item_id TEXT PRIMARY KEY, subtitle_path TEXT NOT NULL, backup_path TEXT NOT NULL, started_utc TEXT NOT NULL);
 ```
 Migrations are numbered steps in `SqliteStateStore`; a database with a newer version than the code knows is refused, not touched. The file is `state.db` in the plugin's data folder.
 `done` is valid while `video_path`, `video_size` and `video_mtime_utc` still match the file. Lookups are batched per page of IDs.

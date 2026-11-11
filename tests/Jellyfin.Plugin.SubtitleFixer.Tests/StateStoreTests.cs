@@ -111,6 +111,40 @@ public sealed class StateStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task In_flight_journal_roundtrips()
+    {
+        await _store.InitializeAsync(CancellationToken.None);
+        var entry = new InFlightBackup(Guid.NewGuid(), @"D:\Shows\A é.en.srt", @"D:\Shows\A é.en.srt.bak", new DateTime(2026, 11, 11, 10, 0, 0, DateTimeKind.Utc));
+
+        await _store.AddInFlightAsync(entry, CancellationToken.None);
+        Assert.Equal(entry, Assert.Single(await _store.GetInFlightAsync(CancellationToken.None)));
+
+        await _store.RemoveInFlightAsync(entry.ItemId, CancellationToken.None);
+        Assert.Empty(await _store.GetInFlightAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Version_1_database_is_migrated_to_version_2_keeping_rows()
+    {
+        await _store.InitializeAsync(CancellationToken.None);
+        var id = Guid.NewGuid();
+        await _store.UpsertAsync(Record(id), CancellationToken.None);
+        await using (var connection = new SqliteConnection("Data Source=" + _store.Location))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "DROP TABLE in_flight; UPDATE schema_version SET version = 1;";
+            await command.ExecuteNonQueryAsync();
+        }
+
+        using var upgraded = new SqliteStateStore(_store.Location, NullLogger<SqliteStateStore>.Instance);
+        await upgraded.InitializeAsync(CancellationToken.None);
+
+        Assert.Single(await upgraded.GetAsync([id], CancellationToken.None));
+        Assert.Empty(await upgraded.GetInFlightAsync(CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Empty_lookup_returns_empty()
     {
         await _store.InitializeAsync(CancellationToken.None);

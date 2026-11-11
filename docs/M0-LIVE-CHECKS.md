@@ -80,5 +80,14 @@ The test page shows the time for each request. **Record:** time to list a large 
 ### S6 Service account and GPU
 With Jellyfin running as a service, use the test page's "Run SubSync check" button, which runs `subsync-cli check` and `version` as the service account. **Record:** GPU or CPU mode reported, and any access-denied errors for the SubSync folder or the media folder. If Jellyfin can also run as a tray app, repeat there.
 
+### M2 real run (after S5)
+Pick a test season whose subtitles you have copies of. On the test page: browse to it, tick the season, Start. Watch the queue panel.
+**Record:**
+- Per-episode time and whether the `.en.srt` files changed.
+- Whether Jellyfin plays the new subtitle right away.
+- That no `.bak` files are left in the season folder.
+- What a second Start on the same season does (expected: every episode skipped as already synced).
+Then cancel a run halfway and check that episode's subtitle is unchanged. Stop the Jellyfin service mid-episode, start it again, and check the subtitle was restored and the `.bak` is gone.
+
 ### S7 SQLite
 The test page writes a row to `state.db` in the plugin's data folder (it shows the full path). Restart Jellyfin; the test page still shows that row.

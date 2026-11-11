@@ -14,4 +14,15 @@ public sealed class StartupStatus
 
     /// <summary>Gets or sets the registration error, if any.</summary>
     public string? MenuError { get; set; }
+
+    /// <summary>Gets or sets how many subtitles startup recovery restored.</summary>
+    public int Recovered { get; set; }
+
+    /// <summary>Gets a task that completes once startup recovery has run (or the state store failed). The queue waits for it.</summary>
+    public Task RecoveryDone => _recoveryDone.Task;
+
+    private readonly TaskCompletionSource _recoveryDone = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Releases the queue.</summary>
+    public void MarkRecoveryDone() => _recoveryDone.TrySetResult();
 }
