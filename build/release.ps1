@@ -22,7 +22,13 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
 try {
-    function Git { $out = & git @args 2>$null; if ($LASTEXITCODE -ne 0) { throw "git $args failed" }; $out }
+    # Native git writes progress to stderr; under "Stop" Windows PowerShell 5.1 would turn that into an error.
+    function Invoke-Git {
+        $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+        try { $out = & git.exe @args 2>$null } finally { $ErrorActionPreference = $old }
+        if ($LASTEXITCODE -ne 0) { throw "git $args failed" }
+        $out
+    }
 
     [xml]$props = Get-Content (Join-Path $root 'Directory.Build.props')
     $version = ($props.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1).Trim()
@@ -30,12 +36,13 @@ try {
     $repo = (& gh repo view --json nameWithOwner --jq .nameWithOwner)
     if ($LASTEXITCODE -ne 0 -or -not $repo) { throw 'gh is not signed in, or this is not a GitHub checkout.' }
 
-    if ((Git rev-parse --abbrev-ref HEAD) -ne 'main') { throw 'Release from main.' }
-    if (Git status --porcelain) { throw 'Commit or stash your changes first.' }
-    Git fetch -q origin main --tags | Out-Null
-    if ((Git rev-parse HEAD) -ne (Git rev-parse origin/main)) { throw 'main is not the same as origin/main. Push or pull first.' }
-    & git rev-parse -q --verify "refs/tags/$tag" 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) { throw "$tag already exists. Raise <Version> in Directory.Build.props." }
+    if ((Invoke-Git rev-parse --abbrev-ref HEAD) -ne 'main') { throw 'Release from main.' }
+    if (Invoke-Git status --porcelain) { throw 'Commit or stash your changes first.' }
+    Invoke-Git fetch -q origin main --tags | Out-Null
+    if ((Invoke-Git rev-parse HEAD) -ne (Invoke-Git rev-parse origin/main)) { throw 'main is not the same as origin/main. Push or pull first.' }
+    $tagExists = $true
+    try { Invoke-Git rev-parse -q --verify "refs/tags/$tag" | Out-Null } catch { $tagExists = $false }
+    if ($tagExists) { throw "$tag already exists. Raise <Version> in Directory.Build.props." }
 
     dotnet test Jellyfin.Plugin.SubtitleFixer.slnx -c Release -nologo
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
@@ -46,7 +53,9 @@ try {
     if (Test-Path $work) { Remove-Item $work -Recurse -Force }
     New-Item -ItemType Directory -Force $work | Out-Null
     $previous = Join-Path $work 'previous-manifest.json'
+    $ErrorActionPreference = 'Continue'
     & gh release download --repo $repo --pattern manifest.json --output $previous 2>$null
+    $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE -ne 0) { Write-Host 'No earlier release manifest; starting a new one.'; $previous = '' }
 
     $manifest = Join-Path $work 'manifest.json'
@@ -55,8 +64,8 @@ try {
 
     if ($DryRun) { Write-Host "Dry run: would tag $tag and release $zip with $manifest."; return }
 
-    Git tag -a $tag -m "Subtitle Fixer $version" | Out-Null
-    Git push -q origin $tag | Out-Null
+    Invoke-Git tag -a $tag -m "Subtitle Fixer $version" | Out-Null
+    Invoke-Git push -q origin $tag | Out-Null
     & gh release create $tag --repo $repo --title "Subtitle Fixer $version" --notes $Changelog --verify-tag $zip "$zip.md5" $manifest
     if ($LASTEXITCODE -ne 0) { throw 'gh release create failed. The tag is pushed; fix the problem and run gh release create by hand.' }
     Write-Host "Released $tag. Repository URL: https://github.com/$repo/releases/latest/download/manifest.json"
