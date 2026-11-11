@@ -18,7 +18,7 @@ Browser page (embedded JS)  <->  Plugin REST API  <->  Job queue (1 worker, in m
 | `State/` | SQLite state store, migrations | A |
 | `Web/` | Embedded `index.html`, `app.js`, `styles.css`, menu-injection script, mock data | B |
 | `Configuration/` | Plugin configuration and the admin settings page | A (page markup: B) |
-| `Bazarr/` | `IBazarrClient`/`BazarrClient` (server-side calls to Bazarr), `BazarrPathMapper`, `BazarrItemResolver` (Jellyfin item to Radarr/Sonarr ids), `BazarrSearchService` with `BazarrResultStore` and `BazarrRateLimiter`, `JellyfinBazarrLookupSource`; later `BazarrDownloadService` (`BAZARR-PLAN.md`, `BAZARR-API.md`) | Bazarr |
+| `Bazarr/` | `IBazarrClient`/`BazarrClient` (server-side calls to Bazarr), `BazarrPathMapper`, `BazarrItemResolver` (Jellyfin item to Radarr/Sonarr ids), `BazarrSearchService` with `BazarrResultStore` and `BazarrRateLimiter`, `JellyfinBazarrLookupSource`, `BazarrDownloadService` (in-memory backup, download, verify, restore, queue as `source:bazarr`) (`BAZARR-PLAN.md`, `BAZARR-API.md`) | Bazarr |
 
 Tracks A and B are separate worktrees; they meet only at `API.md`. Changing a contract means updating `API.md` in the same change and telling the other track's session.
 

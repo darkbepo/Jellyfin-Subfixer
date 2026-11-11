@@ -79,7 +79,11 @@ Any allowed user (`AllowedUsers`, owner decision 4). The API key never leaves th
   - Checks, in order: Bazarr set up (`503 bazarr_unavailable`), item accessible (`404 not_found`), D28 no accepted sidecar (`409 has_subtitle`), video file (`409 no_video_file`), English audio (`409 no_english_audio`), rate limit (`429 rate_limited` with `Retry-After`), item known to Bazarr (`404 bazarr_not_found`), then the search (`502 search_failed` with Bazarr's own message, `503 bazarr_unavailable` when unreachable or the key is rejected).
   - Rate limit: one search at a time per user, and at least 5 s between a user's searches. Refused requests (wrong item, has a subtitle) don't count.
   - Item mapping: by path after `BazarrPathMappings`, then by IMDb id (movies) or TVDB/IMDb id plus season and episode number (episodes). Bazarr's movie and series lists are read in pages of 250 and kept 10 minutes; a miss on a cached list reads it once more.
-- `POST /Bazarr/Download` arrives in phase 2.
+- `POST /Bazarr/Download` with `{ "itemId":"...", "resultId":"<id from Search>" }` -> `202 { "queued":true, "subtitle":"Film.en.srt", "message":"..." }`, or `200` with `queued:false` when the subtitle was downloaded but the queue filled up meanwhile.
+  - Checks before anything is downloaded: Bazarr set up (`503 bazarr_unavailable`), item accessible (`404 not_found`), D28 no accepted sidecar (`409 has_subtitle`), video file and English audio (`409`), the handle is the caller's and not expired (`410 result_expired`), SubSync configured (`503 subsync_unavailable`), room in the queue (`409 queue_full`), no other download for this item (`409 download_in_progress`) and none by this user (`429 rate_limited`).
+  - Then every subtitle file next to the video is copied into memory, Bazarr is asked to download (`original_format=False`, so it saves `.srt`), and the server waits up to 2 minutes for an accepted sidecar that parses as SRT and has stopped growing. Bazarr 1.6.2 downloads in a background job and doesn't report the outcome, so this is how success is detected.
+  - Success: any other subtitle Bazarr changed is put back, the item's `done` record is deleted, and one job is queued with `source:"bazarr"` and `note:"downloaded from <provider>"`. Progress shows in `GET /Status`.
+  - Failure (`502 download_failed`, or Bazarr's own error passed through): a new accepted sidecar that isn't valid is removed, and every copied file that changed is restored. If Bazarr saved under a name the fixer doesn't re-time (for example `.en.cc.srt`, or `<video>.srt` with "single language" on), the message names it. A cancelled request restores the same way.
 
 ## Error codes| Code | HTTP | Meaning |
 |---|---|---|
@@ -97,3 +101,6 @@ Any allowed user (`AllowedUsers`, owner decision 4). The API key never leaves th
 | `no_video_file` / `no_english_audio` | 409 | Find subtitles on an item that could never be re-timed |
 | `rate_limited` | 429 | Searched again within 5 s, or a search is still running; `Retry-After` says when |
 | `search_failed` | 502 | Bazarr's search answered with its own error (message passed through) |
+| `result_expired` | 410 | The search result handle is older than 10 minutes, or belongs to another user or item |
+| `download_in_progress` | 409 | Another download for the same item is running |
+| `download_failed` | 502 | Bazarr refused the download, or no usable accepted sidecar appeared within 2 minutes |

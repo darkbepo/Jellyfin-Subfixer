@@ -84,6 +84,17 @@ internal sealed class FakeBazarr : IBazarrClient
             : BazarrResult<IReadOnlyList<BazarrSearchResult>>.Fail(BazarrFailure.NotFound, "nf"));
     }
 
+    /// <summary>What "Bazarr" does when asked to download: write files, fail, throw. Default: accept and do nothing.</summary>
+    public Func<BazarrTarget, BazarrSearchResult, BazarrResult<bool>>? OnDownload { get; set; }
+
+    public List<(BazarrTarget Target, BazarrSearchResult Result)> Downloads { get; } = [];
+
+    public Task<BazarrResult<bool>> DownloadAsync(BazarrConnection connection, BazarrTarget target, BazarrSearchResult result, CancellationToken cancellationToken)
+    {
+        Downloads.Add((target, result));
+        return Task.FromResult(OnDownload?.Invoke(target, result) ?? BazarrResult<bool>.Success(true));
+    }
+
     public static BazarrSearchResult Result(string provider, int score, string language = "en", bool hi = false, bool forced = false) =>
         new(provider, "opaque-" + provider + "-" + score, language, hi, forced, false, score, ["Release." + provider], "uploader", ["source"], ["release_group"]);
 

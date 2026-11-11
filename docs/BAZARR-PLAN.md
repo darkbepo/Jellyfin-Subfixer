@@ -86,6 +86,7 @@ Settings, added to `PluginConfiguration` and the config page: `BazarrUrl`, `Baza
 - **Phase 1:** Bazarr client, resolver, settings, Search endpoint and the read-only dialog. Needs M1 (on `main`). Doesn't need the job engine.
   - **Status (2026-11-11): built.** Client calls, resolver and search checked live against the test Bazarr 1.6.2 for the movie (path match, IMDb fallback, 35 results). The episode side is from source only (no Sonarr on the test setup). Still to do: an end-to-end run in Jellyfin on an item with no English sidecar (the test items all have one).
 - **Phase 2:** Download plus SubSync. Needs M2 (`JobQueue`, `JobRunner`, `BackupService`). Until M2 lands, Download can stay behind `BazarrEnabled` and return `501`.
+  - **Status (2026-11-11): built.** `BazarrDownloadService`, `POST /Bazarr/Download` and the Get button, with fault-injection tests (overwrite, half-written file, nothing saved, wrong name, Bazarr refusal, cancellation). Not run live yet: it needs an item with no English subtitle on the test server, and the final check is SubSync re-timing the downloaded file.
 - **Phase 3:** movies (the owner wants them). Follow `MOVIES-PLAN.md`; movie search and download can be built as soon as the movie side of browse exists there.
 
 ## Working alongside the main track

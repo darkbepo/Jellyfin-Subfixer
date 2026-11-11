@@ -31,6 +31,15 @@ public static class BazarrErrorCodes
     /// <summary>Bazarr's search answered with an error of its own.</summary>
     public const string SearchFailed = "search_failed";
 
+    /// <summary>The search result handle has expired or belongs to someone else.</summary>
+    public const string ResultExpired = "result_expired";
+
+    /// <summary>Another download for the same item is running.</summary>
+    public const string DownloadInProgress = "download_in_progress";
+
+    /// <summary>Bazarr refused the download, or produced no usable subtitle.</summary>
+    public const string DownloadFailed = "download_failed";
+
     /// <summary>Unknown or inaccessible item.</summary>
     public const string ItemNotFound = "not_found";
 }

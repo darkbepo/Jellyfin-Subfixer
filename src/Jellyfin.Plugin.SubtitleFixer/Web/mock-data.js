@@ -2,7 +2,7 @@
    3 libraries, 5 series, one season with 40 episodes mixing eligible, synced, attempted and ineligible.
    Simulates the shared queue: another user's (hidden) episode is running when the page opens.
    Options: &user=member (not admin), &user=denied (not allowed), &subsync=off, &slow=1 (500 ms latency),
-   &bazarr=off (no Find subtitles), &bazarr=error (search fails), &bazarr=none (no results). */
+   &bazarr=off (no Find subtitles), &bazarr=error (search fails), &bazarr=none (no results), &bazarr=dlfail (Get fails). */
 (function () {
     'use strict';
 
@@ -336,6 +336,7 @@
             if (!target || (target.type !== 'Episode' && target.type !== 'Movie')) { return err('not_found', 404, 'That item was not found or you cannot access it.'); }
             if (evaluate(target).reason !== 'no_sidecar') { return err('has_subtitle', 409, 'This item already has an English subtitle. Re-time it instead.'); }
             if (params.get('bazarr') === 'error') { return err('search_failed', 502, 'Bazarr: Movie file not found. Path mapping issue?'); }
+            searchFor = target.id;
             var base = target.type === 'Movie' ? target.name.replace(/\W+/g, '.') + '.' + target.productionYear : 'Show.S01E' + pad(target.indexNumber || 1);
             var results = params.get('bazarr') === 'none' ? [] : [
                 hit(97, false, 'opensubtitlescom', [base + '.1080p.BluRay.x264-GROUP', base + '.1080p.BluRay.x264-OTHER', base + '.720p.BluRay.x264-GROUP'], 'subsmaster', ['title', 'year', 'source', 'resolution', 'release_group'], []),
@@ -347,12 +348,35 @@
                 resource: (target.type === 'Movie' ? 'D:\\Movies\\' : '/tv/Show/Season 01/') + base + '.mkv',
                 matchedBy: 'path', results: results, hidden: 3 });
         }
+        if (p === 'Bazarr/Download') {
+            var dl = body && items[body.itemId];
+            var picked = body && bazarrHits[body.resultId];
+            if (!dl) { return err('not_found', 404, 'That item was not found or you cannot access it.'); }
+            if (!picked || picked.itemId !== dl.id) { return err('result_expired', 410, 'That search result has expired. Search again.'); }
+            if (evaluate(dl).reason !== 'no_sidecar') { return err('has_subtitle', 409, 'This item already has an English subtitle. Re-time it instead.'); }
+            if (params.get('bazarr') === 'dlfail') {
+                return err('download_failed', 502, 'Bazarr didn’t save a usable English subtitle within 120 seconds. Check Bazarr’s System > Logs: the provider may have throttled it.');
+            }
+            // The item now has a subtitle, so it re-times like any other.
+            dl.facts = { state: 'ok' };
+            var file = (dl.type === 'Movie' ? dl.name : 'S01E' + pad(dl.indexNumber || 1)) + (picked.hearingImpaired ? '.en.hi.srt' : '.en.srt');
+            var j = job(dl.id, dl.type === 'Movie' ? dl.name + ' (' + dl.productionYear + ')' : 'S' + pad(dl.parentIndexNumber) + 'E' + pad(dl.indexNumber) + ' ' + dl.name, dl.seriesName || '', ME);
+            j.source = 'bazarr';
+            j.note = 'downloaded from ' + picked.provider;
+            queue.push(j);
+            stopReason = null;
+            return ok({ queued: true, subtitle: file, message: 'Downloaded ' + file + ' from ' + picked.provider + '. It’s in the queue to be re-timed.' }, 202);
+        }
         return err('not_found', 404, 'No mock for ' + method + ' ' + p);
     }
 
     var hitSeq = 0;
+    var bazarrHits = {}; // result id -> { itemId, provider, hearingImpaired }
+    var searchFor = null;
     function hit(score, hi, provider, releases, uploader, matches, dontMatches) {
-        return { id: 'mock-' + (++hitSeq), score: score, language: hi ? 'EN:HI' : 'EN', hearingImpaired: hi, provider: provider,
+        var id = 'mock-' + (++hitSeq);
+        bazarrHits[id] = { itemId: searchFor, provider: provider, hearingImpaired: hi };
+        return { id: id, score: score, language: hi ? 'EN:HI' : 'EN', hearingImpaired: hi, provider: provider,
             releases: releases, uploader: uploader, matches: matches, dontMatches: dontMatches };
     }
 

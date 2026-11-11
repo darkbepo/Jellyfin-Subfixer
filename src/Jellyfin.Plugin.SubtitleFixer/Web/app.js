@@ -36,6 +36,7 @@
     var retryAction = null;
     var bazarrEnabled = false;       // GET Bazarr/Info; Find subtitles shows only when true
     var findSeq = 0;                 // ignores answers to a dialog that was closed or reopened
+    var spotlight = null;            // item id to scroll to and highlight in the queue after Get
 
     // ---------- API ----------
     function token() {
@@ -448,7 +449,7 @@
             if (seq !== findSeq || !dlg.open) { return; }
             $('find-resource').textContent = r.resource || 'unknown';
             $('find-matched').textContent = r.matchedBy === 'ids' ? '(matched by id, check it’s the right file)' : '';
-            renderHits(r.results);
+            renderHits(r.results, item);
             var left = r.hidden ? ' ' + plural(r.hidden, 'result', 'results') + ' in other languages or forced-only left out.' : '';
             if (!r.results.length) {
                 setFindStatus('empty', 'No English subtitles found.' + left);
@@ -469,7 +470,41 @@
         s.textContent = text;
     }
 
-    function renderHits(results) {
+    // Get: Bazarr downloads the result, then it joins the shared queue to be re-timed (BAZARR-PLAN.md phase 2).
+    // No confirmation: Find subtitles only shows where no English subtitle exists (D28).
+    function getHit(item, hit, button) {
+        var dlg = $('find');
+        var seq = findSeq;
+        var buttons = Array.prototype.slice.call($('find-list').querySelectorAll('.hit-get'));
+        buttons.forEach(function (b) { b.disabled = true; });
+        button.classList.add('working');
+        button.querySelector('.get-text').textContent = 'Getting…';
+        setFindStatus('busy', 'Bazarr is downloading from ' + hit.provider + '. This usually takes a few seconds…');
+
+        api('POST', 'Bazarr/Download', { itemId: item.id, resultId: hit.id }).then(function (r) {
+            if (r.queued) {
+                closeFind();
+                showHint(r.message);
+                spotlight = item.id;
+                pollNow();
+                return;
+            }
+            if (seq !== findSeq || !dlg.open) { return; }
+            setFindStatus('', r.message);
+            button.classList.remove('working');
+            button.querySelector('.get-text').textContent = 'Downloaded';
+        }, function (err) {
+            if (seq !== findSeq || !dlg.open) { return; }
+            setFindStatus('error', err.message);
+            button.classList.remove('working');
+            button.querySelector('.get-text').textContent = 'Get';
+            // A gone or replaced result can't be retried; everything else can.
+            var retry = ['result_expired', 'has_subtitle', 'not_found'].indexOf(err.code) < 0;
+            buttons.forEach(function (b) { b.disabled = !retry; });
+        });
+    }
+
+    function renderHits(results, item) {
         var list = $('find-list');
         list.replaceChildren();
         results.forEach(function (h) {
@@ -530,6 +565,16 @@
                 match.setAttribute('aria-expanded', String(!detail.hidden));
             });
             li.appendChild(match);
+
+            var get = el('button', 'hit-get primary');
+            get.type = 'button';
+            get.setAttribute('aria-label', 'Get the ' + h.score + '% subtitle from ' + h.provider);
+            var gi = icon('download');
+            gi.setAttribute('class', 'icon');
+            get.appendChild(gi);
+            get.appendChild(el('span', 'get-text', 'Get'));
+            get.addEventListener('click', function () { getHit(item, h, get); });
+            li.appendChild(get);
             li.appendChild(detail);
 
             list.appendChild(li);
@@ -759,6 +804,7 @@
         list.textContent = '';
         sorted.slice(0, limit).forEach(function (i) {
             var li = el('li', 'row');
+            if (i.itemId) { li.dataset.item = i.itemId; }
             var main = el('div', 'main');
             main.appendChild(el('span', 'name', i.name));
             var sub = [i.seriesName, i.message, i.note].filter(Boolean).join(' · ');
@@ -771,6 +817,16 @@
             li.appendChild(badges);
             list.appendChild(li);
         });
+        // After Get: bring the queue into view and highlight the downloaded item, so its re-timing can be followed.
+        if (spotlight) {
+            var spot = list.querySelector('[data-item="' + CSS.escape(spotlight) + '"]');
+            if (spot) {
+                spotlight = null;
+                var calm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                $('queue-panel').scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'center' });
+                spot.classList.add('flash');
+            }
+        }
         var more = $('queue-more');
         more.hidden = sorted.length <= 8;
         more.textContent = showAllQueue ? 'Show fewer' : 'Show all ' + sorted.length;

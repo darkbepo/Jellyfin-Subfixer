@@ -13,6 +13,11 @@ namespace Jellyfin.Plugin.SubtitleFixer.Api;
 /// <param name="Enabled">Bazarr search is on and set up.</param>
 public sealed record BazarrInfoDto(bool Enabled);
 
+/// <summary><c>POST /Bazarr/Download</c> request.</summary>
+/// <param name="ItemId">Episode or movie.</param>
+/// <param name="ResultId">Result handle from <c>GET /Bazarr/Search</c>.</param>
+public sealed record BazarrDownloadRequest(Guid? ItemId, string? ResultId);
+
 /// <summary>
 /// Find subtitles for any allowed user (BAZARR-PLAN.md owner decision 4: no separate Bazarr permission). The API key
 /// never leaves the server; responses carry our own short-lived handles instead of Bazarr's.
@@ -24,16 +29,52 @@ public sealed class BazarrSearchController : ControllerBase
 {
     private readonly AccessService _access;
     private readonly BazarrSearchService _search;
+    private readonly BazarrDownloadService _download;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="BazarrSearchController"/> class.
     /// </summary>
     /// <param name="access">Access service.</param>
     /// <param name="search">Search service.</param>
-    public BazarrSearchController(AccessService access, BazarrSearchService search)
+    /// <param name="download">Download service.</param>
+    public BazarrSearchController(AccessService access, BazarrSearchService search, BazarrDownloadService download)
     {
         _access = access;
         _search = search;
+        _download = download;
+    }
+
+    /// <summary>Downloads one search result through Bazarr and queues it to be re-timed (BAZARR-PLAN.md phase 2).</summary>
+    /// <param name="request">Item and result handle.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>202 when queued; 200 when downloaded but the queue was full.</returns>
+    [HttpPost("Download")]
+    [Consumes(MediaTypeNames.Application.Json)]
+    [Produces(MediaTypeNames.Application.Json)]
+    public async Task<IActionResult> Download([FromBody] BazarrDownloadRequest? request, CancellationToken cancellationToken)
+    {
+        if (Deny(out var caller) is { } denied)
+        {
+            return denied;
+        }
+
+        if (request?.ItemId is not { } id || id == Guid.Empty || string.IsNullOrWhiteSpace(request.ResultId))
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "bad_request", "itemId and resultId are required.");
+        }
+
+        var (result, error) = await _download.DownloadAsync(caller.User.Id, id, request.ResultId, cancellationToken).ConfigureAwait(false);
+        if (error is not null)
+        {
+            if (error.RetryAfterSeconds is { } seconds)
+            {
+                Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
+            }
+
+            return ApiResults.Error(error.Status, error.Code, error.Message);
+        }
+
+        return ApiResults.Json(result!, result!.Queued ? StatusCodes.Status202Accepted : StatusCodes.Status200OK);
     }
 
     /// <summary>Whether Bazarr search is available.</summary>

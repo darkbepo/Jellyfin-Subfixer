@@ -52,6 +52,14 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
             sp.GetRequiredService<BazarrResultStore>(),
             sp.GetRequiredService<BazarrRateLimiter>(),
             sp.GetRequiredService<ILogger<BazarrSearchService>>()));
+        serviceCollection.AddSingleton(sp => new BazarrDownloadService(
+            sp.GetRequiredService<ILibraryFacade>(),
+            sp.GetRequiredService<BazarrResultStore>(),
+            sp.GetRequiredService<IBazarrClient>(),
+            sp.GetRequiredService<IStateStore>(),
+            sp.GetRequiredService<JobQueue>(),
+            sp.GetRequiredService<ISubSyncWorker>(),
+            sp.GetRequiredService<ILogger<BazarrDownloadService>>()));
 
         // Job engine (M2).
         serviceCollection.TryAddSingleton(TimeProvider.System);

@@ -197,7 +197,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 
 .hits-head, .hit {
     display: grid; align-items: center; gap: 4px 14px;
-    grid-template-columns: 72px 76px minmax(96px, 136px) minmax(0, 1fr) minmax(64px, 104px) 96px;
+    grid-template-columns: 72px 76px minmax(96px, 136px) minmax(0, 1fr) minmax(64px, 104px) 96px 86px;
 }
 .hits-head { display: none; padding: 6px 18px; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); border-bottom: 1px solid var(--line); }
 .find.has-hits .hits-head { display: grid; }
@@ -227,13 +227,17 @@ button:disabled { opacity: 0.45; cursor: default; }
 .hit-match.partial { color: var(--warn); border-color: rgba(229, 165, 10, 0.45); background: rgba(229, 165, 10, 0.08); }
 .hit-match .icon { width: 16px; height: 16px; }
 .hit-detail { grid-column: 1 / -1; font-size: 0.84rem; color: var(--muted); padding: 2px 0 0; }
+.hit-get { min-height: 32px; padding: 4px 12px; }
+.hit-get .icon { width: 16px; height: 16px; }
+.hit-get.working .icon { animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
 
 /* Too narrow for six columns: the table becomes cards (score and language on top, then provider, release, uploader). */
 @media (max-width: 820px) {
     .find.has-hits .hits-head { display: none; }
     .hit {
         grid-template-columns: auto auto 1fr auto;
-        grid-template-areas: "score lang . match" "provider provider provider provider" "release release release release" "uploader uploader uploader uploader" "detail detail detail detail";
+        grid-template-areas: "score lang . match" "provider provider provider provider" "release release release release" "uploader uploader uploader get" "detail detail detail detail";
         margin: 8px 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2);
     }
     .hit:last-child { border-bottom: 1px solid var(--line); }
@@ -247,6 +251,7 @@ button:disabled { opacity: 0.45; cursor: default; }
     .hit-uploader { grid-area: uploader; font-size: 0.84rem; }
     .hit-uploader::before { content: "Uploader: "; }
     .hit-detail { grid-area: detail; }
+    .hit-get { grid-area: get; justify-self: end; }
 }
 
 /* ---------- phone width ---------- */
@@ -273,5 +278,5 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .bar span, .bar.working span, .row.flash, .find-status[data-state="busy"]::before { animation: none; transition: none; }
+    .bar span, .bar.working span, .row.flash, .find-status[data-state="busy"]::before, .hit-get.working .icon { animation: none; transition: none; }
 }

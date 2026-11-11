@@ -48,8 +48,13 @@ Swagger (`/api/swagger.json`, 1.6.2) lists parameters but no response models, so
 - Episode search is **not live-checked** (no Sonarr).
 - We pass on `language`, `hearing_impaired`, `forced`, `score`, `provider`, `release_info`, `uploader`, `matches`, `dont_matches`. `subtitle` and `original_format` stay on the server for phase 2's download.
 
-## Still to verify (phase 2)
-`POST /api/providers/movies` and `/episodes` (download): parameters are in Swagger (`radarrid` or `seriesid`+`episodeid`, `hi`, `forced`, `original_format`, `provider`, `subtitle`, all required), response `204`. Check the live behavior, and the file name Bazarr writes, before using it.
+## POST /api/providers/movies and /api/providers/episodes (download)
+- **Swagger (1.6.2):** query parameters `radarrid` (movies) or `seriesid` and `episodeid` (episodes), plus `hi`, `forced`, `original_format`, `provider` and `subtitle` (the opaque handle from the search), all required. Responses `204`, `401`, `404`, `500`.
+- **From source** (`api/providers/providers_*.py`, `subtitles/manual.py`, `v1.6.2`): the endpoint calls `movie_manually_download_specific_subtitle(..., job_id=None)`, which only **adds a job to Bazarr's own queue** and returns, so the API answers `204` before anything is downloaded. Failures ("Subtitle not found in cache. Please search again.", "All providers are throttled", "Error saving Subtitles file to disk", HI excluded by the language profile) stay inside that job and are not reported to the caller.
+  - The file is saved next to the video by Bazarr's normal naming: `<video>.en.srt`, or `.en.hi.srt` with the default hearing-impaired extension `hi`. With "single language" on, it saves `<video>.srt`.
+  - `hi` and `forced` set the saved language flags. `original_format` "True" keeps a non-SRT format, so we always send "False".
+- So the plugin detects success by the accepted sidecar appearing as valid SRT, and failure by a 2-minute timeout (D33).
+- **Not live-checked yet:** every test item already has an English subtitle, and a live download would overwrite it. Needs an item without one (owner).
 
 ## HTTP client
 - **From source** (`Jellyfin.Server/Startup.cs`, `v12.4`): the server calls `services.AddHttpClient(...)`, so `IHttpClientFactory` is in the container. `BazarrClient` asks it for the named client `SubtitleFixer.Bazarr`. Nothing configures that name, so it gets the default handler. Each call is capped at 30 s by our own token; manual search at 90 s (D30).

@@ -117,6 +117,18 @@ public interface IBazarrClient
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The results.</returns>
     Task<BazarrResult<IReadOnlyList<BazarrSearchResult>>> SearchEpisodeAsync(BazarrConnection connection, int sonarrEpisodeId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Asks Bazarr to download one search result (<c>POST /api/providers/movies</c> or <c>/episodes</c>). Bazarr 1.6.2
+    /// only queues the download as one of its own jobs and answers <c>204</c> at once, so success here means
+    /// "accepted"; the caller watches for the file (BAZARR-API.md).
+    /// </summary>
+    /// <param name="connection">Where to reach Bazarr.</param>
+    /// <param name="target">Bazarr's ids for the item.</param>
+    /// <param name="result">The search result, including Bazarr's opaque handle.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True when Bazarr accepted the request.</returns>
+    Task<BazarrResult<bool>> DownloadAsync(BazarrConnection connection, BazarrTarget target, BazarrSearchResult result, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -286,6 +298,71 @@ public sealed class BazarrClient : IBazarrClient
     /// <inheritdoc />
     public Task<BazarrResult<IReadOnlyList<BazarrSearchResult>>> SearchEpisodeAsync(BazarrConnection connection, int sonarrEpisodeId, CancellationToken cancellationToken) =>
         GetJsonAsync<IReadOnlyList<BazarrSearchResult>>(connection, Query("api/providers/episodes", ("episodeid", sonarrEpisodeId)), SearchTimeout, root => ReadData(root, ReadSearchResult), cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<BazarrResult<bool>> DownloadAsync(BazarrConnection connection, BazarrTarget target, BazarrSearchResult result, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(result);
+
+        // Parameters are query parameters (Swagger, 1.6.2). original_format is always False so Bazarr saves .srt,
+        // the only format the fixer re-times (D6); booleans use Bazarr's "True"/"False" strings.
+        var args = new List<(string Name, string Value)>();
+        if (target.IsMovie)
+        {
+            args.Add(("radarrid", target.RadarrId!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        }
+        else
+        {
+            args.Add(("seriesid", target.SonarrSeriesId!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            args.Add(("episodeid", target.SonarrEpisodeId!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        }
+
+        args.Add(("hi", result.HearingImpaired ? "True" : "False"));
+        args.Add(("forced", result.Forced ? "True" : "False"));
+        args.Add(("original_format", "False"));
+        args.Add(("provider", result.Provider));
+        args.Add(("subtitle", result.Subtitle));
+        var path = (target.IsMovie ? "api/providers/movies" : "api/providers/episodes") + "?"
+            + string.Join('&', args.Select(a => Uri.EscapeDataString(a.Name) + "=" + Uri.EscapeDataString(a.Value)));
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(Timeout);
+        try
+        {
+            using var request = CreateRequest(HttpMethod.Post, connection, path);
+            request.Content = new ByteArrayContent([]);
+            var client = _httpClientFactory.CreateClient(HttpClientName);
+            using var response = await client.SendAsync(request, timeout.Token).ConfigureAwait(false);
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                return BazarrResult<bool>.Fail(BazarrFailure.Unauthorized, "Bazarr rejected the API key.");
+            }
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return BazarrResult<bool>.Fail(BazarrFailure.NotFound, "Bazarr doesn't know this item.");
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var text = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
+                return BazarrResult<bool>.Fail(BazarrFailure.Failed, BazarrMessage(text) ?? $"Bazarr answered HTTP {(int)response.StatusCode}.");
+            }
+
+            return BazarrResult<bool>.Success(true);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return BazarrResult<bool>.Fail(BazarrFailure.Unavailable, $"Bazarr did not answer within {Timeout.TotalSeconds:0} seconds.");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning("Could not reach Bazarr at {BaseUri}: {Error}", connection.BaseUri, ex.Message);
+            return BazarrResult<bool>.Fail(BazarrFailure.Unavailable, $"Could not reach Bazarr at {connection.BaseUri}.");
+        }
+    }
 
     /// <summary>Reads one search row. Booleans arrive as the strings <c>"True"</c>/<c>"False"</c> (verified on 1.6.2).</summary>
     /// <param name="row">Row.</param>
