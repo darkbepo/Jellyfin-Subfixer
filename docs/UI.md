@@ -46,7 +46,7 @@ After each selection change (debounce about 300 ms) call `/Jobs/Preview` and sho
 - After Start the selection clears and the footer says how many were queued and skipped.
 
 ## Progress panel
-Polls `/Status` every 1 s while running and every 5 s when idle and the tab is visible; stops when hidden. Shows overall bar (done / total), elapsed and ETA, current episode name with an indeterminate working indicator, and a Cancel button. Per-row status in the explorer updates (queued, syncing, done, check, failed). Reopening the page mid-job shows the running job.
+Polls `/Status` every 1 s while running and every 5 s when idle and the tab is visible; stops when hidden. Shows the overall bar, elapsed time and ETA, the current item with what SubSync is doing ("reading the audio", "listening to the dialogue", "matching the lines") and an estimated percentage, and a Cancel button. The bar counts finished items plus the running item's estimated share (API.md, `expectedSeconds`; D40), so a single item no longer sits at 0% until it ends. Per-row status in the explorer updates (queued, syncing, done, check, failed). Reopening the page mid-job shows the running job.
 
 **The queue is shared.** There is one global queue and one SubSync process at a time. When a second person presses Start, their episodes go to the end of the same queue. The progress panel always shows that whole queue to every allowed user who opens the page, not only to whoever started it:
 - the current episode;

@@ -41,6 +41,7 @@ public sealed class FakeRefresh : IRefreshService
 /// TESTING.md "Fault injection on the subtitle swap": after every case except success, the original subtitle is
 /// byte-identical and no <c>.bak</c> remains.
 /// </summary>
+[Collection(RunTimeEstimateTests.Collection)]
 public sealed class JobRunnerFaultTests : IDisposable
 {
     private const string Original = "1\r\n00:00:01,000 --> 00:00:02,500\r\nThe original line.\r\n\r\n";
@@ -89,6 +90,31 @@ public sealed class JobRunnerFaultTests : IDisposable
             File.WriteAllText(sub, content);
             return Task.FromResult(FakeWorker.Result(status, reason));
         };
+
+    [Fact]
+    public async Task Progress_gets_an_estimate_then_the_stages_SubSync_reports()
+    {
+        RunTimeEstimate.Reset();
+        _library.SetRuntime(_episode.Node.Id, TimeSpan.FromMinutes(22));
+        _worker.Behavior = (_, _, _) =>
+        {
+            _worker.LastOptions!.OnStage!(SubSyncStage.Listening);
+            return Task.FromResult(FakeWorker.Result(WorkerStatus.Synced));
+        };
+        var seen = new List<(string? Stage, double? Expected)>();
+
+        var outcome = await _runner.RunAsync(Job(), CancellationToken.None, (stage, expected) => seen.Add((stage, expected)));
+
+        Assert.Equal(JobItemStatus.Done, outcome.Status);
+        Assert.Equal(2, seen.Count);
+        Assert.Null(seen[0].Stage);
+        Assert.Equal(RunTimeEstimate.Overhead.TotalSeconds + (22 * 60 * 0.33), seen[0].Expected!.Value, 0);
+        Assert.Equal((SubSyncStage.Listening, (double?)null), seen[1]);
+
+        // The 42-second fake run taught the estimate that this "server" is fast.
+        Assert.True(RunTimeEstimate.Expect(TimeSpan.FromMinutes(22)) < seen[0].Expected);
+        RunTimeEstimate.Reset();
+    }
 
     [Fact]
     public async Task Cli_fails_restores_and_records_failed()

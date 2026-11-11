@@ -217,12 +217,19 @@
     }
     setInterval(tick, 2500);
 
+    // Like SubSync: a moment reading the audio, most of the time listening, then matching the lines.
+    function mockStage(j) {
+        var ran = (Date.now() - new Date(j.startedUtc).getTime()) / 1000;
+        return ran < 0.4 ? 'reading_audio' : ran < 2.2 ? 'listening' : 'matching';
+    }
+
     function status() {
         var visible = function (j) { return j.userId === ME || j.itemId.indexOf('hidden') !== 0; };
         var map = function (j) {
             var v = visible(j);
             return { jobId: j.jobId, itemId: v ? j.itemId : null, name: v ? j.name : 'Episode in another library', seriesName: v ? j.seriesName : null,
-                status: j.status, message: j.message, mine: j.userId === ME, source: j.source, note: v ? j.note : null, seconds: j.seconds, startedUtc: j.startedUtc };
+                status: j.status, message: j.message, mine: j.userId === ME, source: j.source, note: v ? j.note : null, seconds: j.seconds, startedUtc: j.startedUtc,
+                stage: j.status === 'running' ? mockStage(j) : null, expectedSeconds: j.status === 'running' ? 3 : null };
         };
         var order = queue.filter(function (j) { return ['queued', 'running'].indexOf(j.status) < 0; })
             .concat(queue.filter(function (j) { return j.status === 'running'; }))

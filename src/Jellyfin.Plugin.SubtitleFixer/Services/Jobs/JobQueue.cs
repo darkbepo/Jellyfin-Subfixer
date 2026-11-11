@@ -70,6 +70,8 @@ public sealed record JobRequestItem(Guid ItemId, string Name, string SeriesName)
 /// <param name="StartedUtc">When it started running.</param>
 /// <param name="FinishedUtc">When it finished.</param>
 /// <param name="Seconds">SubSync seconds, when it ran.</param>
+/// <param name="Stage">While running: the stage SubSync last reported (<c>SubSyncStage</c> codes).</param>
+/// <param name="ExpectedSeconds">While running: the estimated total time, for the progress bar (D40).</param>
 public sealed record JobItemSnapshot(
     Guid JobId,
     Guid ItemId,
@@ -83,7 +85,9 @@ public sealed record JobItemSnapshot(
     DateTime QueuedUtc,
     DateTime? StartedUtc,
     DateTime? FinishedUtc,
-    double? Seconds);
+    double? Seconds,
+    string? Stage = null,
+    double? ExpectedSeconds = null);
 
 /// <summary>Immutable view of the whole queue.</summary>
 /// <param name="State">State.</param>
@@ -223,6 +227,31 @@ public sealed class JobQueue : IDisposable
                 Publish();
                 return new RunningJob(next.ToSnapshot(), next.Cancel.Token);
             }
+        }
+    }
+
+    /// <summary>Updates a running entry's stage and estimate. Ignored once the entry has finished.</summary>
+    /// <param name="jobId">Entry.</param>
+    /// <param name="stage">Stage code, or null to keep the current one.</param>
+    /// <param name="expectedSeconds">Estimated total seconds, or null to keep the current one.</param>
+    public void SetProgress(Guid jobId, string? stage, double? expectedSeconds)
+    {
+        lock (_lock)
+        {
+            var entry = _entries.FirstOrDefault(e => e.JobId == jobId);
+            if (entry is null || entry.Status != JobItemStatus.Running)
+            {
+                return;
+            }
+
+            if ((stage is null || stage == entry.Stage) && (expectedSeconds is null || expectedSeconds == entry.ExpectedSeconds))
+            {
+                return;
+            }
+
+            entry.Stage = stage ?? entry.Stage;
+            entry.ExpectedSeconds = expectedSeconds ?? entry.ExpectedSeconds;
+            Publish();
         }
     }
 
@@ -396,6 +425,10 @@ public sealed class JobQueue : IDisposable
 
         public double? Seconds { get; set; }
 
+        public string? Stage { get; set; }
+
+        public double? ExpectedSeconds { get; set; }
+
         public bool CancelRequested { get; set; }
 
         public CancellationTokenSource? Cancel { get; set; }
@@ -403,6 +436,8 @@ public sealed class JobQueue : IDisposable
         public bool IsPending => Status is JobItemStatus.Queued or JobItemStatus.Running;
 
         public JobItemSnapshot ToSnapshot() =>
-            new(JobId, ItemId, Name, SeriesName, UserId, Source, Note, Status, Message, QueuedUtc, StartedUtc, FinishedUtc, Seconds);
+            new(JobId, ItemId, Name, SeriesName, UserId, Source, Note, Status, Message, QueuedUtc, StartedUtc, FinishedUtc, Seconds,
+                Status == JobItemStatus.Running ? Stage : null,
+                Status == JobItemStatus.Running ? ExpectedSeconds : null);
     }
 }

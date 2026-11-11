@@ -87,6 +87,10 @@ public sealed class CliWorker : ISubSyncWorker
         var reportPath = Path.Combine(reportFolder, Guid.NewGuid().ToString("N") + ".json");
         var moved = false;
 
+        // SubSync writes its stage lines only to logs\cli.log when its output is piped (SubSyncStage).
+        var stages = StageReader(options.OnStage);
+        using var tail = stages is null ? null : new LogTail(Path.Combine(Path.GetDirectoryName(cli)!, "logs", "cli.log"), stages, TimeSpan.FromSeconds(1));
+
         try
         {
             var outcome = await ProcessRunner.RunAsync(
@@ -95,7 +99,8 @@ public sealed class CliWorker : ISubSyncWorker
                 Path.GetDirectoryName(cli)!,
                 options.Timeout,
                 cancellationToken,
-                recordAsWorker: true).ConfigureAwait(false);
+                recordAsWorker: true,
+                onLine: stages).ConfigureAwait(false);
             var seconds = outcome.Elapsed.TotalSeconds;
 
             switch (outcome.End)
@@ -149,6 +154,22 @@ public sealed class CliWorker : ISubSyncWorker
                 TryDelete(cliOutput);
             }
         }
+    }
+
+    private static Action<string>? StageReader(Action<string>? onStage)
+    {
+        if (onStage is null)
+        {
+            return null;
+        }
+
+        return line =>
+        {
+            if (SubSyncStage.Parse(line) is { } stage)
+            {
+                onStage(stage);
+            }
+        };
     }
 
     private static string Tail(string output) => output.Length <= 2000 ? output : output[^2000..];

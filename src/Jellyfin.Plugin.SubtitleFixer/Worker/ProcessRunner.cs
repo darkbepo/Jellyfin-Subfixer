@@ -42,6 +42,7 @@ public static class ProcessRunner
     /// <param name="timeout">Kill after this long.</param>
     /// <param name="cancellationToken">Kill when cancelled.</param>
     /// <param name="recordAsWorker">Record the process in <see cref="RunningWorkerFile"/> while it runs.</param>
+    /// <param name="onLine">Called with each output line as it arrives; its exceptions are swallowed.</param>
     /// <returns>The outcome.</returns>
     public static async Task<ProcessOutcome> RunAsync(
         string fileName,
@@ -49,7 +50,8 @@ public static class ProcessRunner
         string workingDirectory,
         TimeSpan timeout,
         CancellationToken cancellationToken,
-        bool recordAsWorker = false)
+        bool recordAsWorker = false,
+        Action<string>? onLine = null)
     {
         var start = new ProcessStartInfo(fileName)
         {
@@ -80,6 +82,19 @@ public static class ProcessRunner
                 if (output.Length < MaxOutputChars)
                 {
                     output.AppendLine(line);
+                }
+            }
+
+            if (onLine is not null)
+            {
+                try
+                {
+                    onLine(line);
+                }
+#pragma warning disable CA1031 // A progress callback must never break output reading.
+                catch (Exception)
+#pragma warning restore CA1031
+                {
                 }
             }
         }

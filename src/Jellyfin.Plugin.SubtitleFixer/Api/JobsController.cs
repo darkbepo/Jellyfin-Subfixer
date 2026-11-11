@@ -29,6 +29,8 @@ public sealed record JobsAcceptedDto(int Queued, int Skipped, int QueueLength);
 /// <param name="Note">Note from the source.</param>
 /// <param name="Seconds">SubSync seconds.</param>
 /// <param name="StartedUtc">When it started.</param>
+/// <param name="Stage">While running: reading_audio, listening or matching, once SubSync reports it.</param>
+/// <param name="ExpectedSeconds">While running: estimated total seconds, or null when the video length is unknown (D40).</param>
 public sealed record StatusItemDto(
     Guid JobId,
     Guid? ItemId,
@@ -40,7 +42,9 @@ public sealed record StatusItemDto(
     string Source,
     string? Note,
     double? Seconds,
-    DateTime? StartedUtc);
+    DateTime? StartedUtc,
+    string? Stage = null,
+    double? ExpectedSeconds = null);
 
 /// <summary>Counts by status.</summary>
 /// <param name="Queued">Queued.</param>
@@ -211,7 +215,9 @@ public sealed class JobsController : ControllerBase
                 i.Source == JobSource.Bazarr ? "bazarr" : "manual",
                 visible ? i.Note : null,
                 i.Seconds,
-                i.StartedUtc);
+                i.StartedUtc,
+                i.Stage,
+                i.ExpectedSeconds);
         }
 
         var items = snapshot.Items.Select(Map).ToList();

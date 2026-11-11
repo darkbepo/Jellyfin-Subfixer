@@ -62,8 +62,9 @@ public sealed class JobRunner
     /// <summary>Runs one entry.</summary>
     /// <param name="job">Entry.</param>
     /// <param name="cancellationToken">Cancels this entry.</param>
+    /// <param name="progress">Told the estimated total seconds once SubSync is about to start, then each stage it reports.</param>
     /// <returns>The outcome.</returns>
-    public async Task<RunOutcome> RunAsync(JobItemSnapshot job, CancellationToken cancellationToken)
+    public async Task<RunOutcome> RunAsync(JobItemSnapshot job, CancellationToken cancellationToken, Action<string?, double?>? progress = null)
     {
         // 1. Re-validate: state may have changed since queuing.
         var facts = _library.GetVideo(job.UserId, job.ItemId);
@@ -112,7 +113,20 @@ public sealed class JobRunner
         // 3 to 7. From here the original must come back unless the new file is verified.
         try
         {
-            var result = await _worker.RunAsync(video.Path, sidecar.Path, sidecar.LanguageTag, WithTimeLimit(_options(), facts.Runtime), cancellationToken).ConfigureAwait(false);
+            var options = WithTimeLimit(_options(), facts.Runtime);
+            if (progress is not null)
+            {
+                progress(null, RunTimeEstimate.Expect(facts.Runtime));
+                options = options with { OnStage = stage => progress(stage, null) };
+            }
+
+            var result = await _worker.RunAsync(video.Path, sidecar.Path, sidecar.LanguageTag, options, cancellationToken).ConfigureAwait(false);
+            if (result.Status is WorkerStatus.Synced or WorkerStatus.NoMatch)
+            {
+                // Both listened to the whole soundtrack, so both say how fast this server is.
+                RunTimeEstimate.Record(facts.Runtime, result.Seconds);
+            }
+
             return await FinishAsync(job, video, sidecar, backup, result).ConfigureAwait(false);
         }
         catch (Exception ex)

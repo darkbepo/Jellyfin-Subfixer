@@ -28,7 +28,8 @@
                 font-size: 15px;
                 line-height: 1.5;
             }
-            #SubtitleFixerConfigPage .sf .material-icons { font-size: 20px; line-height: 1; vertical-align: middle; }
+            #SubtitleFixerConfigPage .sf .sf-icon { display: inline-flex; width: 1em; height: 1em; font-size: 20px; line-height: 1; vertical-align: middle; flex: none; }
+            #SubtitleFixerConfigPage .sf .sf-icon svg { width: 100%; height: 100%; fill: currentColor; }
 
             #SubtitleFixerConfigPage .sf-hero { display: flex; align-items: center; gap: 1em; margin-bottom: 1.75em; }
             #SubtitleFixerConfigPage .sf-hero-icon {
@@ -37,7 +38,7 @@
                 background: linear-gradient(135deg, #00a4dc, #aa5cc3); color: #fff;
                 box-shadow: 0 8px 24px rgba(0, 164, 220, 0.25);
             }
-            #SubtitleFixerConfigPage .sf-hero-icon .material-icons { font-size: 28px; }
+            #SubtitleFixerConfigPage .sf-hero-icon .sf-icon { font-size: 28px; }
             #SubtitleFixerConfigPage .sf-hero h2 { margin: 0; font-size: 1.6em; font-weight: 600; letter-spacing: -0.01em; }
             #SubtitleFixerConfigPage .sf-hero p { margin: 0.15em 0 0; color: var(--sf-muted); }
             #SubtitleFixerConfigPage .sf-hero a { color: var(--sf-accent); text-decoration: none; white-space: nowrap; }
@@ -68,7 +69,7 @@
                 padding: 0 0.75em; transition: border-color 0.15s, box-shadow 0.15s;
             }
             #SubtitleFixerConfigPage .sf-input:focus-within { border-color: var(--sf-accent); box-shadow: 0 0 0 3px var(--sf-accent-soft); }
-            #SubtitleFixerConfigPage .sf-input > .material-icons { color: var(--sf-muted); font-size: 18px; }
+            #SubtitleFixerConfigPage .sf-input > .sf-icon { color: var(--sf-muted); font-size: 18px; }
             #SubtitleFixerConfigPage .sf-input input,
             #SubtitleFixerConfigPage .sf-input select {
                 flex: 1; min-width: 0; height: 2.6em; padding: 0; border: 0; outline: 0;
@@ -124,11 +125,11 @@
                 display: inline-flex; align-items: center; gap: 0.4em; padding: 0.3em 0.75em;
                 border-radius: 99px; font-size: 0.85em; background: var(--sf-surface-2); color: var(--sf-muted);
             }
-            #SubtitleFixerConfigPage .sf-pill .material-icons { font-size: 16px; }
+            #SubtitleFixerConfigPage .sf-pill .sf-icon { font-size: 16px; }
             #SubtitleFixerConfigPage .sf-pill[data-state="ok"] { background: var(--sf-ok-soft); color: var(--sf-ok); }
             #SubtitleFixerConfigPage .sf-pill[data-state="bad"] { background: var(--sf-bad-soft); color: var(--sf-bad); }
             #SubtitleFixerConfigPage .sf-pill[data-state="warn"] { background: var(--sf-warn-soft); color: var(--sf-warn); }
-            #SubtitleFixerConfigPage .sf-pill[data-state="busy"] .material-icons { animation: sf-spin 1s linear infinite; }
+            #SubtitleFixerConfigPage .sf-pill[data-state="busy"] .sf-icon { animation: sf-spin 1s linear infinite; }
             @keyframes sf-spin { to { transform: rotate(360deg); } }
             #SubtitleFixerConfigPage .sf-result { font-size: 0.88em; color: var(--sf-muted); margin: 0.75em 0 0; }
             #SubtitleFixerConfigPage .sf-result:empty { display: none; }
@@ -170,27 +171,27 @@
             <div class="content-primary">
                 <form id="SubtitleFixerConfigForm" class="sf" novalidate>
                     <header class="sf-hero">
-                        <div class="sf-hero-icon"><span class="material-icons" aria-hidden="true">subtitles</span></div>
+                        <div class="sf-hero-icon"><span class="sf-icon" data-icon="subtitles" aria-hidden="true"></span></div>
                         <div style="flex:1;min-width:12em">
                             <h2>Subtitle Fixer</h2>
                             <p>Re-times English subtitles on English audio. Users open it from the avatar menu.</p>
                         </div>
-                        <a href="../SubtitleFixer/Page" target="_blank" rel="noopener">Open page and diagnostics <span class="material-icons" aria-hidden="true">open_in_new</span></a>
+                        <a href="../SubtitleFixer/Page" target="_blank" rel="noopener">Open page and diagnostics <span class="sf-icon" data-icon="open_in_new" aria-hidden="true"></span></a>
                     </header>
 
                     <section class="sf-card" aria-labelledby="sfSubSyncTitle">
                         <div class="sf-card-head">
-                            <div class="sf-card-icon"><span class="material-icons" aria-hidden="true">graphic_eq</span></div>
+                            <div class="sf-card-icon"><span class="sf-icon" data-icon="graphic_eq" aria-hidden="true"></span></div>
                             <div class="sf-card-title">
                                 <h3 id="sfSubSyncTitle">SubSync</h3>
                                 <p>The engine that re-times each subtitle to the audio.</p>
                             </div>
-                            <span class="sf-pill" id="SubSyncStatus"><span class="material-icons" aria-hidden="true">help_outline</span><span>Not tested</span></span>
+                            <span class="sf-pill" id="SubSyncStatus"><span class="sf-icon" data-icon="help_outline" aria-hidden="true"></span><span>Not tested</span></span>
                         </div>
                         <label class="sf-field">
                             <span class="sf-label">SubSync folder</span>
                             <span class="sf-input">
-                                <span class="material-icons" aria-hidden="true">folder</span>
+                                <span class="sf-icon" data-icon="folder" aria-hidden="true"></span>
                                 <input id="SubSyncFolder" type="text" spellcheck="false" autocomplete="off" placeholder="C:\SubSync" />
                             </span>
                             <span class="sf-hint">The folder with subsync-cli.exe. The Jellyfin service account needs write access, so not Program Files.</span>
@@ -204,14 +205,14 @@
                             <span class="sf-switch"><input id="ForceCpu" type="checkbox" /><i></i></span>
                         </label>
                         <div class="sf-actions">
-                            <button type="button" class="sf-btn" id="TestSubSync"><span class="material-icons" aria-hidden="true">play_circle_outline</span>Test SubSync</button>
+                            <button type="button" class="sf-btn" id="TestSubSync"><span class="sf-icon" data-icon="play_circle_outline" aria-hidden="true"></span>Test SubSync</button>
                         </div>
                         <p class="sf-result" id="TestSubSyncResult" role="status" aria-live="polite"></p>
                     </section>
 
                     <section class="sf-card" aria-labelledby="sfAccessTitle">
                         <div class="sf-card-head">
-                            <div class="sf-card-icon"><span class="material-icons" aria-hidden="true">tune</span></div>
+                            <div class="sf-card-icon"><span class="sf-icon" data-icon="tune" aria-hidden="true"></span></div>
                             <div class="sf-card-title">
                                 <h3 id="sfAccessTitle">Access and limits</h3>
                                 <p>Who can use it and how much one request can queue.</p>
@@ -220,7 +221,7 @@
                         <label class="sf-field">
                             <span class="sf-label">Who can use it</span>
                             <span class="sf-input">
-                                <span class="material-icons" aria-hidden="true">group</span>
+                                <span class="sf-icon" data-icon="group" aria-hidden="true"></span>
                                 <select id="AllowedUsers">
                                     <option value="AllAuthenticated">All signed-in users</option>
                                     <option value="AdminOnly">Administrators only</option>
@@ -247,7 +248,7 @@
 
                     <section class="sf-card" id="BazarrCard" aria-labelledby="sfBazarrTitle">
                         <div class="sf-card-head">
-                            <div class="sf-card-icon"><span class="material-icons" aria-hidden="true">cloud_download</span></div>
+                            <div class="sf-card-icon"><span class="sf-icon" data-icon="cloud_download" aria-hidden="true"></span></div>
                             <div class="sf-card-title">
                                 <h3 id="sfBazarrTitle">Bazarr</h3>
                                 <p>Search your Bazarr for subtitles, then re-time what it downloads.</p>
@@ -260,7 +261,7 @@
                             <label class="sf-field">
                                 <span class="sf-label">Address</span>
                                 <span class="sf-input">
-                                    <span class="material-icons" aria-hidden="true">link</span>
+                                    <span class="sf-icon" data-icon="link" aria-hidden="true"></span>
                                     <input id="BazarrUrl" type="url" spellcheck="false" autocomplete="off" placeholder="http://localhost:6767" />
                                 </span>
                                 <span class="sf-hint">As the Jellyfin server reaches it. Include Bazarr's base URL path if it has one.</span>
@@ -268,9 +269,9 @@
                             <div class="sf-field">
                                 <label class="sf-label" for="BazarrApiKey">API key</label>
                                 <span class="sf-input">
-                                    <span class="material-icons" aria-hidden="true">vpn_key</span>
+                                    <span class="sf-icon" data-icon="vpn_key" aria-hidden="true"></span>
                                     <input id="BazarrApiKey" type="password" spellcheck="false" autocomplete="new-password" />
-                                    <button type="button" class="sf-iconbtn" id="BazarrApiKeyToggle" aria-label="Show key" title="Show key"><span class="material-icons" aria-hidden="true">visibility</span></button>
+                                    <button type="button" class="sf-iconbtn" id="BazarrApiKeyToggle" aria-label="Show key" title="Show key"><span class="sf-icon" data-icon="visibility" aria-hidden="true"></span></button>
                                 </span>
                                 <span class="sf-hint">Bazarr, Settings, General, Security. Stays on the server; users' browsers never see it.</span>
                             </div>
@@ -278,18 +279,18 @@
                                 <span class="sf-label">Path mappings</span>
                                 <div id="BazarrPathMappings"></div>
                                 <p class="sf-map-empty" id="BazarrMappingsEmpty">None. Add one only if Bazarr sees your files under different paths.</p>
-                                <button type="button" class="sf-btn sf-btn-ghost" id="BazarrAddMapping"><span class="material-icons" aria-hidden="true">add</span>Add mapping</button>
+                                <button type="button" class="sf-btn sf-btn-ghost" id="BazarrAddMapping"><span class="sf-icon" data-icon="add" aria-hidden="true"></span>Add mapping</button>
                             </div>
                             <div class="sf-actions">
-                                <button type="button" class="sf-btn" id="TestBazarr"><span class="material-icons" aria-hidden="true">network_check</span>Test connection</button>
-                                <span class="sf-pill" id="BazarrStatus"><span class="material-icons" aria-hidden="true">help_outline</span><span>Not tested</span></span>
+                                <button type="button" class="sf-btn" id="TestBazarr"><span class="sf-icon" data-icon="network_check" aria-hidden="true"></span>Test connection</button>
+                                <span class="sf-pill" id="BazarrStatus"><span class="sf-icon" data-icon="help_outline" aria-hidden="true"></span><span>Not tested</span></span>
                             </div>
                             <p class="sf-result" id="TestBazarrResult" role="status" aria-live="polite"></p>
                         </div>
                     </section>
 
                     <div class="sf-savebar">
-                        <button type="submit" class="sf-btn sf-btn-primary"><span class="material-icons" aria-hidden="true">save</span>Save</button>
+                        <button type="submit" class="sf-btn sf-btn-primary"><span class="sf-icon" data-icon="save" aria-hidden="true"></span>Save</button>
                     </div>
                 </form>
             </div>
@@ -302,13 +303,53 @@
                 function el(id) { return page.querySelector('#' + id); }
                 function intOr(value, fallback) { var n = parseInt(value, 10); return isNaN(n) || n < 1 ? fallback : n; }
 
+                // Inline SVG icons (paths from Material Icons, Apache-2.0, as bundled in jellyfin-web 12.4).
+                // Not the icon font: themes and other plugins can swap it for one that lacks these ligatures.
+                var ICONS = {
+                    add: 'M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z',
+                    arrow_forward: 'M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z',
+                    autorenew: 'M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z',
+                    check_circle: 'M20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4C12.76,4 13.5,4.11 14.2, 4.31L15.77,2.74C14.61,2.26 13.34,2 12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0, 0 22,12M7.91,10.08L6.5,11.5L11,16L21,6L19.59,4.58L11,13.17L7.91,10.08Z',
+                    cloud_download: 'M5 20h14v-2H5zM19 9h-4V3H9v6H5l7 7z',
+                    delete_outline: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6zM19 4h-3.5l-1-1h-5l-1 1H5v2h14z',
+                    error_outline: 'M11 15h2v2h-2zm0-8h2v6h-2zm.99-5C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z',
+                    folder: 'M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8z',
+                    graphic_eq: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2M9.5 16.5v-9l7 4.5z',
+                    group: 'M12 12.75c1.63 0 3.07.39 4.24.9 1.08.48 1.76 1.56 1.76 2.73V18H6v-1.61c0-1.18.68-2.26 1.76-2.73 1.17-.52 2.61-.91 4.24-.91M4 13c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2m1.13 1.1c-.37-.06-.74-.1-1.13-.1-.99 0-1.93.21-2.78.58C.48 14.9 0 15.62 0 16.43V18h4.5v-1.61c0-.83.23-1.61.63-2.29M20 13c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2m4 3.43c0-.81-.48-1.53-1.22-1.85-.85-.37-1.79-.58-2.78-.58-.39 0-.76.04-1.13.1.4.68.63 1.46.63 2.29V18H24zM12 6c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3',
+                    help_outline: 'M11 18h2v-2h-2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8m0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4',
+                    link: 'M13 22h8v-7h-3v-4h-5V9h3V2H8v7h3v2H6v4H3v7h8v-7H8v-2h8v2h-3z',
+                    network_check: 'm18 12 4-4-4-4v3H3v2h15zM6 12l-4 4 4 4v-3h15v-2H6z',
+                    open_in_new: 'M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3z',
+                    play_circle_outline: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2M9.5 16.5v-9l7 4.5z',
+                    save: 'M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3m3-10H5V5h10z',
+                    subtitles: 'M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2m-8 7H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1z',
+                    tune: 'M3 17v2h6v-2zM3 5v2h10V5zm10 16v-2h8v-2h-8v-2h-2v6zM7 9v2H3v2h4v2h2V9zm14 4v-2H11v2zm-6-4h2V7h4V5h-4V3h-2z',
+                    visibility: 'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5M12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5m0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3',
+                    visibility_off: 'M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7M2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2m4.31-.78 3.15 3.15.02-.16c0-1.66-1.34-3-3-3z',
+                    vpn_key: 'M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2',
+                    warning: 'M1 21h22L12 2zm12-3h-2v-2h2zm0-4h-2v-4h2z'
+                };
+
+                function fillIcon(s, name) {
+                    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    svg.setAttribute('viewBox', '0 0 24 24');
+                    svg.setAttribute('focusable', 'false');
+                    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    path.setAttribute('d', ICONS[name] || ICONS.help_outline);
+                    svg.appendChild(path);
+                    s.replaceChildren(svg);
+                }
+
                 function icon(name) {
                     var s = document.createElement('span');
-                    s.className = 'material-icons';
+                    s.className = 'sf-icon';
                     s.setAttribute('aria-hidden', 'true');
-                    s.textContent = name;
+                    s.setAttribute('data-icon', name);
+                    fillIcon(s, name);
                     return s;
                 }
+
+                page.querySelectorAll('.sf-icon[data-icon]').forEach(function (s) { fillIcon(s, s.getAttribute('data-icon')); });
 
                 // state: idle | busy | ok | bad
                 function setPill(id, state, text) {

@@ -42,7 +42,8 @@ public sealed class JobProcessor : BackgroundService
         RunOutcome outcome;
         try
         {
-            outcome = await _runner.RunAsync(job.Snapshot, job.CancellationToken).ConfigureAwait(false);
+            var jobId = job.Snapshot.JobId;
+            outcome = await _runner.RunAsync(job.Snapshot, job.CancellationToken, (stage, expected) => _queue.SetProgress(jobId, stage, expected)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SubtitleFixer.Bazarr;
@@ -134,7 +135,7 @@ public interface IBazarrClient
 /// <summary>
 /// Bazarr HTTP client. Calls and field names are recorded in <c>docs/BAZARR-API.md</c>; only verified calls go here.
 /// </summary>
-public sealed class BazarrClient : IBazarrClient
+public sealed partial class BazarrClient : IBazarrClient
 {
     /// <summary>Name of the client taken from <see cref="IHttpClientFactory"/>.</summary>
     public const string HttpClientName = "SubtitleFixer.Bazarr";
@@ -185,7 +186,8 @@ public sealed class BazarrClient : IBazarrClient
 
             if (!response.IsSuccessStatusCode)
             {
-                return new BazarrStatusResult(false, null, $"Bazarr answered HTTP {(int)response.StatusCode}. Check the address, including any base path.");
+                var problem = $"{request.RequestUri} answered HTTP {(int)response.StatusCode}.";
+                return new BazarrStatusResult(false, null, await ExplainAsync(connection, problem, timeout.Token).ConfigureAwait(false));
             }
 
             var stream = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
@@ -202,8 +204,14 @@ public sealed class BazarrClient : IBazarrClient
                     return new BazarrStatusResult(true, version, $"Connected to Bazarr {version}.");
                 }
 
-                return new BazarrStatusResult(false, null, "That address answered, but not like Bazarr. Check the address, including any base path.");
+                var problem = $"{request.RequestUri} answered, but not like Bazarr's API.";
+                return new BazarrStatusResult(false, null, await ExplainAsync(connection, problem, timeout.Token).ConfigureAwait(false));
             }
+        }
+        catch (JsonException)
+        {
+            var problem = $"{connection.BaseUri}api/system/status answered, but not like Bazarr's API.";
+            return new BazarrStatusResult(false, null, await ExplainAsync(connection, problem, cancellationToken).ConfigureAwait(false));
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -213,10 +221,6 @@ public sealed class BazarrClient : IBazarrClient
         {
             _logger.LogWarning("Could not reach Bazarr at {BaseUri}: {Error}", connection.BaseUri, ex.Message);
             return new BazarrStatusResult(false, null, $"Could not reach Bazarr at {connection.BaseUri}.");
-        }
-        catch (JsonException)
-        {
-            return new BazarrStatusResult(false, null, "That address answered, but not like Bazarr. Check the address, including any base path.");
         }
     }
 
@@ -526,6 +530,82 @@ public sealed class BazarrClient : IBazarrClient
         catch (JsonException)
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Bazarr's web page says where Bazarr lives: it embeds <c>"baseUrl": "/bazarr"</c> (its URL Base setting), and with a
+    /// URL Base set, Bazarr 1.6.2 redirects every other path, the API included, to that page (verified locally). So when
+    /// the status call fails, look at the page at the typed address and then at the server root, and suggest the address
+    /// Bazarr reports. Never logs or returns the page, which also carries Bazarr's API key.
+    /// </summary>
+    internal static string? SuggestAddress(Uri pageUri, string html)
+    {
+        var match = BaseUrlPattern().Match(html);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        var baseUrl = match.Groups[1].Value.Trim().Trim('/');
+        var root = pageUri.GetLeftPart(UriPartial.Authority);
+        return baseUrl.Length == 0 ? root + "/" : root + "/" + baseUrl + "/";
+    }
+
+    [GeneratedRegex("window\\.Bazarr\\s*=[^;]*?\"baseUrl\"\\s*:\\s*\"([^\"]*)\"", RegexOptions.CultureInvariant, 1000)]
+    private static partial Regex BaseUrlPattern();
+
+    private async Task<string> ExplainAsync(BazarrConnection connection, string problem, CancellationToken cancellationToken)
+    {
+        var typed = connection.BaseUri;
+        var root = new Uri(typed.GetLeftPart(UriPartial.Authority) + "/");
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        limit.CancelAfter(TimeSpan.FromSeconds(15));
+        foreach (var page in typed == root ? new[] { typed } : new[] { typed, root })
+        {
+            var (finalUri, html) = await TryGetPageAsync(page, limit.Token).ConfigureAwait(false);
+            if (finalUri is null || html is null || SuggestAddress(finalUri, html) is not { } suggestion)
+            {
+                continue;
+            }
+
+            if (!string.Equals(suggestion, typed.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                return $"{problem} Bazarr's own page says it is at {suggestion}. Use that address.";
+            }
+
+            return $"{problem} The address is Bazarr's, but its API isn't reachable there. If a proxy sits in front of Bazarr, make it pass /api through, or use Bazarr's own address and port.";
+        }
+
+        return $"{problem} Nothing at {typed} looks like Bazarr. Check the address and port (Bazarr's default is http://<server>:6767/), and add Bazarr's URL Base if it has one.";
+    }
+
+    private async Task<(Uri? FinalUri, string? Html)> TryGetPageAsync(Uri page, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, page);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
+            var client = _httpClientFactory.CreateClient(HttpClientName);
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return (null, null);
+            }
+
+            var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            await using (stream.ConfigureAwait(false))
+            {
+                // The page is small; never read more than 256 KB of whatever answers.
+                var buffer = new char[256 * 1024];
+                using var reader = new StreamReader(stream);
+                var read = await reader.ReadBlockAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+                return (response.RequestMessage?.RequestUri ?? page, new string(buffer, 0, read));
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException)
+        {
+            return (null, null);
         }
     }
 

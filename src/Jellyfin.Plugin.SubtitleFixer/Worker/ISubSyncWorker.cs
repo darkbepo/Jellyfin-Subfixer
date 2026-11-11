@@ -29,7 +29,8 @@ public enum WorkerStatus
 /// <param name="TidyUpLines">Off passes <c>--keep-layout</c>.</param>
 /// <param name="ForceCpu">Passes <c>--cpu</c>.</param>
 /// <param name="Timeout">Kill the run after this long.</param>
-public sealed record WorkerOptions(bool TidyUpLines, bool ForceCpu, TimeSpan Timeout);
+/// <param name="OnStage">Called with each stage SubSync reports while it runs (<see cref="SubSyncStage"/> codes).</param>
+public sealed record WorkerOptions(bool TidyUpLines, bool ForceCpu, TimeSpan Timeout, Action<string>? OnStage = null);
 
 /// <summary>Result of one run.</summary>
 /// <param name="Status">Outcome.</param>

@@ -10,6 +10,12 @@
     var apiRoot = new URL('./', window.location.href).href;  // .../SubtitleFixer/
     var $ = function (id) { return document.getElementById(id); };
 
+    // What SubSync is doing for the running item (StatusItemDto.stage). It prints no percentage itself.
+    var STAGES = {
+        reading_audio: 'reading the audio',
+        listening: 'listening to the dialogue',
+        matching: 'matching the lines'
+    };
     var MESSAGES = {
         subsync_unavailable: 'SubSync is not configured. Ask an administrator.',
         forbidden: 'An administrator has not allowed your account to use Subtitle Fixer.',
@@ -770,8 +776,19 @@
         var panel = $('queue-panel');
         panel.hidden = total === 0 && !s.stopReason && s.subsyncAvailable;
 
+        // SubSync reports no percentage, so the running item's share is elapsed time over the server's estimate (D40),
+        // held below 95% until it really finishes. Without an estimate the bar counts finished items only.
+        var currentPart = 0, currentPct = null;
+        var cur = s.current;
+        if (cur && cur.startedUtc) {
+            var ran = Math.max(0, (Date.now() - new Date(cur.startedUtc).getTime()) / 1000);
+            if (cur.expectedSeconds) { currentPart = Math.min(0.95, ran / cur.expectedSeconds); }
+            if (cur.stage === 'matching') { currentPart = Math.max(currentPart, 0.95); }
+            if (cur.expectedSeconds || cur.stage === 'matching') { currentPct = Math.round(currentPart * 100); }
+        }
+
         var bar = $('bar');
-        var pct = total ? Math.round(finished * 100 / total) : 0;
+        var pct = total ? Math.round((finished + currentPart) * 100 / total) : 0;
         bar.firstElementChild.style.width = pct + '%';
         bar.setAttribute('aria-valuenow', String(pct));
         bar.classList.toggle('working', s.state !== 'idle');
@@ -783,9 +800,17 @@
         } else {
             var started = s.items.map(function (i) { return i.startedUtc; }).filter(Boolean).sort()[0];
             var elapsed = started ? duration((Date.now() - new Date(started).getTime()) / 1000) : null;
-            var eta = duration(s.etaSeconds);
+            var etaSeconds = s.etaSeconds;
+            if (etaSeconds == null && cur && cur.expectedSeconds && cur.startedUtc) {
+                // Nothing finished yet to average: the running item's estimate, plus the same again per queued item.
+                var left = Math.max(30, cur.expectedSeconds - (Date.now() - new Date(cur.startedUtc).getTime()) / 1000);
+                etaSeconds = left + t.queued * cur.expectedSeconds;
+            }
+            var eta = duration(etaSeconds);
+            var stage = cur ? STAGES[cur.stage] || 'starting SubSync' : null;
             summary = (s.state === 'stopping' ? 'Stopping… ' : '') + finished + ' of ' + total + ' finished.' +
-                (s.current ? ' Now: ' + s.current.name + (s.current.mine ? ' (yours)' : '') + '.' : '') +
+                (cur ? ' Now: ' + cur.name + (cur.mine ? ' (yours)' : '') + ', ' + stage +
+                    (currentPct != null ? ', about ' + currentPct + '%' : '') + '.' : '') +
                 (elapsed ? ' Elapsed ' + elapsed + '.' : '') + (eta ? ' About ' + eta + ' left.' : '') +
                 (s.aheadOfYours ? ' ' + plural(s.aheadOfYours, 'episode', 'episodes') + ' ahead of yours.' : '');
         }

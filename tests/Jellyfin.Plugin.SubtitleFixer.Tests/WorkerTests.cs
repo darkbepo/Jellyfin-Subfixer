@@ -134,6 +134,28 @@ public sealed class ProcessRunnerTests
     }
 
     [Fact]
+    public async Task Lines_reach_the_callback_and_a_broken_callback_is_harmless()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var lines = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var outcome = await ProcessRunner.RunAsync(
+            Cmd,
+            ["/c", "echo [1/1] a.mkv: Listening...& echo done"],
+            Path.GetTempPath(),
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None,
+            onLine: line => { lines.Enqueue(line); throw new InvalidOperationException("a broken callback must not stop the run"); });
+
+        Assert.Equal(ProcessEnd.Exited, outcome.End);
+        Assert.Contains(lines, l => SubSyncStage.Parse(l) == SubSyncStage.Listening);
+        Assert.Contains("done", outcome.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Cancel_kills_the_whole_tree()
     {
         if (!OperatingSystem.IsWindows())

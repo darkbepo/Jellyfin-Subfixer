@@ -72,6 +72,8 @@ Only `<video>.en.srt`, `<video>.eng.srt`, `<video>.en.hi.srt` or `<video>.eng.hi
 - **The queue stopped with a SubSync message:** close any open SubSync window, or let its setup finish, then press Start again.
 - **"Crashed 3 times in a row":** the queue stops itself. SubSync's output for each failure is in the Jellyfin log.
 - **GPU or CPU:** Test SubSync shows which one the last run used. If a server with an NVIDIA card says CPU, check that the account Jellyfin runs as can use the card, or turn on Force CPU if CUDA keeps failing.
+- **Test Bazarr fails:** the message names the exact address it tried. Use Bazarr's own address, as in its browser tab but without any page path (for example `http://server:6767/`). Add Bazarr's URL Base if it has one (Bazarr > Settings > General). If Bazarr's page can be read, the message suggests the right address.
+- **The settings page looks old after an update:** reload the page (Ctrl+F5) so the browser fetches the new version.
 - **Find subtitles says the item isn't found:** Bazarr sees the files under different paths. Add a path mapping in the Bazarr settings and press Test Bazarr.
 - **Logs:** the Jellyfin log (one line per finished item), and the SubSync `logs` folder (`cli.log`, `worker.log`).
 

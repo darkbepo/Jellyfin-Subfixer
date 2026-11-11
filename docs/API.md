@@ -43,7 +43,8 @@ Same request; validates exactly like Preview, then appends the eligible episodes
 ```json
 { "state":"idle|running|stopping", "subsyncAvailable":true, "stopReason":null,
   "current": { "jobId":"...", "itemId":"...", "name":"S01E04 Title", "seriesName":"Show", "status":"running",
-               "message":null, "mine":true, "source":"manual", "note":null, "seconds":null, "startedUtc":"..." },
+               "message":null, "mine":true, "source":"manual", "note":null, "seconds":null, "startedUtc":"...",
+               "stage":"listening", "expectedSeconds":448 },
   "totals": { "queued":35, "running":1, "done":3, "check":0, "failed":0, "cancelled":0, "skipped":0 },
   "etaSeconds": 2100,
   "aheadOfYours": 0,
@@ -58,7 +59,8 @@ Same request; validates exactly like Preview, then appends the eligible episodes
 - `source`/`note`: where the job came from; Bazarr downloads use `source:"bazarr"` and a note such as "downloaded from opensubtitlescom" (BAZARR-PLAN.md). Server code queues them with `JobQueue.Enqueue(userId, items, JobSource.Bazarr, note, MaxQueuedEpisodes)`.
 - `stopReason` is set when the queue stopped by itself (SubSync exit 7, or 3 consecutive crashes); the remaining queued items are then `cancelled` with that reason. Cleared by the next successful Start.
 - `aheadOfYours`: pending items in front of the caller's first pending one; null when the caller has none.
-- ETA = pending (queued + running) x average `seconds` of finished episodes; null until one has finished. The page polls every 1 s while running and every 5 s when idle, and stops while the tab is hidden.
+- `stage` and `expectedSeconds` are set only on the running item. `stage` is what SubSync last reported (`reading_audio`, `listening` or `matching`; null until its first line). `expectedSeconds` is the server's estimate of the whole run (D40): the video's length times a speed ratio learned from finished runs on this server, or null when Jellyfin has no runtime. SubSync prints no percentage, so the page draws the running item's share of the bar from elapsed time over `expectedSeconds`, held below 95% until it finishes.
+- ETA = pending (queued + running) x average `seconds` of finished episodes; null until one has finished (the page then uses the running item's `expectedSeconds`). The page polls every 1 s while running and every 5 s when idle, and stops while the tab is hidden.
 
 ## POST /Jobs/Cancel
 Cancels the caller's own running and queued items; an administrator cancels all items. Returns the new Status. The running episode's subtitle is restored from its backup before it is marked `cancelled` (`state` is `stopping` meanwhile; `JOB-FLOW.md`).
