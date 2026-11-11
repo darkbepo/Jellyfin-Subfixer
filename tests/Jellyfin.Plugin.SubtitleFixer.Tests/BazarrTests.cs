@@ -336,3 +336,85 @@ public sealed class BazarrTestTargetTests
         Assert.Contains("Set the Bazarr API key", error, StringComparison.Ordinal);
     }
 }
+
+public sealed class BazarrUseSubsyncTests
+{
+    private const string Key = "secret-key-123";
+    private const string Status = """{"data":{"bazarr_version":"1.6.2"}}""";
+
+    [Theory]
+    [InlineData("""{"auth":{"apikey":"secret-key-123"},"subsync":{"use_subsync":true,"gss":true}}""", true)]
+    [InlineData("""{"subsync":{"use_subsync":false}}""", false)]
+    [InlineData("""{"subsync":{}}""", null)]
+    [InlineData("""{"subsync":{"use_subsync":"yes"}}""", null)]
+    [InlineData("""{"data":{"subsync":{"use_subsync":true}}}""", null)]
+    [InlineData("not json", null)]
+    public async Task Reads_only_subsync_use_subsync_from_the_settings_root(string body, bool? expected)
+    {
+        var handler = new StubHandler(_ => Json(HttpStatusCode.OK, body));
+        var result = await Client(handler).GetUseSubsyncAsync(Connection(), CancellationToken.None);
+
+        Assert.Equal(expected, result);
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal("http://host:6767/api/system/settings", request.RequestUri!.ToString());
+        Assert.Equal(Key, Assert.Single(request.Headers.GetValues(BazarrClient.ApiKeyHeader)));
+    }
+
+    [Fact]
+    public async Task Http_failure_is_unknown_not_an_exception()
+    {
+        Assert.Null(await Client(new StubHandler(_ => Json(HttpStatusCode.Unauthorized, "{}"))).GetUseSubsyncAsync(Connection(), CancellationToken.None));
+        Assert.Null(await Client(new StubHandler(_ => throw new HttpRequestException("down"))).GetUseSubsyncAsync(Connection(), CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("""{"subsync":{"use_subsync":true}}""", "own subtitle sync is on")]
+    [InlineData("""{"subsync":{}}""", "sync setting. In Bazarr, check")]
+    public async Task Test_warns_when_bazarr_sync_is_on_or_unknown(string settings, string expected)
+    {
+        var content = await RunTest(settings);
+
+        Assert.Contains("\"ok\":true", content, StringComparison.Ordinal);
+        Assert.Contains(expected, content, StringComparison.Ordinal);
+        Assert.DoesNotContain(Key, content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Test_has_no_warning_when_bazarr_sync_is_off()
+    {
+        var content = await RunTest("""{"auth":{"apikey":"secret-key-123"},"subsync":{"use_subsync":false}}""");
+
+        Assert.Contains("\"warnings\":[]", content, StringComparison.Ordinal);
+        Assert.DoesNotContain(Key, content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Failed_status_skips_the_settings_call()
+    {
+        var handler = new StubHandler(_ => Json(HttpStatusCode.Unauthorized, "{}"));
+        var controller = new BazarrController(Client(handler));
+
+        await controller.TestBazarr(new TestBazarrRequest("http://host:6767", Key, null), CancellationToken.None);
+
+        Assert.Single(handler.Requests);
+    }
+
+    private static async Task<string> RunTest(string settings)
+    {
+        var handler = new StubHandler(r => Json(HttpStatusCode.OK, r.RequestUri!.AbsolutePath.EndsWith("/settings", StringComparison.Ordinal) ? settings : Status));
+        var controller = new BazarrController(Client(handler));
+        var result = await controller.TestBazarr(new TestBazarrRequest("http://host:6767", Key, null), CancellationToken.None);
+        return Assert.IsType<ContentResult>(result).Content!;
+    }
+
+    private static BazarrClient Client(StubHandler handler) => new(new StubFactory(handler), NullLogger<BazarrClient>.Instance);
+
+    private static BazarrConnection Connection()
+    {
+        Assert.True(BazarrConnection.TryCreate("http://host:6767", Key, out var c, out _));
+        return c!;
+    }
+
+    private static HttpResponseMessage Json(HttpStatusCode status, string body) =>
+        new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+}

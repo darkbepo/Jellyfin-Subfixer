@@ -70,6 +70,16 @@ public interface IBazarrClient
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The result. Never throws for network or HTTP failures.</returns>
     Task<BazarrStatusResult> GetStatusAsync(BazarrConnection connection, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reads Bazarr's own "synchronize subtitles" setting (<c>subsync.use_subsync</c>). If it's on, downloads get re-timed
+    /// twice (BAZARR-PLAN.md, owner decision 3). The settings response also holds every provider password, so only that one value is read and
+    /// nothing else is kept, logged or returned.
+    /// </summary>
+    /// <param name="connection">Where to reach Bazarr.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The setting, or null when it couldn't be read. Never throws for network or HTTP failures.</returns>
+    Task<bool?> GetUseSubsyncAsync(BazarrConnection connection, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -152,6 +162,51 @@ public sealed class BazarrClient : IBazarrClient
         catch (JsonException)
         {
             return new BazarrStatusResult(false, null, "That address answered, but not like Bazarr. Check the address, including any base path.");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool?> GetUseSubsyncAsync(BazarrConnection connection, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(Timeout);
+
+        try
+        {
+            using var request = CreateRequest(HttpMethod.Get, connection, "api/system/settings");
+            var client = _httpClientFactory.CreateClient(HttpClientName);
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var stream = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
+            await using (stream.ConfigureAwait(false))
+            {
+                using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: timeout.Token).ConfigureAwait(false);
+                return doc.RootElement.ValueKind == JsonValueKind.Object
+                    && doc.RootElement.TryGetProperty("subsync", out var subsync)
+                    && subsync.ValueKind == JsonValueKind.Object
+                    && subsync.TryGetProperty("use_subsync", out var use)
+                    && use.ValueKind is JsonValueKind.True or JsonValueKind.False
+                    ? use.GetBoolean()
+                    : null;
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning("Could not read Bazarr settings at {BaseUri}: {Error}", connection.BaseUri, ex.Message);
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 

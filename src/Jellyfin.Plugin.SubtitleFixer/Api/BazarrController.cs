@@ -19,7 +19,8 @@ public sealed record TestBazarrRequest(string? Url, string? ApiKey, string? Path
 /// <param name="Version">Bazarr version.</param>
 /// <param name="Message">What to tell the admin.</param>
 /// <param name="PathMappingErrors">One message per bad path-mapping line.</param>
-public sealed record TestBazarrDto(bool Ok, string? Version, string Message, IReadOnlyList<string> PathMappingErrors);
+/// <param name="Warnings">Things that work but should be changed, such as Bazarr's own sync being on (BAZARR-PLAN.md, owner decision 3).</param>
+public sealed record TestBazarrDto(bool Ok, string? Version, string Message, IReadOnlyList<string> PathMappingErrors, IReadOnlyList<string> Warnings);
 
 /// <summary>Bazarr endpoints (BAZARR-PLAN.md, API.md "Bazarr").</summary>
 [ApiController]
@@ -52,12 +53,33 @@ public sealed class BazarrController : ControllerBase
         var mappingErrors = BazarrPathMapper.Parse(request?.PathMappings ?? config?.BazarrPathMappings).Errors;
         if (ResolveTestConnection(request, config?.BazarrUrl, config?.BazarrApiKey, out var connection) is { } error)
         {
-            return Json(new TestBazarrDto(false, null, error, mappingErrors));
+            return Json(new TestBazarrDto(false, null, error, mappingErrors, []));
         }
 
         var status = await _client.GetStatusAsync(connection!, cancellationToken).ConfigureAwait(false);
-        return Json(new TestBazarrDto(status.Ok, status.Version, status.Message, mappingErrors));
+        var warnings = new List<string>();
+        if (status.Ok)
+        {
+            var useSubsync = await _client.GetUseSubsyncAsync(connection!, cancellationToken).ConfigureAwait(false);
+            if (useSubsync is { } on)
+            {
+                if (on)
+                {
+                    warnings.Add(UseSubsyncWarning);
+                }
+            }
+            else
+            {
+                warnings.Add("Could not read Bazarr's sync setting. In Bazarr, check that Settings > Subtitles > Audio Synchronization > 'Enable Automatic Subtitles Audio Synchronization' is off.");
+            }
+        }
+
+        return Json(new TestBazarrDto(status.Ok, status.Version, status.Message, mappingErrors, warnings));
     }
+
+    /// <summary>Warning shown when Bazarr's own sync is on (BAZARR-PLAN.md, owner decision 3).</summary>
+    internal const string UseSubsyncWarning =
+        "Bazarr's own subtitle sync is on, so downloads would be re-timed twice. In Bazarr, turn off Settings > Subtitles > Audio Synchronization > 'Enable Automatic Subtitles Audio Synchronization'.";
 
     /// <summary>
     /// Picks the address and key to test: form values first, saved settings for empty fields. The saved key is only

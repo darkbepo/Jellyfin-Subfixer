@@ -15,6 +15,8 @@
                 --sf-ok-soft: rgba(62, 207, 142, 0.14);
                 --sf-bad: #ff6b6b;
                 --sf-bad-soft: rgba(255, 107, 107, 0.14);
+                --sf-warn: #f5b942;
+                --sf-warn-soft: rgba(245, 185, 66, 0.15);
                 --sf-surface: color-mix(in srgb, currentColor 5%, transparent);
                 --sf-surface-2: color-mix(in srgb, currentColor 9%, transparent);
                 --sf-line: color-mix(in srgb, currentColor 12%, transparent);
@@ -125,6 +127,7 @@
             #SubtitleFixerConfigPage .sf-pill .material-icons { font-size: 16px; }
             #SubtitleFixerConfigPage .sf-pill[data-state="ok"] { background: var(--sf-ok-soft); color: var(--sf-ok); }
             #SubtitleFixerConfigPage .sf-pill[data-state="bad"] { background: var(--sf-bad-soft); color: var(--sf-bad); }
+            #SubtitleFixerConfigPage .sf-pill[data-state="warn"] { background: var(--sf-warn-soft); color: var(--sf-warn); }
             #SubtitleFixerConfigPage .sf-pill[data-state="busy"] .material-icons { animation: sf-spin 1s linear infinite; }
             @keyframes sf-spin { to { transform: rotate(360deg); } }
             #SubtitleFixerConfigPage .sf-result { font-size: 0.88em; color: var(--sf-muted); margin: 0.75em 0 0; }
@@ -309,7 +312,7 @@
                 // state: idle | busy | ok | bad
                 function setPill(id, state, text) {
                     var pill = el(id);
-                    var names = { idle: 'help_outline', busy: 'autorenew', ok: 'check_circle', bad: 'error_outline' };
+                    var names = { idle: 'help_outline', busy: 'autorenew', ok: 'check_circle', warn: 'warning', bad: 'error_outline' };
                     pill.setAttribute('data-state', state);
                     pill.replaceChildren(icon(names[state]), document.createTextNode(text));
                 }
@@ -478,13 +481,15 @@
                         apiKey: el('BazarrApiKey').value.trim(),
                         pathMappings: mappingsText()
                     }).then(function (r) {
-                        setPill('BazarrStatus', r.ok ? 'ok' : 'bad', r.ok ? 'Connected, Bazarr ' + r.version : 'Failed');
-                        // The pill already says "Connected"; only explain failures and bad mappings.
-                        var text = r.ok ? '' : r.message;
+                        var warnings = r.warnings || [];
+                        setPill('BazarrStatus', !r.ok ? 'bad' : (warnings.length ? 'warn' : 'ok'), r.ok ? 'Connected, Bazarr ' + r.version : 'Failed');
+                        // The pill already says "Connected"; only explain failures, warnings and bad mappings.
+                        var parts = r.ok ? [] : [r.message];
+                        parts = parts.concat(warnings);
                         if (r.pathMappingErrors && r.pathMappingErrors.length) {
-                            text += ' Path mappings: ' + r.pathMappingErrors.join(' ');
+                            parts.push('Path mappings: ' + r.pathMappingErrors.join(' '));
                         }
-                        el('TestBazarrResult').textContent = text;
+                        el('TestBazarrResult').textContent = parts.join(' ');
                     }, function () {
                         setPill('BazarrStatus', 'bad', 'No answer');
                         el('TestBazarrResult').textContent = 'The server did not answer the test.';
