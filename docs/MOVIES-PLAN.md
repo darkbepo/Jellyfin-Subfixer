@@ -1,6 +1,6 @@
 # Movies: plan
 
-**Status (2026-11-11):** steps 1 and 2 are built. That covers the backend (facade, validator, API; renamed `GetLibraries`, `GetVideo`, `VideoFacts`) and the page plus mock data, with tests. The two proposed rules below are implemented as written; change them if the owner decides otherwise. Step 3 (Testflix) is partly done, live on 2026-11-11:
+**Status (2026-11-11):** steps 1 and 2 are built. That covers the backend (facade, validator, API; renamed `GetLibraries`, `GetVideo`, `VideoFacts`) and the page plus mock data, with tests. The two rules below are implemented as written and confirmed by the owner (D26). Step 3 (Testflix) is partly done, live on 2026-11-11:
 - The **Film** library shows as a "Movie library" with its 2 movies; the page took 97 ms.
 - *22 Jump Street (2014)* is eligible: preview reads "1 movie selected, 1 will be fixed", and Start is refused with `503 subsync_unavailable` because SubSync isn't installed.
 - *21 Jump Street (2012)* is "Not eligible: no English audio", because its audio track carries no English language tag.
@@ -23,7 +23,7 @@ The owner wants movies (2026-11-11). v1 is TV only. This plan adds movies to the
   - `Search` includes movies.
 - `JellyfinLibraryFacade`: `Movie` items map to `NodeKind.Movie`. Their facts come from `IMediaSourceManager.GetMediaStreams` exactly like episodes.
 
-### Selection rules (owner to confirm the first two)
+### Selection rules (owner confirmed, D26)
 1. **No mixing:** a request is either episodes/seasons of one series, or movies. Mixed requests get `400 mixed_selection`.
 2. **Movies need no series lock:** any movies from libraries the user can access, up to `MaxEpisodesPerRequest`. That setting is renamed in the UI to "Most items per request"; the property name is kept for config compatibility.
 3. Libraries are still rejected as selection ids (`unsupported_item_type`). A user picks movies, not a whole movie library.
