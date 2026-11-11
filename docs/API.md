@@ -86,7 +86,8 @@ Any allowed user (`AllowedUsers`, owner decision 4). The API key never leaves th
   - Failure (`502 download_failed`, or Bazarr's own error passed through): a new accepted sidecar that isn't valid is removed, and every copied file that changed is restored. If Bazarr saved under a name the fixer doesn't re-time (for example `.en.cc.srt`, or `<video>.srt` with "single language" on), the message names it.
   - Once Bazarr has accepted, the server finishes the wait even if the browser disconnects. A subtitle Bazarr writes after the 2-minute wait stays on disk unqueued; selecting the item re-times it (D33).
 
-## Error codes| Code | HTTP | Meaning |
+## Error codes
+| Code | HTTP | Meaning |
 |---|---|---|
 | `multiple_series` | 400 | Items belong to more than one series |
 | `mixed_selection` | 400 | Movies and episodes in one request |

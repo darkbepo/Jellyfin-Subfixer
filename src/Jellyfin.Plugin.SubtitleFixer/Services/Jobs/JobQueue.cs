@@ -173,7 +173,7 @@ public sealed class JobQueue : IDisposable
             if (fresh.Count > 0 && pending + fresh.Count > maxQueued)
             {
                 return new EnqueueResult(
-                    new SelectionError(ErrorCodes.QueueFull, $"The queue holds at most {maxQueued} episodes and has {pending}. Try fewer, or wait for the queue to shrink."),
+                    new SelectionError(ErrorCodes.QueueFull, $"The queue holds at most {maxQueued} {(maxQueued == 1 ? "item" : "items")} and already has {pending}. Select fewer, or wait for the queue to shrink."),
                     0,
                     alreadyQueued,
                     pending);

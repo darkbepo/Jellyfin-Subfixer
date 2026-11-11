@@ -82,10 +82,10 @@ public sealed class JobRunner
             case IneligibleReason.NoEnglishAudio:
                 return new RunOutcome(JobItemStatus.Skipped, "No English audio.", null, null);
             case IneligibleReason.NoVideoFile:
-                return new RunOutcome(JobItemStatus.Failed, "file missing: video", null, null);
+                return new RunOutcome(JobItemStatus.Failed, "The video file is missing or can't be read.", null, null);
             case IneligibleReason.NoSidecar:
                 await RecordAsync(job.ItemId, check.Video!, SubtitleGuess(check.Video!.Path), SyncStatus.Failed, "file missing: subtitle", null).ConfigureAwait(false);
-                return new RunOutcome(JobItemStatus.Failed, "file missing: subtitle", null, null);
+                return new RunOutcome(JobItemStatus.Failed, "The English subtitle next to the video is gone.", null, null);
         }
 
         if (cancellationToken.IsCancellationRequested)
@@ -189,7 +189,7 @@ public sealed class JobRunner
             case WorkerStatus.TimedOut:
                 await _backup.RestoreAsync(backup, CancellationToken.None).ConfigureAwait(false);
                 await RecordAsync(job.ItemId, video, sidecar.Path, SyncStatus.Failed, "timeout", result).ConfigureAwait(false);
-                return new RunOutcome(JobItemStatus.Failed, result.Reason ?? "timeout", result.Seconds, result.Status);
+                return new RunOutcome(JobItemStatus.Failed, result.Reason ?? "SubSync took too long and was stopped.", result.Seconds, result.Status);
 
             default:
                 await _backup.RestoreAsync(backup, CancellationToken.None).ConfigureAwait(false);

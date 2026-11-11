@@ -380,7 +380,7 @@ public sealed class JobRunnerFaultTests : IDisposable
 
         Assert.Equal(0, _worker.Calls);
         Assert.Equal(JobItemStatus.Failed, outcome.Status);
-        Assert.Equal("file missing: subtitle", outcome.Message);
+        Assert.Equal("The English subtitle next to the video is gone.", outcome.Message);
     }
 
     private sealed class ThrowingJournalStore : IStateStore

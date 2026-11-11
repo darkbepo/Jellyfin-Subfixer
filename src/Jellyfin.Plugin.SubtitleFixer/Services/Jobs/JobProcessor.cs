@@ -53,10 +53,11 @@ public sealed class JobProcessor : BackgroundService
         }
 
         _queue.Complete(job.Snapshot.JobId, outcome.Status, outcome.Message, outcome.Seconds);
+        LogOutcome(job.Snapshot, outcome);
 
         if (outcome.Worker == WorkerStatus.Unavailable)
         {
-            _queue.Stop(outcome.Message ?? "SubSync is busy or setting up. Close the SubSync window or wait for its setup, then start again.");
+            Stop(outcome.Message ?? "SubSync is busy or setting up. Close the SubSync window or wait for its setup, then start again.");
             _consecutiveCrashes = 0;
             return;
         }
@@ -66,7 +67,7 @@ public sealed class JobProcessor : BackgroundService
             _consecutiveCrashes++;
             if (_consecutiveCrashes >= MaxConsecutiveCrashes)
             {
-                _queue.Stop($"SubSync crashed {MaxConsecutiveCrashes} times in a row. Check the SubSync logs, then start again.");
+                Stop($"SubSync crashed {MaxConsecutiveCrashes} times in a row. Its output is in the Jellyfin log; fix the cause, then start again.");
                 _consecutiveCrashes = 0;
             }
         }
@@ -74,6 +75,26 @@ public sealed class JobProcessor : BackgroundService
         {
             _consecutiveCrashes = 0;
         }
+    }
+
+    private void Stop(string reason)
+    {
+        _logger.LogWarning("Subtitle Fixer stopped the queue: {Reason}", reason);
+        _queue.Stop(reason);
+    }
+
+    // One line per item: enough to follow a run in the Jellyfin log without paths (the item id finds the file).
+    private void LogOutcome(JobItemSnapshot item, RunOutcome outcome)
+    {
+        var level = outcome.Status is JobItemStatus.Failed or JobItemStatus.Check ? LogLevel.Warning : LogLevel.Information;
+        _logger.Log(
+            level,
+            "Subtitle Fixer {Status}: {Name} ({ItemId}) in {Seconds:0} s{Message}",
+            outcome.Status,
+            item.Name,
+            item.ItemId,
+            outcome.Seconds ?? 0,
+            string.IsNullOrEmpty(outcome.Message) ? string.Empty : ": " + outcome.Message);
     }
 
     /// <inheritdoc />

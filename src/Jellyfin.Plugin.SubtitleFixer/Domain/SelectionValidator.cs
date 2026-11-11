@@ -241,7 +241,7 @@ public sealed class SelectionValidator
                 ErrorCodes.CapExceeded,
                 hasMovies
                     ? $"{eligible.Count} movies can be fixed, but one request may queue at most {maxEpisodesPerRequest}. Select fewer movies."
-                    : $"{eligible.Count} episodes can be fixed, but one request may queue at most {maxEpisodesPerRequest}. Select fewer seasons.");
+                    : $"{eligible.Count} episodes can be fixed, but one request may queue at most {maxEpisodesPerRequest}. Select fewer seasons or episodes.");
         }
 
         return new SelectionResult

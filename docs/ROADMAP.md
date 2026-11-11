@@ -39,8 +39,9 @@ Acceptance: fault-injection tests (`TESTING.md`) all leave the original subtitle
 Acceptance: the `UI.md` behaviors work on desktop and phone width against the real server (pending); the series lock cannot be bypassed in the UI, and the API still rejects anything the UI would not send (`SelectionValidatorTests`).
 
 ## M4 Settings and hardening (A, page markup B)
-- [ ] Admin settings page with Test SubSync, `AllowedUsers` enforcement, caps, clear error messages and logging.
-- [ ] Stop-after-3-consecutive-crashes rule, timeouts, log hygiene.
+- [x] Admin settings page with Test SubSync, `AllowedUsers` enforcement, caps, clear error messages and logging.
+- [x] Stop-after-3-consecutive-crashes rule, timeouts, log hygiene. Each finished item logs one line (status, name, item id, seconds; warning level for failed and check), and every queue stop logs its reason. SubSync's output is logged only when it fails. The Bazarr key travels in a header and is never logged.
+- Live on Testflix 2026-11-11, with an admin and a non-admin account: `AllowedUsers = AdminOnly` gives the non-admin `/Me` `allowed:false` (`admins_only`) and `403 forbidden` on Browse, Status and Preview. `AllAuthenticated` with no SubSync folder gives `not_configured` and `403`, and Start returns `503 subsync_unavailable`. Configured, the non-admin can browse, see the queue and preview, but gets `403` from Test SubSync, Test Bazarr, Diagnostics and the plugin's configuration. `MaxEpisodesPerRequest = 1` gives `400 cap_exceeded` on Preview and Start, and `MaxQueuedEpisodes = 1` gives `409 queue_full` with nothing queued. Saved settings applied without a restart.
 - [x] Dashboard sidebar link to the settings (D36), pop-up page (D35), no translate prompt (D37), GPU/CPU from the last sync (D38). Verified on Testflix 2026-11-11.
 Acceptance: all settings take effect; non-admin and admin paths verified.
 

@@ -171,7 +171,7 @@
             else if (ev.reason === 'no_sidecar') { skipped.noSidecar++; }
             else { skipped.noVideoFile++; }
         });
-        if (eligible.length > 150) { return { error: ['cap_exceeded', eligible.length + (movies ? ' movies' : ' episodes') + ' can be fixed, but one request may queue at most 150. Select fewer seasons.'] }; }
+        if (eligible.length > 150) { return { error: ['cap_exceeded', eligible.length + (movies ? ' movies' : ' episodes') + ' can be fixed, but one request may queue at most 150. Select fewer seasons or episodes.'] }; }
         var sid = Object.keys(series)[0];
         if (movies) { return { kind: 'movies', seriesId: null, seriesName: null, selected: episodes.length, eligible: eligible, skipped: skipped, attemptedBefore: attempted }; }
         return { kind: 'episodes', seriesId: sid, seriesName: items[sid].name, selected: episodes.length, eligible: eligible, skipped: skipped, attemptedBefore: attempted };

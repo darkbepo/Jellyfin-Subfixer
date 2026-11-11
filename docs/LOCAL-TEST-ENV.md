@@ -43,4 +43,4 @@ Read a key in PowerShell without printing others:
   2. Exit the tray app and wait for `jellyfin.exe` to exit.
   3. Run `Expand-Archive artifacts\SubtitleFixer_<ver>.zip -DestinationPath 'C:\ProgramData\Jellyfin\Server\plugins\SubtitleFixer_<ver>' -Force`.
   4. Start `C:\Program Files\Jellyfin\Server\jellyfin-windows-tray\Jellyfin.Windows.Tray.exe` again.
-- **Sign-in:** a test admin account exists. Ask the owner, and never write the password into the repo.
+- **Sign-in:** a test admin account and a non-admin test account exist. Ask the owner, and never write the passwords into the repo.
