@@ -47,5 +47,6 @@ Acceptance: all settings take effect; non-admin and admin paths verified.
 
 ## M5 Release
 - [x] Package zip plus checksum, `manifest.json`, release workflow, final `README.md` (document File Transformation and SubSync requirements). The release is `build\release.ps1`, run by the owner (D39). The repository install was tested on Testflix 2026-11-11 from a local manifest: catalog, checksum, install folder, load.
-- [ ] Owner: publish the first release (`build\release.ps1`), then install it from the real repository URL.
+- [x] First release published 2026-11-11: [v0.1.0.0](https://github.com/darkbepo/Jellyfin-Subfixer/releases/tag/v0.1.0.0) (zip, .md5, manifest.json; tag and release by darkbepo). The downloaded zip matches the manifest checksum, and Testflix's catalog lists it from the real repository URL.
+- [ ] Owner: install it from the repository URL on the real server.
 - [ ] Manual test pass (`TESTING.md` checklist) on a clean Jellyfin 12 server.
