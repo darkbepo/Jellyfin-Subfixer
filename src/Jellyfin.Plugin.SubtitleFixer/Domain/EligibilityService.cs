@@ -127,7 +127,7 @@ public static class EligibilityService
     /// <param name="episode">Episode facts from Jellyfin.</param>
     /// <param name="record">Stored record, if any.</param>
     /// <returns>The evaluation.</returns>
-    public static Eligibility Evaluate(EpisodeFacts episode, SyncRecord? record)
+    public static Eligibility Evaluate(VideoFacts episode, SyncRecord? record)
     {
         ArgumentNullException.ThrowIfNull(episode);
 

@@ -61,6 +61,12 @@ public sealed record ItemDto
     /// <summary>Gets the season id of an episode (search results open their season).</summary>
     public Guid? SeasonId { get; init; }
 
+    /// <summary>Gets the library type for library rows: <c>tvshows</c> or <c>movies</c>.</summary>
+    public string? LibraryType { get; init; }
+
+    /// <summary>Gets the year, for movies.</summary>
+    public int? ProductionYear { get; init; }
+
     /// <summary>Gets the season or episode number.</summary>
     public int? IndexNumber { get; init; }
 
@@ -110,13 +116,14 @@ public sealed class SelectionRequest
 public sealed record SkippedDto(int AlreadySynced, int NoEnglishAudio, int NoSidecar, int NoVideoFile);
 
 /// <summary><c>POST /Jobs/Preview</c>.</summary>
-/// <param name="SeriesId">Series.</param>
+/// <param name="Kind"><c>episodes</c> or <c>movies</c>.</param>
+/// <param name="SeriesId">Series; null for movies.</param>
 /// <param name="SeriesName">Series name.</param>
 /// <param name="Selected">Distinct episodes after expanding seasons.</param>
 /// <param name="Eligible">Episodes that would be queued.</param>
 /// <param name="Skipped">Skipped counts.</param>
 /// <param name="AttemptedBefore">Eligible episodes attempted before.</param>
-public sealed record PreviewDto(Guid SeriesId, string SeriesName, int Selected, int Eligible, SkippedDto Skipped, int AttemptedBefore);
+public sealed record PreviewDto(string Kind, Guid? SeriesId, string? SeriesName, int Selected, int Eligible, SkippedDto Skipped, int AttemptedBefore);
 
 /// <summary><c>POST /Admin/TestSubSync</c>.</summary>
 /// <param name="Ok">Ready.</param>

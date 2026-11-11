@@ -6,12 +6,12 @@ namespace Jellyfin.Plugin.SubtitleFixer.Domain;
 /// </summary>
 public interface ILibraryFacade
 {
-    /// <summary>Gets the TV libraries the user can see.</summary>
+    /// <summary>Gets the TV and movie libraries the user can see.</summary>
     /// <param name="userId">User.</param>
     /// <returns>Libraries.</returns>
-    IReadOnlyList<LibraryNode> GetTvLibraries(Guid userId);
+    IReadOnlyList<LibraryNode> GetLibraries(Guid userId);
 
-    /// <summary>Gets a page of children: library to series, series to seasons, season to episodes.</summary>
+    /// <summary>Gets a page of children: TV library to series, series to seasons, season to episodes, movie library to movies.</summary>
     /// <param name="userId">User.</param>
     /// <param name="parentId">Parent item.</param>
     /// <param name="startIndex">First item.</param>
@@ -35,15 +35,15 @@ public interface ILibraryFacade
     /// <param name="userId">User.</param>
     /// <param name="seasonId">Season.</param>
     /// <returns>Episodes in order.</returns>
-    IReadOnlyList<EpisodeFacts> GetSeasonEpisodes(Guid userId, Guid seasonId);
+    IReadOnlyList<VideoFacts> GetSeasonEpisodes(Guid userId, Guid seasonId);
 
-    /// <summary>Gets one episode with its facts, or null.</summary>
+    /// <summary>Gets one episode or movie with its facts, or null (unknown, inaccessible, virtual, or another type).</summary>
     /// <param name="userId">User.</param>
-    /// <param name="episodeId">Episode.</param>
+    /// <param name="episodeId">Episode or movie.</param>
     /// <returns>Facts.</returns>
-    EpisodeFacts? GetEpisode(Guid userId, Guid episodeId);
+    VideoFacts? GetVideo(Guid userId, Guid episodeId);
 
-    /// <summary>Searches series and episodes by name.</summary>
+    /// <summary>Searches series, episodes and movies by name.</summary>
     /// <param name="userId">User.</param>
     /// <param name="term">Search term.</param>
     /// <param name="startIndex">First item.</param>

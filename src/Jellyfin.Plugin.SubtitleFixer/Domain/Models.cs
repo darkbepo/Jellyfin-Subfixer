@@ -3,7 +3,7 @@ namespace Jellyfin.Plugin.SubtitleFixer.Domain;
 /// <summary>Item kinds the plugin cares about.</summary>
 public enum NodeKind
 {
-    /// <summary>A TV library (user view).</summary>
+    /// <summary>A TV or movie library (user view); see <see cref="LibraryNode.LibraryType"/>.</summary>
     Library,
 
     /// <summary>A series.</summary>
@@ -15,7 +15,10 @@ public enum NodeKind
     /// <summary>An episode.</summary>
     Episode,
 
-    /// <summary>Anything else (movie, folder, ...). Never accepted.</summary>
+    /// <summary>A movie (MOVIES-PLAN.md).</summary>
+    Movie,
+
+    /// <summary>Anything else (folder, music, ...). Never accepted.</summary>
     Other,
 }
 
@@ -28,6 +31,8 @@ public enum NodeKind
 /// <param name="SeasonId">Owning season, for episodes.</param>
 /// <param name="IndexNumber">Season or episode number.</param>
 /// <param name="ParentIndexNumber">Season number, for episodes.</param>
+/// <param name="LibraryType">For libraries: <c>tvshows</c> or <c>movies</c>.</param>
+/// <param name="ProductionYear">For movies: the year.</param>
 public sealed record LibraryNode(
     Guid Id,
     string Name,
@@ -36,13 +41,15 @@ public sealed record LibraryNode(
     string? SeriesName = null,
     Guid? SeasonId = null,
     int? IndexNumber = null,
-    int? ParentIndexNumber = null);
+    int? ParentIndexNumber = null,
+    string? LibraryType = null,
+    int? ProductionYear = null);
 
-/// <summary>Everything eligibility needs about one episode.</summary>
-/// <param name="Node">The episode node.</param>
+/// <summary>Everything eligibility needs about one video item (episode or movie).</summary>
+/// <param name="Node">The episode or movie node.</param>
 /// <param name="VideoPath">Path of the video file, or null when Jellyfin has none.</param>
 /// <param name="AudioLanguages">Languages of the episode's audio streams, as Jellyfin reports them.</param>
-public sealed record EpisodeFacts(LibraryNode Node, string? VideoPath, IReadOnlyList<string?> AudioLanguages);
+public sealed record VideoFacts(LibraryNode Node, string? VideoPath, IReadOnlyList<string?> AudioLanguages);
 
 /// <summary>A page of results.</summary>
 /// <typeparam name="T">Item type.</typeparam>

@@ -22,9 +22,23 @@
     var libraries = [
         { id: 'lib-tv', name: 'TV Shows' },
         { id: 'lib-anime', name: 'Anime' },
-        { id: 'lib-kids', name: 'Kids' }
+        { id: 'lib-kids', name: 'Kids' },
+        { id: 'lib-movies', name: 'Movies', libraryType: 'movies' }
     ];
-    libraries.forEach(function (l) { add({ id: l.id, name: l.name, type: 'Library' }, 'root'); });
+    libraries.forEach(function (l) { add({ id: l.id, name: l.name, type: 'Library', libraryType: l.libraryType || 'tvshows' }, 'root'); });
+
+    // 30 movies in a mix of states (MOVIES-PLAN.md).
+    var movieTitles = ['Harbor of Glass', 'The Ninth Bell', 'Quiet Engines', 'Orchard Road', 'Paper Moon Hotel', 'Static Summer',
+        'The Long Way North', 'Copper Sky', 'Lantern Street', 'Night Ferry', 'Salt and Ash', 'The Cartographer', 'Low Orbit',
+        'Winter Garden', 'Tin Soldiers', 'Blue Hour', 'The Glass Archive', 'Second Sun', 'Field Notes', 'The Last Tram',
+        'Open Season', 'Midnight Market', 'River Stones', 'The Small Print', 'Echo Valley', 'Iron Bloom', 'The Quiet Room',
+        'Northern Lights', 'Paper Planes', 'Signal Fire'];
+    movieTitles.forEach(function (t, i) {
+        var n = i + 1;
+        var facts = n % 6 === 0 ? { state: 'done' } : n % 7 === 0 ? { state: 'no_sidecar' } : n % 9 === 0 ? { state: 'no_english_audio' } :
+            n === 11 ? { state: 'check', message: 'Matched only 6 lines; is this the subtitle for this video?' } : { state: 'ok' };
+        add({ id: 'mov-' + n, name: t, type: 'Movie', productionYear: 1995 + (n * 7) % 30, facts: facts }, 'lib-movies');
+    });
 
     var titles = ['The Day in Question', 'Open Water', 'A Quiet Return', 'Signals', 'The Long Night', 'Crossing', 'Paper Walls',
         'Low Tide', 'Second Chances', 'The Archive', 'North Road', 'Small Hours', 'Distant Shore', 'Old Friends', 'The Visit'];
@@ -98,6 +112,7 @@
             id: node.id, name: node.name, type: node.type, seriesId: node.seriesId || null, seriesName: node.seriesName || null,
             seasonId: node.seasonId || null, indexNumber: node.indexNumber == null ? null : node.indexNumber,
             parentIndexNumber: node.parentIndexNumber == null ? null : node.parentIndexNumber,
+            libraryType: node.libraryType || null, productionYear: node.productionYear || null,
             episodeCount: null, eligibleCount: null, syncedCount: null, status: 'none', eligible: null, reason: null, message: null
         };
         if (node.type === 'Season') {
@@ -106,7 +121,7 @@
             r.eligibleCount = eps.filter(function (e) { return evaluate(e).eligible; }).length;
             r.syncedCount = eps.filter(function (e) { return evaluate(e).status === 'done'; }).length;
         }
-        if (node.type === 'Episode') {
+        if (node.type === 'Episode' || node.type === 'Movie') {
             var ev = evaluate(node);
             r.status = ev.status; r.eligible = ev.eligible; r.reason = ev.reason; r.message = ev.message;
         }
@@ -132,11 +147,14 @@
     // ---------- selection rules (mirror of the server) ----------
     function validate(ids) {
         if (!ids || !ids.length) { return { error: ['nothing_eligible', 'Select at least one season or episode.'] }; }
-        var series = {}, episodes = [], seen = {};
+        var series = {}, episodes = [], seen = {}, movies = false, tv = false;
         for (var i = 0; i < ids.length; i++) {
             var n = items[ids[i]];
             if (!n) { return { error: ['unsupported_item_type', 'An item was not found or you cannot access it.'] }; }
-            if (n.type !== 'Season' && n.type !== 'Episode') { return { error: ['unsupported_item_type', 'Only seasons and episodes can be selected, not series or libraries.'] }; }
+            if (n.type !== 'Season' && n.type !== 'Episode' && n.type !== 'Movie') { return { error: ['unsupported_item_type', 'Only seasons, episodes and movies can be selected, not series or libraries.'] }; }
+            if (n.type === 'Movie') { movies = true; } else { tv = true; }
+            if (movies && tv) { return { error: ['mixed_selection', 'Pick either movies or episodes, not both at once.'] }; }
+            if (n.type === 'Movie') { if (!seen[n.id]) { seen[n.id] = true; episodes.push(n); } continue; }
             series[n.seriesId] = true;
             if (Object.keys(series).length > 1) { return { error: ['multiple_series', 'Pick seasons or episodes of one series at a time.'] }; }
             (n.type === 'Season' ? children[n.id].map(function (id) { return items[id]; }) : [n]).forEach(function (e) {
@@ -152,9 +170,10 @@
             else if (ev.reason === 'no_sidecar') { skipped.noSidecar++; }
             else { skipped.noVideoFile++; }
         });
-        if (eligible.length > 150) { return { error: ['cap_exceeded', eligible.length + ' episodes can be fixed, but one request may queue at most 150. Select fewer seasons.'] }; }
+        if (eligible.length > 150) { return { error: ['cap_exceeded', eligible.length + (movies ? ' movies' : ' episodes') + ' can be fixed, but one request may queue at most 150. Select fewer seasons.'] }; }
         var sid = Object.keys(series)[0];
-        return { seriesId: sid, seriesName: items[sid].name, selected: episodes.length, eligible: eligible, skipped: skipped, attemptedBefore: attempted };
+        if (movies) { return { kind: 'movies', seriesId: null, seriesName: null, selected: episodes.length, eligible: eligible, skipped: skipped, attemptedBefore: attempted }; }
+        return { kind: 'episodes', seriesId: sid, seriesName: items[sid].name, selected: episodes.length, eligible: eligible, skipped: skipped, attemptedBefore: attempted };
     }
 
     // ---------- queue simulation ----------
@@ -264,7 +283,7 @@
             var term = (q.get('q') || '').trim().toLowerCase();
             var hits = Object.keys(items).filter(function (id) {
                 var n = items[id];
-                return term && (n.type === 'Series' || n.type === 'Episode') && n.name.toLowerCase().indexOf(term) >= 0;
+                return term && (n.type === 'Series' || n.type === 'Episode' || n.type === 'Movie') && n.name.toLowerCase().indexOf(term) >= 0;
             });
             var res = page(hits, start, limit); res.parent = null;
             return ok(res);
@@ -273,7 +292,7 @@
             var v = validate(body && body.itemIds);
             if (v.error) { return err(v.error[0], 400, v.error[1]); }
             if (p === 'Jobs/Preview') {
-                return ok({ seriesId: v.seriesId, seriesName: v.seriesName, selected: v.selected, eligible: v.eligible.length, skipped: v.skipped, attemptedBefore: v.attemptedBefore });
+                return ok({ kind: v.kind, seriesId: v.seriesId, seriesName: v.seriesName, selected: v.selected, eligible: v.eligible.length, skipped: v.skipped, attemptedBefore: v.attemptedBefore });
             }
             if (params.get('subsync') === 'off') { return err('subsync_unavailable', 503, 'SubSync is not configured. Ask an administrator.'); }
             if (!v.eligible.length) { return err('nothing_eligible', 400, 'None of the selected episodes can be fixed.'); }
@@ -283,7 +302,7 @@
             var pendingCount = Object.keys(pendingIds).length;
             if (pendingCount + fresh.length > 300) { return err('queue_full', 409, 'The queue holds at most 300 episodes and has ' + pendingCount + '.'); }
             fresh.forEach(function (e) {
-                queue.push(job(e.id, 'S' + pad(e.parentIndexNumber) + 'E' + pad(e.indexNumber) + ' ' + e.name, e.seriesName, ME));
+                queue.push(job(e.id, e.type === 'Movie' ? e.name + ' (' + e.productionYear + ')' : 'S' + pad(e.parentIndexNumber) + 'E' + pad(e.indexNumber) + ' ' + e.name, e.seriesName || '', ME));
             });
             stopReason = null;
             return ok({ queued: fresh.length, skipped: v.selected - fresh.length, queueLength: pendingCount + fresh.length }, 202);

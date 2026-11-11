@@ -22,7 +22,7 @@ Read `SPEC.md` (scope and hard rules), then only the doc for your task:
 | Movies (next) | `docs/MOVIES-PLAN.md` |
 
 ## Non-negotiables
-1. One series per request, enforced on the server (multiple seasons of that series are fine). Season IDs expand to episodes; series and library IDs are rejected.
+1. One series per request, enforced on the server (multiple seasons of that series are fine). Season IDs expand to episodes; series and library IDs are rejected. Movies are the exception: any movies together, but never mixed with episodes (`docs/MOVIES-PLAN.md`).
 2. One SubSync process at a time. Queue is global and capped (`MaxEpisodesPerRequest`, `MaxQueuedEpisodes`).
 3. Only subtitles named exactly `<video>.en.srt`, `.eng.srt`, `.en.hi.srt` or `.eng.hi.srt` are touched (one per item, in that order), and only on items with English audio.
 4. Never lose a subtitle: backup, run, verify, then delete the backup. Any failure, cancel or crash restores it. Startup recovery restores leftover `.bak` files.

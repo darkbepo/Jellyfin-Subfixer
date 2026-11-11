@@ -22,15 +22,15 @@ Empty `parentId` lists TV libraries. Library -> series, series -> seasons, seaso
   ]
 }
 ```
-`type` is `Library|Series|Season|Episode`. For episodes: `eligible` true/false, `reason` one of `no_video_file|already_synced|no_english_audio|no_sidecar|null` (checked in that order), `status` one of `none|done|attempted` (attempted = `check` or `failed`, with `message`). Counts are filled for seasons only. Rows also carry `seriesName`, `indexNumber`, `parentIndexNumber`. `limit` is capped at 200. An unknown or inaccessible `parentId` returns `404 not_found`.
+`type` is `Library|Series|Season|Episode|Movie`. Library rows carry `libraryType` (`tvshows` or `movies`); a movie library lists `Movie` rows (paged, by name) with the same eligibility fields as episodes plus `productionYear`. For episodes: `eligible` true/false, `reason` one of `no_video_file|already_synced|no_english_audio|no_sidecar|null` (checked in that order), `status` one of `none|done|attempted` (attempted = `check` or `failed`, with `message`). Counts are filled for seasons only. Rows also carry `seriesName`, `indexNumber`, `parentIndexNumber`. `limit` is capped at 200. An unknown or inaccessible `parentId` returns `404 not_found`.
 
 ## GET /Search?q=&startIndex=0&limit=30
-Series and episodes the user can access. Items as above plus `seriesId`, `seriesName`.
+Series, episodes and movies the user can access. Items as above plus `seriesId`, `seriesName`.
 
 ## POST /Jobs/Preview
-Request `{ "itemIds": ["..."] }` (seasons and episodes only).
+Request `{ "itemIds": ["..."] }`: seasons and episodes of one series, **or** movies (any, no series lock). Mixing movies with episodes returns `400 mixed_selection` (MOVIES-PLAN.md).
 ```json
-{ "seriesId":"...", "seriesName":"Show", "selected":47, "eligible":35,
+{ "kind":"episodes|movies", "seriesId":"...", "seriesName":"Show", "selected":47, "eligible":35,
   "skipped": { "alreadySynced":12, "noEnglishAudio":0, "noSidecar":0, "noVideoFile":0 },
   "attemptedBefore":2 }
 ```
@@ -74,6 +74,7 @@ Removes the caller's finished items from the list (an administrator clears all).
 | Code | HTTP | Meaning |
 |---|---|---|
 | `multiple_series` | 400 | Items belong to more than one series |
+| `mixed_selection` | 400 | Movies and episodes in one request |
 | `unsupported_item_type` | 400 | Series or library ID (or non-TV item) submitted |
 | `cap_exceeded` | 400 | More than `MaxEpisodesPerRequest` eligible episodes |
 | `nothing_eligible` | 400 | Selection contains no eligible episode |

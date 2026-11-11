@@ -1,5 +1,7 @@
 # Movies: plan
 
+**Status (2026-11-11):** steps 1 and 2 are built. That covers the backend (facade, validator, API; renamed `GetLibraries`, `GetVideo`, `VideoFacts`) and the page plus mock data, with tests. The two proposed rules below are implemented as written; change them if the owner decides otherwise. Step 3 (Testflix) is partly done: browse and preview. Step 4 (Bazarr movies) is next for the Bazarr session.
+
 The owner wants movies (2026-11-11). v1 is TV only. This plan adds movies to the subtitle fixer, and through it to the Bazarr feature (`BAZARR-PLAN.md`, phase 3). Read `SPEC.md` and `CLAUDE.md` first; every non-negotiable still holds unless this file says otherwise.
 
 ## What stays the same

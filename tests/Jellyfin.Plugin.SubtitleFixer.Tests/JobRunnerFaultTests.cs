@@ -50,7 +50,7 @@ public sealed class JobRunnerFaultTests : IDisposable
     private readonly FakeRefresh _refresh = new();
     private readonly BackupService _backup;
     private readonly JobRunner _runner;
-    private readonly EpisodeFacts _episode;
+    private readonly VideoFacts _episode;
     private readonly string _subtitle;
     private readonly byte[] _originalBytes;
 
@@ -293,6 +293,27 @@ public sealed class JobRunnerFaultTests : IDisposable
         Assert.Equal(SyncStatus.Done, record.Status);
         Assert.Equal("1.2.0", record.SubSyncVersion);
         Assert.Equal(new[] { _episode.Node.Id }, _refresh.Requested);
+    }
+
+    [Fact]
+    public async Task Movies_go_through_the_same_swap_and_restore()
+    {
+        var movieVideo = _dir.File("Alpha (2001).mkv", "movie bytes");
+        var movieSub = _dir.File("Alpha (2001).en.hi.srt", Original);
+        var movie = _library.AddMovie("Alpha", 2001, movieVideo, "eng");
+        var job = new JobItemSnapshot(Guid.NewGuid(), movie.Node.Id, "Alpha (2001)", string.Empty, Guid.NewGuid(), JobSource.Manual, null, JobItemStatus.Running, null, DateTime.UtcNow, DateTime.UtcNow, null, null);
+
+        _worker.Behavior = Overwrite("garbage", WorkerStatus.Failed, "boom");
+        var failed = await _runner.RunAsync(job, CancellationToken.None);
+        Assert.Equal(JobItemStatus.Failed, failed.Status);
+        Assert.Equal(Original, File.ReadAllText(movieSub));
+        Assert.False(File.Exists(movieSub + ".bak"));
+
+        _worker.Behavior = Overwrite(Synced, WorkerStatus.Synced);
+        var done = await _runner.RunAsync(job, CancellationToken.None);
+        Assert.Equal(JobItemStatus.Done, done.Status);
+        Assert.Equal(Synced, File.ReadAllText(movieSub));
+        Assert.Contains(movie.Node.Id, _refresh.Requested);
     }
 
     [Fact]

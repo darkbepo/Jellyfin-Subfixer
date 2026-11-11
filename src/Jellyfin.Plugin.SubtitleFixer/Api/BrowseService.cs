@@ -31,7 +31,7 @@ public sealed class BrowseService
     {
         if (parentId is null || parentId == Guid.Empty)
         {
-            var libraries = _library.GetTvLibraries(userId);
+            var libraries = _library.GetLibraries(userId);
             return new PageDto(null, libraries.Count, libraries.Skip(startIndex).Take(limit).Select(Plain).ToList());
         }
 
@@ -61,12 +61,14 @@ public sealed class BrowseService
             return null;
         }
 
+        // A movie library page: each movie row carries its eligibility, like an episode.
+        var videoRows = await VideoRowsAsync(userId, children.Items, cancellationToken).ConfigureAwait(false);
         var rows = new List<ItemDto>(children.Items.Count);
         foreach (var child in children.Items)
         {
             rows.Add(child.Kind == NodeKind.Season
                 ? await SeasonAsync(userId, child, cancellationToken).ConfigureAwait(false)
-                : Plain(child));
+                : videoRows.TryGetValue(child.Id, out var video) ? video : Plain(child));
         }
 
         return new PageDto(parent, children.TotalCount, rows);
@@ -82,12 +84,7 @@ public sealed class BrowseService
     public async Task<PageDto> SearchAsync(Guid userId, string term, int startIndex, int limit, CancellationToken cancellationToken)
     {
         var result = _library.Search(userId, term, startIndex, limit);
-        var episodes = result.Items
-            .Where(n => n.Kind == NodeKind.Episode)
-            .Select(n => _library.GetEpisode(userId, n.Id))
-            .OfType<EpisodeFacts>()
-            .ToList();
-        var episodeRows = (await EpisodesAsync(episodes, cancellationToken).ConfigureAwait(false)).ToDictionary(r => r.Id);
+        var episodeRows = await VideoRowsAsync(userId, result.Items, cancellationToken).ConfigureAwait(false);
 
         var rows = result.Items
             .Select(n => episodeRows.TryGetValue(n.Id, out var row) ? row : Plain(n))
@@ -101,6 +98,7 @@ public sealed class BrowseService
         NodeKind.Series => "Series",
         NodeKind.Season => "Season",
         NodeKind.Episode => "Episode",
+        NodeKind.Movie => "Movie",
         _ => "Other",
     };
 
@@ -114,7 +112,19 @@ public sealed class BrowseService
         SeasonId = node.Kind == NodeKind.Episode ? node.SeasonId : null,
         IndexNumber = node.IndexNumber,
         ParentIndexNumber = node.ParentIndexNumber,
+        LibraryType = node.LibraryType,
+        ProductionYear = node.ProductionYear,
     };
+
+    private async Task<Dictionary<Guid, ItemDto>> VideoRowsAsync(Guid userId, IReadOnlyList<LibraryNode> nodes, CancellationToken cancellationToken)
+    {
+        var facts = nodes
+            .Where(n => n.Kind is NodeKind.Episode or NodeKind.Movie)
+            .Select(n => _library.GetVideo(userId, n.Id))
+            .OfType<VideoFacts>()
+            .ToList();
+        return (await EpisodesAsync(facts, cancellationToken).ConfigureAwait(false)).ToDictionary(r => r.Id);
+    }
 
     private async Task<ItemDto> SeasonAsync(Guid userId, LibraryNode season, CancellationToken cancellationToken)
     {
@@ -139,7 +149,7 @@ public sealed class BrowseService
         return Plain(season) with { EpisodeCount = episodes.Count, EligibleCount = eligible, SyncedCount = synced };
     }
 
-    private async Task<IReadOnlyList<ItemDto>> EpisodesAsync(IReadOnlyList<EpisodeFacts> episodes, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<ItemDto>> EpisodesAsync(IReadOnlyList<VideoFacts> episodes, CancellationToken cancellationToken)
     {
         var records = await _state.GetAsync(episodes.Select(e => e.Node.Id).ToArray(), cancellationToken).ConfigureAwait(false);
         return episodes.Select(episode =>

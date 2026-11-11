@@ -4,6 +4,7 @@ using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SubtitleFixer.Domain;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -42,7 +43,7 @@ public sealed class JellyfinLibraryFacade : ILibraryFacade
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<LibraryNode> GetTvLibraries(Guid userId)
+    public IReadOnlyList<LibraryNode> GetLibraries(Guid userId)
     {
         var user = _userManager.GetUserById(userId);
         if (user is null)
@@ -51,8 +52,8 @@ public sealed class JellyfinLibraryFacade : ILibraryFacade
         }
 
         return _userViewManager.GetUserViews(new UserViewQuery { User = user })
-            .Where(IsTvLibrary)
-            .Select(f => new LibraryNode(f.Id, f.Name, NodeKind.Library))
+            .Where(IsSupportedLibrary)
+            .Select(ToNode)
             .ToList();
     }
 
@@ -73,10 +74,11 @@ public sealed class JellyfinLibraryFacade : ILibraryFacade
                 return Page(series.GetSeasons(user, dto).Select(ToNode).ToList(), startIndex, limit);
             case Season season:
                 return Page(season.GetEpisodes(user, dto, false).Where(e => !e.IsVirtualItem).Select(ToNode).ToList(), startIndex, limit);
-            case Folder folder when IsTvLibrary(folder):
+            case Folder folder when IsSupportedLibrary(folder):
                 var result = folder.GetItems(new InternalItemsQuery(user)
                 {
-                    IncludeItemTypes = [BaseItemKind.Series],
+                    IncludeItemTypes = IsMovieLibrary(folder) ? [BaseItemKind.Movie] : [BaseItemKind.Series],
+                    IsVirtualItem = false,
                     Recursive = true,
                     StartIndex = startIndex,
                     Limit = limit,
@@ -108,9 +110,15 @@ public sealed class JellyfinLibraryFacade : ILibraryFacade
             return [];
         }
 
-        if (item is Folder folder && IsTvLibrary(folder))
+        if (item is Folder folder && IsSupportedLibrary(folder))
         {
             return [ToNode(folder)];
+        }
+
+        if (item is Movie movie)
+        {
+            var movieLibrary = _libraryManager.GetCollectionFolders(movie).FirstOrDefault(IsSupportedLibrary);
+            return movieLibrary is null ? [ToNode(movie)] : [ToNode(movieLibrary), ToNode(movie)];
         }
 
         var series = item switch
@@ -133,7 +141,7 @@ public sealed class JellyfinLibraryFacade : ILibraryFacade
         };
 
         var trail = new List<LibraryNode>(4);
-        var library = _libraryManager.GetCollectionFolders(series).FirstOrDefault(IsTvLibrary);
+        var library = _libraryManager.GetCollectionFolders(series).FirstOrDefault(IsSupportedLibrary);
         if (library is not null)
         {
             trail.Add(ToNode(library));
@@ -154,7 +162,7 @@ public sealed class JellyfinLibraryFacade : ILibraryFacade
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<EpisodeFacts> GetSeasonEpisodes(Guid userId, Guid seasonId)
+    public IReadOnlyList<VideoFacts> GetSeasonEpisodes(Guid userId, Guid seasonId)
     {
         var user = _userManager.GetUserById(userId);
         if (user is null || _libraryManager.GetItemById<BaseItem>(seasonId, user) is not Season season)
@@ -170,11 +178,13 @@ public sealed class JellyfinLibraryFacade : ILibraryFacade
     }
 
     /// <inheritdoc />
-    public EpisodeFacts? GetEpisode(Guid userId, Guid episodeId)
+    public VideoFacts? GetVideo(Guid userId, Guid episodeId)
     {
         var user = _userManager.GetUserById(userId);
-        return user is not null && _libraryManager.GetItemById<BaseItem>(episodeId, user) is Episode { IsVirtualItem: false } episode
-            ? ToFacts(episode)
+        return user is not null
+            && _libraryManager.GetItemById<BaseItem>(episodeId, user) is Video { IsVirtualItem: false } video
+            && video is Episode or Movie
+            ? ToFacts(video)
             : null;
     }
 
@@ -190,7 +200,7 @@ public sealed class JellyfinLibraryFacade : ILibraryFacade
         var result = _libraryManager.GetItemsResult(new InternalItemsQuery(user)
         {
             SearchTerm = term.Trim(),
-            IncludeItemTypes = [BaseItemKind.Series, BaseItemKind.Episode],
+            IncludeItemTypes = [BaseItemKind.Series, BaseItemKind.Episode, BaseItemKind.Movie],
             Recursive = true,
             IsVirtualItem = false,
             StartIndex = startIndex,
@@ -202,8 +212,11 @@ public sealed class JellyfinLibraryFacade : ILibraryFacade
         return new Paged<LibraryNode>(result.Items.Select(ToNode).ToList(), result.TotalRecordCount);
     }
 
-    private static bool IsTvLibrary(BaseItem item) =>
-        item is IHasCollectionType { CollectionType: CollectionType.tvshows };
+    private static bool IsSupportedLibrary(BaseItem item) =>
+        item is IHasCollectionType { CollectionType: CollectionType.tvshows or CollectionType.movies };
+
+    private static bool IsMovieLibrary(BaseItem item) =>
+        item is IHasCollectionType { CollectionType: CollectionType.movies };
 
     private static Paged<LibraryNode> Page(IReadOnlyList<LibraryNode> all, int startIndex, int limit) =>
         new(all.Skip(startIndex).Take(limit).ToList(), all.Count);
@@ -213,16 +226,17 @@ public sealed class JellyfinLibraryFacade : ILibraryFacade
         Series s => new LibraryNode(s.Id, s.Name, NodeKind.Series, s.Id, s.Name),
         Season s => new LibraryNode(s.Id, s.Name, NodeKind.Season, s.SeriesId, s.SeriesName, s.Id, s.IndexNumber),
         Episode e => new LibraryNode(e.Id, e.Name, NodeKind.Episode, e.SeriesId, e.SeriesName, e.SeasonId, e.IndexNumber, e.ParentIndexNumber),
-        Folder f when IsTvLibrary(f) => new LibraryNode(f.Id, f.Name, NodeKind.Library),
+        Movie m => new LibraryNode(m.Id, m.Name, NodeKind.Movie, ProductionYear: m.ProductionYear),
+        Folder f when IsSupportedLibrary(f) => new LibraryNode(f.Id, f.Name, NodeKind.Library, LibraryType: IsMovieLibrary(f) ? "movies" : "tvshows"),
         _ => new LibraryNode(item.Id, item.Name, NodeKind.Other),
     };
 
-    private EpisodeFacts ToFacts(Episode episode)
+    private VideoFacts ToFacts(Video episode)
     {
         var languages = _mediaSourceManager.GetMediaStreams(episode.Id)
             .Where(s => s.Type == MediaStreamType.Audio)
             .Select(s => s.Language)
             .ToList();
-        return new EpisodeFacts(ToNode(episode), string.IsNullOrEmpty(episode.Path) ? null : episode.Path, languages);
+        return new VideoFacts(ToNode(episode), string.IsNullOrEmpty(episode.Path) ? null : episode.Path, languages);
     }
 }

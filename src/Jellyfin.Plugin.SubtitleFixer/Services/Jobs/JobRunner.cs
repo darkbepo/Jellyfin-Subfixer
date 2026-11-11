@@ -66,7 +66,7 @@ public sealed class JobRunner
     public async Task<RunOutcome> RunAsync(JobItemSnapshot job, CancellationToken cancellationToken)
     {
         // 1. Re-validate: state may have changed since queuing.
-        var facts = _library.GetEpisode(job.UserId, job.ItemId);
+        var facts = _library.GetVideo(job.UserId, job.ItemId);
         if (facts is null)
         {
             return new RunOutcome(JobItemStatus.Failed, "The episode is gone or no longer accessible.", null, null);

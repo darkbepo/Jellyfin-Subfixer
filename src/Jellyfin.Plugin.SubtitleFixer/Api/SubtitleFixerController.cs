@@ -138,8 +138,9 @@ public sealed class SubtitleFixerController : ControllerBase
 
         var s = result.Skipped;
         return Json(new PreviewDto(
+            result.Kind == SelectionKind.Movies ? "movies" : "episodes",
             result.SeriesId,
-            result.SeriesName,
+            result.Kind == SelectionKind.Movies ? null : result.SeriesName,
             result.Selected,
             result.Eligible.Count,
             new SkippedDto(s.AlreadySynced, s.NoEnglishAudio, s.NoSidecar, s.NoVideoFile),

@@ -38,8 +38,8 @@ public sealed class TempDir : IDisposable
 public sealed class FakeLibrary : ILibraryFacade
 {
     private readonly Dictionary<Guid, LibraryNode> _nodes = new();
-    private readonly Dictionary<Guid, List<EpisodeFacts>> _seasonEpisodes = new();
-    private readonly Dictionary<Guid, EpisodeFacts> _episodes = new();
+    private readonly Dictionary<Guid, List<VideoFacts>> _seasonEpisodes = new();
+    private readonly Dictionary<Guid, VideoFacts> _episodes = new();
 
     public HashSet<Guid> Hidden { get; } = new();
 
@@ -63,18 +63,27 @@ public sealed class FakeLibrary : ILibraryFacade
         var id = Guid.NewGuid();
         var node = new LibraryNode(id, "Season " + number, NodeKind.Season, series.Id, series.Name, id, number);
         _nodes[id] = node;
-        _seasonEpisodes[id] = new List<EpisodeFacts>();
+        _seasonEpisodes[id] = new List<VideoFacts>();
         return node;
     }
 
-    public EpisodeFacts AddEpisode(LibraryNode season, int number, string? videoPath, params string?[] audio)
+    public VideoFacts AddEpisode(LibraryNode season, int number, string? videoPath, params string?[] audio)
     {
         var id = Guid.NewGuid();
         var node = new LibraryNode(id, "Episode " + number, NodeKind.Episode, season.SeriesId, season.SeriesName, season.Id, number, season.IndexNumber);
-        var facts = new EpisodeFacts(node, videoPath, audio);
+        var facts = new VideoFacts(node, videoPath, audio);
         _nodes[id] = node;
         _episodes[id] = facts;
         _seasonEpisodes[season.Id].Add(facts);
+        return facts;
+    }
+
+    public VideoFacts AddMovie(string name, int year, string? videoPath, params string?[] audio)
+    {
+        var node = new LibraryNode(Guid.NewGuid(), name, NodeKind.Movie, ProductionYear: year);
+        var facts = new VideoFacts(node, videoPath, audio);
+        _nodes[node.Id] = node;
+        _episodes[node.Id] = facts;
         return facts;
     }
 
@@ -85,7 +94,7 @@ public sealed class FakeLibrary : ILibraryFacade
         return node;
     }
 
-    public IReadOnlyList<LibraryNode> GetTvLibraries(Guid userId) => _nodes.Values.Where(n => n.Kind == NodeKind.Library).ToList();
+    public IReadOnlyList<LibraryNode> GetLibraries(Guid userId) => _nodes.Values.Where(n => n.Kind == NodeKind.Library).ToList();
 
     public Paged<LibraryNode>? GetChildren(Guid userId, Guid parentId, int startIndex, int limit) => null;
 
@@ -94,10 +103,10 @@ public sealed class FakeLibrary : ILibraryFacade
 
     public IReadOnlyList<LibraryNode> GetBreadcrumb(Guid userId, Guid itemId) => [];
 
-    public IReadOnlyList<EpisodeFacts> GetSeasonEpisodes(Guid userId, Guid seasonId) =>
+    public IReadOnlyList<VideoFacts> GetSeasonEpisodes(Guid userId, Guid seasonId) =>
         _seasonEpisodes.TryGetValue(seasonId, out var list) ? list.Where(e => !Hidden.Contains(e.Node.Id)).ToList() : [];
 
-    public EpisodeFacts? GetEpisode(Guid userId, Guid episodeId) =>
+    public VideoFacts? GetVideo(Guid userId, Guid episodeId) =>
         !Hidden.Contains(episodeId) && _episodes.TryGetValue(episodeId, out var e) ? e : null;
 
     public Paged<LibraryNode> Search(Guid userId, string term, int startIndex, int limit) => new([], 0);

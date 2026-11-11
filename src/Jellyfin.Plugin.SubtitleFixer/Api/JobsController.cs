@@ -251,6 +251,11 @@ public sealed class JobsController : ControllerBase
 
     private static string DisplayName(LibraryNode episode)
     {
+        if (episode.Kind == NodeKind.Movie)
+        {
+            return episode.ProductionYear is { } year ? $"{episode.Name} ({year})" : episode.Name;
+        }
+
         var code = (episode.ParentIndexNumber is { } s ? $"S{s:00}" : string.Empty) + (episode.IndexNumber is { } e ? $"E{e:00}" : string.Empty);
         return code.Length == 0 ? episode.Name : code + " " + episode.Name;
     }

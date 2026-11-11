@@ -8,6 +8,9 @@ public static class ErrorCodes
     /// <summary>Items belong to more than one series.</summary>
     public const string MultipleSeries = "multiple_series";
 
+    /// <summary>Movies and episodes in one request (MOVIES-PLAN.md).</summary>
+    public const string MixedSelection = "mixed_selection";
+
     /// <summary>A series, library or non-TV item was submitted, or an item is unknown or not accessible.</summary>
     public const string UnsupportedItemType = "unsupported_item_type";
 
@@ -35,7 +38,7 @@ public sealed record SelectionError(string Code, string Message);
 /// <summary>An episode that will be queued.</summary>
 /// <param name="Episode">Episode facts.</param>
 /// <param name="Eligibility">Its evaluation (eligible).</param>
-public sealed record EpisodeCandidate(EpisodeFacts Episode, Eligibility Eligibility);
+public sealed record EpisodeCandidate(VideoFacts Episode, Eligibility Eligibility);
 
 /// <summary>Counts of episodes that will not be queued.</summary>
 /// <param name="AlreadySynced">Already synced.</param>
@@ -44,14 +47,27 @@ public sealed record EpisodeCandidate(EpisodeFacts Episode, Eligibility Eligibil
 /// <param name="NoVideoFile">Video file missing.</param>
 public sealed record SkippedCounts(int AlreadySynced, int NoEnglishAudio, int NoSidecar, int NoVideoFile);
 
+/// <summary>What a selection contains.</summary>
+public enum SelectionKind
+{
+    /// <summary>Seasons and episodes of one series.</summary>
+    Episodes,
+
+    /// <summary>Movies (no series lock).</summary>
+    Movies,
+}
+
 /// <summary>Outcome of validating a selection. Either <see cref="Error"/> is set, or the other fields are.</summary>
 public sealed record SelectionResult
 {
     /// <summary>Gets the error, when the selection is rejected.</summary>
     public SelectionError? Error { get; init; }
 
-    /// <summary>Gets the series every item belongs to.</summary>
-    public Guid SeriesId { get; init; }
+    /// <summary>Gets what was selected.</summary>
+    public SelectionKind Kind { get; init; }
+
+    /// <summary>Gets the series every item belongs to; null for movies.</summary>
+    public Guid? SeriesId { get; init; }
 
     /// <summary>Gets the series name.</summary>
     public string SeriesName { get; init; } = string.Empty;
@@ -109,7 +125,7 @@ public sealed class SelectionValidator
     {
         if (itemIds is null || itemIds.Count == 0)
         {
-            return SelectionResult.Reject(ErrorCodes.NothingEligible, "Select at least one season or episode.");
+            return SelectionResult.Reject(ErrorCodes.NothingEligible, "Select at least one season, episode or movie.");
         }
 
         if (itemIds.Count > MaxIdsPerRequest)
@@ -118,8 +134,9 @@ public sealed class SelectionValidator
         }
 
         var seriesIds = new HashSet<Guid>();
+        bool hasMovies = false, hasEpisodes = false;
         string? seriesName = null;
-        var episodes = new List<EpisodeFacts>();
+        var episodes = new List<VideoFacts>();
         var seen = new HashSet<Guid>();
 
         foreach (var id in itemIds.Distinct())
@@ -144,7 +161,8 @@ public sealed class SelectionValidator
 
                     break;
                 case NodeKind.Episode:
-                    var facts = _library.GetEpisode(userId, node.Id);
+                case NodeKind.Movie:
+                    var facts = _library.GetVideo(userId, node.Id);
                     if (facts is null)
                     {
                         return SelectionResult.Reject(ErrorCodes.UnsupportedItemType, "An item was not found or you cannot access it.");
@@ -157,7 +175,26 @@ public sealed class SelectionValidator
 
                     break;
                 default:
-                    return SelectionResult.Reject(ErrorCodes.UnsupportedItemType, "Only seasons and episodes can be selected, not series or libraries.");
+                    return SelectionResult.Reject(ErrorCodes.UnsupportedItemType, "Only seasons, episodes and movies can be selected, not series or libraries.");
+            }
+
+            if (node.Kind == NodeKind.Movie)
+            {
+                hasMovies = true;
+            }
+            else
+            {
+                hasEpisodes = true;
+            }
+
+            if (hasMovies && hasEpisodes)
+            {
+                return SelectionResult.Reject(ErrorCodes.MixedSelection, "Pick either movies or episodes, not both at once.");
+            }
+
+            if (node.Kind == NodeKind.Movie)
+            {
+                continue; // Movies have no series lock.
             }
 
             if (node.SeriesId is not { } seriesId || seriesId == Guid.Empty)
@@ -202,12 +239,15 @@ public sealed class SelectionValidator
         {
             return SelectionResult.Reject(
                 ErrorCodes.CapExceeded,
-                $"{eligible.Count} episodes can be fixed, but one request may queue at most {maxEpisodesPerRequest}. Select fewer seasons.");
+                hasMovies
+                    ? $"{eligible.Count} movies can be fixed, but one request may queue at most {maxEpisodesPerRequest}. Select fewer movies."
+                    : $"{eligible.Count} episodes can be fixed, but one request may queue at most {maxEpisodesPerRequest}. Select fewer seasons.");
         }
 
         return new SelectionResult
         {
-            SeriesId = seriesIds.Single(),
+            Kind = hasMovies ? SelectionKind.Movies : SelectionKind.Episodes,
+            SeriesId = hasMovies ? null : seriesIds.Single(),
             SeriesName = seriesName ?? string.Empty,
             Selected = episodes.Count,
             Eligible = eligible,

@@ -28,7 +28,8 @@ Title, disclaimer, search box, breadcrumb (Libraries > Library > Series > Season
 - State: `selected: Set<episodeId>`, `seasonChecks` derived, `lockedSeriesId | null`.
 - Checking a season selects all its eligible episodes (load the season's episodes if not loaded). Season checkbox shows unchecked, indeterminate or checked.
 - Selection persists while navigating within the locked series, and is cleared by "Clear selection" or after Start.
-- **Series lock**: when `selected` is non-empty, every item of a different series is dimmed with its checkbox disabled (tooltip "Clear your selection to choose another series"). It stays browsable. The lock releases when `selected` is empty.
+- **Series lock**: when `selected` is non-empty, every item of a different series is dimmed with its checkbox disabled (tooltip "Clear your selection to choose from here"). It stays browsable. The lock releases when `selected` is empty.
+- **Movies** (MOVIES-PLAN.md): movie libraries ("Movie library", film icon) list movies as "Title (Year)" rows with checkboxes and the same badges as episodes. Any movies can be selected together, with no series lock; but a selection is either movies or episodes. Ticking a movie dims all TV rows ("Your selection is movies. Clear it to choose episodes."), and ticking an episode dims all movie rows. The footer then reads "5 movies selected, 5 will be fixed."
 - Ineligible episodes cannot be checked. Attempted ones can.
 
 ## Footer

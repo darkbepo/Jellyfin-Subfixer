@@ -15,7 +15,7 @@ public sealed class SelectionValidatorTests : IDisposable
 
     private SelectionValidator Validator() => new(_library, _state);
 
-    private EpisodeFacts EligibleEpisode(LibraryNode season, int n)
+    private VideoFacts EligibleEpisode(LibraryNode season, int n)
     {
         var name = $"{season.SeriesName} S{season.IndexNumber:00}E{n:00}";
         var video = _dir.File(name + ".mkv");
@@ -169,6 +169,66 @@ public sealed class SelectionValidatorTests : IDisposable
         Assert.Null(result.Error);
         Assert.Empty(result.Eligible);
         Assert.Equal(1, result.Skipped.AlreadySynced);
+    }
+
+    private VideoFacts EligibleMovie(string name, int year)
+    {
+        var video = _dir.File($"{name} ({year}).mkv");
+        _dir.File($"{name} ({year}).en.srt");
+        return _library.AddMovie(name, year, video, "eng");
+    }
+
+    [Fact]
+    public async Task Movies_from_anywhere_are_accepted_without_a_series_lock()
+    {
+        var a = EligibleMovie("Alpha", 2001);
+        var b = EligibleMovie("Beta", 2002);
+        var noSub = _library.AddMovie("Gamma", 2003, _dir.File("Gamma (2003).mkv"), "eng");
+
+        var result = await Validate(150, a.Node.Id, b.Node.Id, noSub.Node.Id);
+
+        Assert.Null(result.Error);
+        Assert.Equal(SelectionKind.Movies, result.Kind);
+        Assert.Null(result.SeriesId);
+        Assert.Equal(3, result.Selected);
+        Assert.Equal(2, result.Eligible.Count);
+        Assert.Equal(1, result.Skipped.NoSidecar);
+    }
+
+    [Fact]
+    public async Task Movies_and_episodes_cannot_be_mixed()
+    {
+        var movie = EligibleMovie("Alpha", 2001);
+        var season = _library.AddSeason(_library.AddSeries("Show"), 1);
+        var episode = EligibleEpisode(season, 1);
+
+        Assert.Equal(ErrorCodes.MixedSelection, (await Validate(150, movie.Node.Id, episode.Node.Id)).Error?.Code);
+        Assert.Equal(ErrorCodes.MixedSelection, (await Validate(150, season.Id, movie.Node.Id)).Error?.Code);
+    }
+
+    [Fact]
+    public async Task Movie_cap_uses_a_movie_message()
+    {
+        var a = EligibleMovie("Alpha", 2001);
+        var b = EligibleMovie("Beta", 2002);
+
+        var result = await Validate(1, a.Node.Id, b.Node.Id);
+
+        Assert.Equal(ErrorCodes.CapExceeded, result.Error?.Code);
+        Assert.Contains("movies", result.Error!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Episode_selection_reports_its_kind_and_series()
+    {
+        var series = _library.AddSeries("Show");
+        var season = _library.AddSeason(series, 1);
+        EligibleEpisode(season, 1);
+
+        var result = await Validate(150, season.Id);
+
+        Assert.Equal(SelectionKind.Episodes, result.Kind);
+        Assert.Equal(series.Id, result.SeriesId);
     }
 
     [Fact]

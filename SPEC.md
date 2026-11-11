@@ -14,14 +14,14 @@ Let users re-time English subtitles on English-audio TV episodes from inside Jel
 - After each episode, Jellyfin refreshes that item so the subtitle is served immediately.
 - Hard dependency on the File Transformation plugin.
 
-**Next, planned:** movies (`docs/MOVIES-PLAN.md`, D26).
+**Movies** (`docs/MOVIES-PLAN.md`, D26): movie libraries, movie search and movie sync, with the same eligibility, backup and queue rules. A request is either episodes of one series or movies, never both.
 
 **Out of scope for v1** (possible later): embedded subtitle extraction, other languages, Linux/macOS, parallel SubSync jobs, subtitles with any name other than `.en.srt` / `.eng.srt` / `.en.hi.srt` / `.eng.hi.srt`, and other formats (`.ass`, `.vtt`).
 
 ## 3. Hard rules
 Enforced on the server; the UI mirrors them. See `docs/API.md` for error codes.
-1. **One series per request.** Every submitted ID is resolved to its parent series; more than one series is rejected. Multiple seasons of the same series are allowed.
-2. **Episodes only reach the queue.** Season IDs expand to episodes. Series IDs and library IDs are rejected.
+1. **One series per request.** Every submitted ID is resolved to its parent series; more than one series is rejected. Multiple seasons of the same series are allowed. Movies have no series: any movies may go together, but movies and episodes are never mixed (`mixed_selection`).
+2. **Only episodes and movies reach the queue.** Season IDs expand to episodes. Series IDs and library IDs are rejected.
 3. **UI series lock.** Once anything is selected, items of other series cannot be selected until the selection is cleared (they stay visible and browsable, dimmed).
 4. **Caps** (configurable): `MaxEpisodesPerRequest` default 150, `MaxQueuedEpisodes` default 300. Skipped and ineligible episodes do not count.
 5. **One job at a time**; global queue.

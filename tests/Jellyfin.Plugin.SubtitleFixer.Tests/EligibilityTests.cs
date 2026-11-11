@@ -10,7 +10,7 @@ public sealed class EligibilityTests : IDisposable
 
     public void Dispose() => _dir.Dispose();
 
-    private EpisodeFacts Episode(string? videoPath, params string?[] audio) =>
+    private VideoFacts Episode(string? videoPath, params string?[] audio) =>
         new(new LibraryNode(Guid.NewGuid(), "E1", NodeKind.Episode, Guid.NewGuid(), "Show"), videoPath, audio);
 
     [Fact]

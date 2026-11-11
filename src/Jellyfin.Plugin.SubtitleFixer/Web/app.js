@@ -132,8 +132,19 @@
         if (m < 60) { return m + ' min'; }
         return Math.floor(m / 60) + ' h ' + pad(m % 60) + ' min';
     }
-    function lockedSeries() { return selected.size ? selected.values().next().value.seriesId : null; }
-    function otherSeries(item) { var l = lockedSeries(); return !!(l && item.seriesId && item.seriesId !== l); }
+    function isVideo(item) { return item.type === 'Episode' || item.type === 'Movie'; }
+    // Selection lock: one series at a time, or movies (MOVIES-PLAN.md). Libraries are never locked.
+    function lockKey(item) {
+        if (item.type === 'Movie') { return 'movies'; }
+        if (item.type === 'Series') { return item.id; }
+        return item.seriesId || null;
+    }
+    function lockedSeries() { return selected.size ? selected.values().next().value.lock : null; }
+    function otherSeries(item) { var l = lockedSeries(); var k = lockKey(item); return !!(l && k && k !== l); }
+    function videoLabel(item) {
+        if (item.type === 'Movie') { return item.name + (item.productionYear ? ' (' + item.productionYear + ')' : ''); }
+        return (code(item) ? code(item) + ' · ' : '') + item.name;
+    }
 
     // ---------- gates ----------
     function showGate(which) {
@@ -233,6 +244,10 @@
 
         if (view.mode === 'search') {
             showHint(view.searchTotal > view.items.length ? 'Showing ' + view.items.length + ' of ' + view.searchTotal + ' matches. Type more to narrow it down.' : '');
+        } else if (lockedSeries() === 'movies' && view.parent && (view.parent.type === 'Series' || view.parent.type === 'Season')) {
+            showHint('Your selection is movies. Clear it to choose episodes.');
+        } else if (lockedSeries() && lockedSeries() !== 'movies' && view.items.some(function (i) { return i.type === 'Movie'; })) {
+            showHint('Your selection is episodes of a series. Clear it to choose movies.');
         } else if (view.parent && view.parent.type === 'Series' && lockedSeries() && lockedSeries() !== view.parent.id) {
             showHint('Your selection is from another series. Clear it to choose from this one.');
         } else {
@@ -277,14 +292,15 @@
         li.dataset.type = item.type;
         li.tabIndex = -1;
         var dim = otherSeries(item);
-        if (dim) { li.classList.add('dimmed'); li.title = 'Clear your selection to choose another series'; }
+        var lockTip = 'Clear your selection to choose from here';
+        if (dim) { li.classList.add('dimmed'); li.title = lockTip; }
 
-        // Checkbox column (seasons and episodes only).
-        if (item.type === 'Season' || item.type === 'Episode') {
+        // Checkbox column (seasons, episodes and movies).
+        if (item.type === 'Season' || isVideo(item)) {
             var box = el('input');
             box.type = 'checkbox';
-            box.setAttribute('aria-label', 'Select ' + (item.type === 'Episode' ? code(item) + ' ' : '') + item.name);
-            if (item.type === 'Episode') {
+            box.setAttribute('aria-label', 'Select ' + (isVideo(item) ? videoLabel(item) : item.name));
+            if (isVideo(item)) {
                 var inQueue = queueByItem.get(item.id);
                 var pending = inQueue && (inQueue.status === 'queued' || inQueue.status === 'running');
                 box.checked = selected.has(item.id);
@@ -296,7 +312,7 @@
                 box.disabled = dim || item.eligibleCount === 0;
                 if (item.eligibleCount === 0) { box.title = 'No episodes in this season can be fixed'; }
             }
-            if (dim) { box.title = 'Clear your selection to choose another series'; }
+            if (dim) { box.title = lockTip; }
             box.addEventListener('change', function () { toggle(item, box.checked); });
             box.addEventListener('click', function (e) { e.stopPropagation(); });
             li.appendChild(box);
@@ -304,11 +320,12 @@
             li.appendChild(el('span', 'check-slot'));
         }
 
-        li.appendChild(icon(item.type === 'Library' ? 'library' : item.type === 'Series' ? 'series' : item.type === 'Season' ? 'season' : 'episode'));
+        li.appendChild(icon(item.type === 'Library' ? (item.libraryType === 'movies' ? 'movie' : 'library') :
+            item.type === 'Series' ? 'series' : item.type === 'Season' ? 'season' : item.type === 'Movie' ? 'movie' : 'episode'));
 
         var main = el('div', 'main');
         var name = el('span', 'name');
-        var label = item.type === 'Episode' ? (code(item) ? code(item) + ' · ' : '') + item.name : item.name;
+        var label = isVideo(item) ? videoLabel(item) : item.name;
         if (item.type === 'Episode' && view.mode === 'search') {
             // Search results open like browsing: an episode opens its season with the episode highlighted.
             var go = el('button', null, label);
@@ -317,7 +334,7 @@
             go.title = 'Show in its season';
             go.addEventListener('click', function (e) { e.stopPropagation(); openItem(item); });
             name.appendChild(go);
-        } else if (item.type === 'Episode') {
+        } else if (isVideo(item)) {
             name.textContent = label;
         } else {
             var open = el('button', null, item.name);
@@ -337,7 +354,7 @@
         badgesFor(item).forEach(function (b) { badges.appendChild(b); });
         if (badges.children.length) { li.appendChild(badges); }
 
-        if (item.type === 'Episode' && !li.classList.contains('openable')) {
+        if (isVideo(item) && !li.classList.contains('openable')) {
             li.addEventListener('click', function (e) {
                 if (e.target.closest('button,input,a')) { return; }
                 var b = li.querySelector('input[type="checkbox"]');
@@ -349,7 +366,12 @@
 
     function secondary(item) {
         switch (item.type) {
-            case 'Library': return 'TV library';
+            case 'Library': return item.libraryType === 'movies' ? 'Movie library' : 'TV library';
+            case 'Movie':
+                var bits = [];
+                if (view.mode === 'search') { bits.push('Movie'); }
+                if (item.status === 'attempted' && item.message) { bits.push('Last try: ' + item.message); }
+                return bits.join(' · ') || null;
             case 'Series': return view.mode === 'search' ? 'Series' : null;
             case 'Season':
                 return plural(item.episodeCount, 'episode', 'episodes') + ', ' + item.syncedCount + ' synced, ' + item.eligibleCount + ' can be fixed';
@@ -370,7 +392,7 @@
 
     function badgesFor(item) {
         var out = [];
-        if (item.type !== 'Episode') { return out; }
+        if (!isVideo(item)) { return out; }
         var job = queueByItem.get(item.id);
         if (job) {
             var label = { queued: 'Queued', running: 'Syncing…', done: 'Fixed', check: 'Check', failed: 'Failed', cancelled: 'Cancelled', skipped: 'Skipped' }[job.status] || job.status;
@@ -385,6 +407,7 @@
     }
 
     function openItem(item) {
+        if (item.type === 'Movie') { return; }  // movies have nothing to open; their row toggles the checkbox
         if (item.type === 'Episode') {
             if (item.seasonId) { browse(item.seasonId, { focusId: item.id }); }
             return;
@@ -424,13 +447,13 @@
     }
 
     function toggle(item, on) {
-        if (item.type === 'Episode') {
-            if (on) { selected.set(item.id, { seriesId: item.seriesId, seasonId: item.seasonId }); } else { selected.delete(item.id); }
+        if (isVideo(item)) {
+            if (on) { selected.set(item.id, { lock: lockKey(item), seasonId: item.seasonId || null }); } else { selected.delete(item.id); }
             selectionChanged();
             return;
         }
         loadSeasonEligible(item.id).then(function (ids) {
-            ids.forEach(function (id) { if (on) { selected.set(id, { seriesId: item.seriesId, seasonId: item.id }); } else { selected.delete(id); } });
+            ids.forEach(function (id) { if (on) { selected.set(id, { lock: item.seriesId, seasonId: item.id }); } else { selected.delete(id); } });
             selectionChanged();
         }, function (err) { failed(err, function () { toggle(item, on); }); render(); });
     }
@@ -491,7 +514,7 @@
         $('footer').classList.toggle('has-error', !!preview.error);
         start.textContent = 'Start';
         if (!selected.size) {
-            text.textContent = 'Select seasons or episodes of one series.';
+            text.textContent = 'Select seasons or episodes of one series, or movies.';
             start.disabled = true;
             return;
         }
@@ -508,7 +531,7 @@
         var p = preview.result;
         var s = p.skipped;
         var skipped = s.alreadySynced + s.noEnglishAudio + s.noSidecar + s.noVideoFile;
-        var parts = [p.selected + ' selected in ' + p.seriesName, p.eligible + ' will be fixed'];
+        var parts = [p.kind === 'movies' ? plural(p.selected, 'movie', 'movies') + ' selected' : p.selected + ' selected in ' + p.seriesName, p.eligible + ' will be fixed'];
         if (skipped) { parts.push(skipped + ' skipped' + (s.alreadySynced ? ' (' + s.alreadySynced + ' already synced)' : '')); }
         if (p.attemptedBefore) { parts.push(p.attemptedBefore + ' tried before'); }
         text.textContent = parts.join(', ') + '.';
@@ -631,7 +654,7 @@
     function rerenderRows() {
         var list = $('list');
         view.items.forEach(function (item) {
-            if (item.type !== 'Episode') { return; }
+            if (!isVideo(item)) { return; }
             var old = list.querySelector('[data-id="' + CSS.escape(item.id) + '"]');
             if (!old) { return; }
             var fresh = row(item);
@@ -671,7 +694,7 @@
             case 'Home': focusRow(all[0]); e.preventDefault(); break;
             case 'End': focusRow(all[all.length - 1]); e.preventDefault(); break;
             case 'Enter':
-                if (item && item.type !== 'Episode') { openItem(item); e.preventDefault(); }
+                if (item && !isVideo(item)) { openItem(item); e.preventDefault(); }
                 else if (item && view.mode === 'search') { openItem(item); e.preventDefault(); }
                 break;
             case ' ':
@@ -681,7 +704,7 @@
                 e.preventDefault();
                 break;
             case 'ArrowLeft': case 'Backspace': goUp(); e.preventDefault(); break;
-            case 'ArrowRight': if (item && item.type !== 'Episode') { openItem(item); e.preventDefault(); } break;
+            case 'ArrowRight': if (item && !isVideo(item)) { openItem(item); e.preventDefault(); } break;
         }
     }
 
