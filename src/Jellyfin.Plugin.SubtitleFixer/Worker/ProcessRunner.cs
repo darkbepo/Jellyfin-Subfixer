@@ -41,13 +41,15 @@ public static class ProcessRunner
     /// <param name="workingDirectory">Working directory.</param>
     /// <param name="timeout">Kill after this long.</param>
     /// <param name="cancellationToken">Kill when cancelled.</param>
+    /// <param name="recordAsWorker">Record the process in <see cref="RunningWorkerFile"/> while it runs.</param>
     /// <returns>The outcome.</returns>
     public static async Task<ProcessOutcome> RunAsync(
         string fileName,
         IEnumerable<string> arguments,
         string workingDirectory,
         TimeSpan timeout,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool recordAsWorker = false)
     {
         var start = new ProcessStartInfo(fileName)
         {
@@ -104,6 +106,30 @@ public static class ProcessRunner
             return new ProcessOutcome(ProcessEnd.StartFailed, null, ex.Message, watch.Elapsed);
         }
 
+        // The OS ends the whole tree if Jellyfin dies, so no run can outlive us and race startup recovery.
+        using var job = KillOnCloseJob.TryCreate();
+        job?.TryAdd(process);
+        if (recordAsWorker)
+        {
+            RunningWorkerFile.Write(process);
+        }
+
+        try
+        {
+            return await WaitAsync(process, timeout, cancellationToken, watch, Collected).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (recordAsWorker)
+            {
+                RunningWorkerFile.Clear();
+            }
+        }
+    }
+
+    private static async Task<ProcessOutcome> WaitAsync(Process process, TimeSpan timeout, CancellationToken cancellationToken, Stopwatch watch, Func<string> collected)
+    {
+        Func<string> Collected = collected;
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 

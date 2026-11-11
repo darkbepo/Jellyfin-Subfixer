@@ -21,6 +21,9 @@ After each case the original subtitle must be byte-identical to before (except t
 | Process killed (simulate crash) leaving `.bak` | startup recovery restores and deletes it |
 | Success | new content, `.bak` deleted, record `done`, refresh requested |
 
+## Real SubSync tests
+`RealSubSyncTests` run the real `subsync-cli.exe` through `CliWorker`: a normal sync, the HI move, the HI refusal, `no_match`, and cancel with no processes left. They do nothing unless `SUBFIXER_SUBSYNC_FOLDER` and `SUBFIXER_TEST_CLIP` are set (CI doesn't set them). `KillOnCloseJob` and `RunningWorkerFile` have their own process tests (Windows only).
+
 ## API tests
 Error codes in `API.md`; permissions (`AdminOnly`, `AllAuthenticated`); users cannot see inaccessible libraries; Status visible to allowed users.
 

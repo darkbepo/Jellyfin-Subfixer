@@ -69,8 +69,12 @@ public sealed class SubSyncReportTests
         Assert.Contains("--cpu", tuned);
         Assert.Equal("eng", tuned[tuned.ToList().IndexOf("--suffix") + 1]);
 
+        // SubSync rejects "en.hi" (S5), so HI runs with the plain tag and the result is moved afterwards.
         var hi = CliWorker.BuildArguments(video, @"D:\x.en.hi.srt", "en.hi", "r.json", new WorkerOptions(true, false, TimeSpan.FromMinutes(30)));
-        Assert.Equal("en.hi", hi[hi.ToList().IndexOf("--suffix") + 1]);
+        Assert.Equal("en", hi[hi.ToList().IndexOf("--suffix") + 1]);
+        Assert.Equal("eng", CliWorker.CliSuffix("eng.hi"));
+        Assert.Equal(@"D:\Show\Ep 1.en.srt", CliWorker.CliOutputPath(@"D:\Show\Ep 1.mkv", "en.hi"));
+        Assert.Equal(@"D:\Show\Ep 1.eng.srt", CliWorker.CliOutputPath(@"D:\Show\Ep 1.mkv", "eng"));
     }
 
     [Fact]
@@ -165,6 +169,51 @@ public sealed class ProcessRunnerTests
 
         Assert.Equal(ProcessEnd.TimedOut, outcome.End);
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(30));
+    }
+
+    [Fact]
+    public async Task Closing_the_job_kills_the_process_and_its_children()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var parent = Process.Start(new ProcessStartInfo(Cmd, "/c ping -n 60 127.0.0.1") { CreateNoWindow = true, UseShellExecute = false })!;
+        var job = KillOnCloseJob.TryCreate();
+        Assert.NotNull(job);
+        Assert.True(job!.TryAdd(parent));
+        var child = await WaitForChildPingAsync();
+        Assert.NotNull(child);
+
+        job.Dispose(); // What the OS does when Jellyfin's process ends.
+
+        Assert.True(parent.WaitForExit(10_000), "cmd.exe must be killed");
+        Assert.True(child!.WaitForExit(10_000), "its ping.exe child must be killed too");
+    }
+
+    [Fact]
+    public void Leftover_worker_is_killed_once_and_reused_ids_are_left_alone()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var leftover = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "PING.EXE"), "-n 60 127.0.0.1") { CreateNoWindow = true, UseShellExecute = false })!;
+        RunningWorkerFile.Write(leftover);
+
+        Assert.True(RunningWorkerFile.KillLeftover());
+        Assert.True(leftover.WaitForExit(10_000));
+        Assert.False(File.Exists(RunningWorkerFile.PathName));
+        Assert.False(RunningWorkerFile.KillLeftover());
+
+        // Same id, different start time = not our process.
+        using var other = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "PING.EXE"), "-n 30 127.0.0.1") { CreateNoWindow = true, UseShellExecute = false })!;
+        File.WriteAllText(RunningWorkerFile.PathName, other.Id.ToString(System.Globalization.CultureInfo.InvariantCulture) + "|1");
+        Assert.False(RunningWorkerFile.KillLeftover());
+        Assert.False(other.HasExited);
+        other.Kill();
     }
 
     [Fact]

@@ -6,7 +6,8 @@
 - Result = JSON report (`status`: `synced|no_match|failed|cancelled|skipped`, plus `reason`, `audio_language`, `seconds`, `subsync_version`) and exit code. The exact report layout is unverified (S5); `SubSyncReport.Parse` accepts the fields at the top level, in a top-level array, or in the first entry of `results`/`pairs`/`items`/`files`. Exit 7 and 10 override the report; otherwise the report's `status` decides, and `synced` with a non-zero exit counts as failed.
 - With redirected output it prints only result lines; the report is written at the end. No live progress.
 - Exit codes: 0 all synced; 3 some failed; 4 none synced; 5 nothing to pair; 6 bad command line; 7 setup/repair impossible or another SubSync using the folder; 8 (`check`) incomplete install; 9 Ctrl+C; 10 unexpected error.
-- Killing `subsync-cli.exe` makes Windows end all child processes (Job Object): cancel = kill the process tree.
+- Cancel and timeout kill the process tree (`subsync-cli.exe` plus its `python.exe` children), verified live. Jellyfin dying does **not** end SubSync by itself, so each run is put in a kill-on-close Job Object, and startup kills a recorded leftover run before recovery (D29).
+- `--suffix` takes only `en`/`eng` (S5). For `.en.hi.srt`/`.eng.hi.srt` the CLI runs with the plain tag, writes `<video>.en.srt`/`.eng.srt`, and `CliWorker` moves that over the `.hi` file. It refuses if the plain file already exists, and removes a stray result on any failure.
 - With `--overwrite`, an existing result file held open elsewhere makes SubSync wait up to 5 minutes.
 - Re-running an episode is nearly instant (transcript cache keyed by path, size, mtime, audio track).
 

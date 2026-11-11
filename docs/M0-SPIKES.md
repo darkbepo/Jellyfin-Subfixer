@@ -102,11 +102,30 @@ Browse libraries -> series -> seasons -> episodes with paging; search by term wi
 
 ## S5 SubSync CLI behavior
 On one real episode: `--pair`, `--overwrite`, `--suffix`, `--report` with spaces in paths. Confirm the report fields and exit codes in `JOB-FLOW.md`, per-process startup time (model load), behavior when the result file is open elsewhere, and that killing the process tree leaves no orphan processes.
-**Findings:** pending; needs the owner's Windows server (see the checklist).
+**Findings (live, 2026-11-11, SubSync 1.2.0 from the GitHub release, installed at `C:\SubSync`, CPU only):**
+- **Install:** `check` exits 8 until `setup` has run. `setup` downloaded 1.8 GB here, not 3.2 GB, probably because there are no CUDA libraries without an NVIDIA GPU. `check` then exits 0 with "Installation is complete and intact."
+- **Paths:** the exact plugin command (`sync --pair V S --overwrite --suffix en --report R`) works with spaces and non-ASCII in the paths. The result overwrites `<video>.en.srt` in place.
+  - The result takes the **video's** letter case for its name (`S01e01 … Webdl-1080P.en.srt` replaced `S01E01 … WEBDL-1080p.en.srt`). Harmless on Windows.
+- **Report:** `{ subsync_version, finished, exit_code, seconds, summary, items: [ { video, subtitle, status, output, reason, audio_language, seconds, lines_matched, … } ] }`. `SubSyncReport.Parse` reads it as is.
+- **Outcomes:**
+  - Synced: exit 0, `status: synced`.
+  - Wrong subtitle: exit 4, `status: no_match`, nothing written.
+- **`--suffix`** accepts only `en`, `eng`, `.en` or `.eng`. `en.hi` gives exit 6 ("invalid choice"). Hearing-impaired files therefore run with the plain tag, and `CliWorker` moves the result over the `.hi` file (D27). It refuses to run if a plain `.en.srt` already exists.
+- **Timing (CPU, i7-13850HX):**
+  - A 6-minute clip took 96 s.
+  - A 22-minute episode takes about 6.5 minutes.
+  - Re-running the same file takes 3.4 s (transcript cache).
+  - The output does not say GPU or CPU, except the line "Speech recognition: CPU (no usable NVIDIA GPU – slower)" printed during `sync`; `check` doesn't say either.
+- **Kill:** killing `subsync-cli.exe` with its tree (it starts 2 `python.exe`) leaves nothing running, and the subtitle is untouched.
+  - However, **killing Jellyfin did NOT kill SubSync**: an orphaned run kept going and could have overwritten a subtitle after startup recovery. This is now fixed with a kill-on-close Windows Job Object plus a leftover-run check at startup (D29), and verified live: 0 processes left after hard-killing Jellyfin.
+- **Not tested:** the 5-minute wait when the result file is held open by another program.
+- **Real-CLI tests:** `RealSubSyncTests` run the real CLI through `CliWorker` when `SUBFIXER_SUBSYNC_FOLDER` and `SUBFIXER_TEST_CLIP` are set. All 5 pass locally, and they're skipped in CI.
 
 ## S6 Running under the Jellyfin service account
 Launch the CLI from the plugin while Jellyfin runs as a Windows service (and as a tray app). Does it get the GPU (CUDA) or fall back to CPU? Does it have write access to the SubSync folder and media folders? Fallbacks: `ForceCpu`, run Jellyfin as a tray app, grant folder rights.
-**Findings:** pending; needs the owner's Windows server.
+**Findings:**
+- **Tray app (live, 2026-11-11 on Testflix):** Jellyfin runs as the signed-in user, launches the CLI from the plugin, and can write to `C:\SubSync` and the media folders. On this PC (Intel UHD, no NVIDIA) SubSync falls back to CPU by itself; no `ForceCpu` is needed.
+- **Still open (owner):** Jellyfin as a Windows **service**, and the GPU on the real server.
 
 ## S7 SQLite inside the plugin
 Does `Microsoft.Data.Sqlite` load in the plugin's load context (native library included)? Fallback: use the assembly Jellyfin already ships, or an append-only JSONL log plus in-memory dictionary compacted at startup (40,000 records is fine).

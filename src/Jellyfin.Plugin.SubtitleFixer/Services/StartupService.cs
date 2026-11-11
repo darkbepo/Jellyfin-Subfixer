@@ -66,6 +66,14 @@ public sealed class StartupService : IHostedService
         {
             await _state.InitializeAsync(cancellationToken).ConfigureAwait(false);
             _status.StateReady = true;
+
+            // A SubSync run that outlived a crash must be gone before its backup is restored, or it could
+            // overwrite the restored subtitle afterwards.
+            if (Worker.RunningWorkerFile.KillLeftover())
+            {
+                _logger.LogWarning("Stopped a SubSync run left over from before the restart");
+            }
+
             _status.Recovered = await _recovery.RecoverAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is SqliteException or IOException or UnauthorizedAccessException or InvalidOperationException or TypeLoadException or DllNotFoundException)

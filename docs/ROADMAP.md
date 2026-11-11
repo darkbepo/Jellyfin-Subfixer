@@ -23,7 +23,12 @@ Acceptance: unit tests for validator, eligibility, fingerprint match and invalid
 - [x] `JobQueue` (in memory, caps, single consumer, shared and visible to all, D19), `JobRunner` implementing `JOB-FLOW.md`, `JobProcessor` with the exit-7 and 3-crash stops.
 - [x] `BackupService` with the journal (D23), verification, `RecoveryService` at startup, `RefreshService`.
 - [x] `POST /Jobs`, `GET /Status`, `POST /Jobs/Cancel`, `POST /Jobs/Clear`; Start button and queue panel on the test page.
-- [ ] Owner: real run on one test season (see `M0-LIVE-CHECKS.md` S5 first; the report layout is unverified).
+- [x] Real run on a test season (Testflix, 2026-11-11, CPU):
+  - S01E01 and S01E02 of a TV season synced and were served by Jellyfin immediately.
+  - A second Start was refused (`nothing_eligible`, already synced).
+  - Cancel mid-run left the subtitle byte-identical.
+  - Hard-killing Jellyfin mid-run restored the subtitle on restart. This needed the D29 fix for orphaned SubSync.
+- [ ] Owner: the same on the real server with its GPU and Jellyfin as a service (S6).
 Acceptance: fault-injection tests (`TESTING.md`) all leave the original subtitle intact (done, 2026-11-11: 171 tests); real run on one test season updates subtitles and Jellyfin serves them immediately; a second run skips every episode (pending owner).
 
 ## M3 Web UI (B)

@@ -28,7 +28,12 @@ Read a key in PowerShell without printing others:
 ## Not done
 - No TV: add a TV library to Testflix (copied episodes), install Sonarr (`winget install TeamSonarr.Sonarr`), and connect it in Bazarr to test episodes.
 - Restarting the Bazarr service from a normal (non-admin) shell is refused; use Bazarr's own restart (`POST /api/system?action=restart`) or an admin shell.
-- SubSync is not installed on this PC, so syncing can't run here yet.
+- **SubSync 1.2.0** is installed at `C:\SubSync` (release zip, checksum verified, `setup` done, CPU only because this PC has no NVIDIA GPU). The plugin's SubSync folder setting points there.
+- **TV library "Serier"** (`C:\notporn2`, added 2026-11-11): *Schitt's Creek* season 1, 10 episodes with English audio and `.en.srt` files whose names differ from the videos only in letter case.
+  - S01E01 and S01E02 have been re-timed by the plugin.
+  - Untouched originals of all `.srt` files in both libraries were kept outside the repo before testing.
+- **Settings:** "Who can use it" is still **Administrators only** on Testflix, because its settings file predates the new default.
+- **Real-CLI tests:** set `SUBFIXER_SUBSYNC_FOLDER=C:\SubSync` and `SUBFIXER_TEST_CLIP` to a short English clip with a `.en.srt` next to it, then run `dotnet test --filter RealSubSyncTests`. They take about 6 minutes on this CPU.
 
 ## Subtitle Fixer on Testflix
 - **Installed 2026-11-11:** `C:\ProgramData\Jellyfin\Server\plugins\SubtitleFixer_0.1.0.0\` (DLL plus `meta.json`). Its state database is `C:\ProgramData\Jellyfin\Server\plugins\Jellyfin.Plugin.SubtitleFixer\state.db`.

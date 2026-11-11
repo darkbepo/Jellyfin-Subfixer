@@ -34,7 +34,7 @@ public sealed class CliWorker : ISubSyncWorker
     /// <returns>Arguments.</returns>
     public static IReadOnlyList<string> BuildArguments(string videoPath, string subtitlePath, string languageTag, string reportPath, WorkerOptions options)
     {
-        var args = new List<string> { "sync", "--pair", videoPath, subtitlePath, "--overwrite", "--suffix", languageTag, "--report", reportPath };
+        var args = new List<string> { "sync", "--pair", videoPath, subtitlePath, "--overwrite", "--suffix", CliSuffix(languageTag), "--report", reportPath };
         if (!options.TidyUpLines)
         {
             args.Add("--keep-layout");
@@ -48,6 +48,22 @@ public sealed class CliWorker : ISubSyncWorker
         return args;
     }
 
+    /// <summary>
+    /// SubSync only accepts <c>--suffix en</c> or <c>eng</c> (verified, S5: <c>en.hi</c> is "invalid choice", exit 6).
+    /// A hearing-impaired tag runs with its plain tag and the result is moved over the <c>.hi</c> file.
+    /// </summary>
+    /// <param name="languageTag"><c>en</c>, <c>eng</c>, <c>en.hi</c> or <c>eng.hi</c>.</param>
+    /// <returns>The tag to pass to <c>--suffix</c>.</returns>
+    public static string CliSuffix(string languageTag) =>
+        languageTag.EndsWith(".hi", StringComparison.OrdinalIgnoreCase) ? languageTag[..^3] : languageTag;
+
+    /// <summary>Where SubSync writes its result: <c>&lt;video folder&gt;\&lt;video name&gt;.&lt;suffix&gt;.srt</c>.</summary>
+    /// <param name="videoPath">Video.</param>
+    /// <param name="languageTag">Our tag.</param>
+    /// <returns>The CLI's output path.</returns>
+    public static string CliOutputPath(string videoPath, string languageTag) =>
+        Path.Combine(Path.GetDirectoryName(videoPath) ?? string.Empty, Path.GetFileNameWithoutExtension(videoPath) + "." + CliSuffix(languageTag) + ".srt");
+
     /// <inheritdoc />
     public async Task<WorkerResult> RunAsync(string videoPath, string subtitlePath, string languageTag, WorkerOptions options, CancellationToken cancellationToken)
     {
@@ -57,9 +73,19 @@ public sealed class CliWorker : ISubSyncWorker
             return new WorkerResult(WorkerStatus.Unavailable, null, "SubSync is not configured.", null, 0, null, null);
         }
 
+        // Hearing-impaired: SubSync writes the plain-tag file next to the video; it must not already exist,
+        // or SubSync would overwrite a subtitle we never backed up.
+        var cliOutput = CliOutputPath(videoPath, languageTag);
+        var movesResult = !string.Equals(cliOutput, subtitlePath, StringComparison.OrdinalIgnoreCase);
+        if (movesResult && File.Exists(cliOutput))
+        {
+            return new WorkerResult(WorkerStatus.Failed, null, $"{Path.GetFileName(cliOutput)} already exists next to the video; not overwriting it.", null, 0, null, null);
+        }
+
         var reportFolder = Path.Combine(Path.GetTempPath(), "SubtitleFixer");
         Directory.CreateDirectory(reportFolder);
         var reportPath = Path.Combine(reportFolder, Guid.NewGuid().ToString("N") + ".json");
+        var moved = false;
 
         try
         {
@@ -68,7 +94,8 @@ public sealed class CliWorker : ISubSyncWorker
                 BuildArguments(videoPath, subtitlePath, languageTag, reportPath, options),
                 Path.GetDirectoryName(cli)!,
                 options.Timeout,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                recordAsWorker: true).ConfigureAwait(false);
             var seconds = outcome.Elapsed.TotalSeconds;
 
             switch (outcome.End)
@@ -91,6 +118,18 @@ public sealed class CliWorker : ISubSyncWorker
                 _logger.LogWarning("SubSync {Status} (exit {Exit}) for {Subtitle}: {Reason}. Output: {Output}", status, exit, subtitlePath, reason, Tail(outcome.Output));
             }
 
+            if (status == WorkerStatus.Synced && movesResult)
+            {
+                if (!File.Exists(cliOutput))
+                {
+                    return new WorkerResult(WorkerStatus.Failed, null, "invalid output: SubSync reported synced but wrote no file", report?.AudioLanguage, seconds, report?.SubSyncVersion, exit);
+                }
+
+                // The original .hi file is backed up by the job runner; replace it with the result.
+                File.Move(cliOutput, subtitlePath, overwrite: true);
+                moved = true;
+            }
+
             return new WorkerResult(
                 status,
                 status == WorkerStatus.Synced ? subtitlePath : null,
@@ -103,6 +142,11 @@ public sealed class CliWorker : ISubSyncWorker
         finally
         {
             TryDelete(reportPath);
+            if (movesResult && !moved)
+            {
+                // Never leave a stray plain-tag result next to the video (it did not exist before the run).
+                TryDelete(cliOutput);
+            }
         }
     }
 
