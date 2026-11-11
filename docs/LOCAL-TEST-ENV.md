@@ -15,7 +15,7 @@ Read a key in PowerShell without printing others:
 ```
 
 ## What is configured
-- **Library:** Testflix has one library, **Film** (`C:\notporn`), with one movie (22 Jump Street, 2014) and three `.srt` files. There is **no TV library**, so the subtitle fixer itself (TV-only in v1) and Bazarr's episode endpoints can't be tested here yet; Bazarr movie search and download can.
+- **Library:** Testflix has one library, **Film** (`C:\notporn`). Jellyfin lists two movies there. *22 Jump Street (2014)* is eligible for the subtitle fixer. *21 Jump Street (2012)* is not, because its audio track has no English language tag. Radarr only imported 22 Jump Street. There is **no TV library**, so the subtitle fixer itself (TV-only in v1) and Bazarr's episode endpoints can't be tested here yet; Bazarr movie search and download can.
 - **Radarr:** bound to `127.0.0.1`; login disabled (`AuthenticationMethod=External`, safe only because it is localhost-bound); root folder `C:\notporn`; the movie is added **unmonitored** with no search and no download client (Radarr id `1`, TMDB `187017`).
 - **Bazarr:**
   - Bound to `127.0.0.1`, no login (`auth.type: null`).

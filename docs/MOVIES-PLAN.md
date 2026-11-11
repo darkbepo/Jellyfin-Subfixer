@@ -1,6 +1,10 @@
 # Movies: plan
 
-**Status (2026-11-11):** steps 1 and 2 are built. That covers the backend (facade, validator, API; renamed `GetLibraries`, `GetVideo`, `VideoFacts`) and the page plus mock data, with tests. The two proposed rules below are implemented as written; change them if the owner decides otherwise. Step 3 (Testflix) is partly done: browse and preview. Step 4 (Bazarr movies) is next for the Bazarr session.
+**Status (2026-11-11):** steps 1 and 2 are built. That covers the backend (facade, validator, API; renamed `GetLibraries`, `GetVideo`, `VideoFacts`) and the page plus mock data, with tests. The two proposed rules below are implemented as written; change them if the owner decides otherwise. Step 3 (Testflix) is partly done, live on 2026-11-11:
+- The **Film** library shows as a "Movie library" with its 2 movies; the page took 97 ms.
+- *22 Jump Street (2014)* is eligible: preview reads "1 movie selected, 1 will be fixed", and Start is refused with `503 subsync_unavailable` because SubSync isn't installed.
+- *21 Jump Street (2012)* is "Not eligible: no English audio", because its audio track carries no English language tag.
+- A real sync still needs SubSync. Step 4 (Bazarr movies) is next for the Bazarr session.
 
 The owner wants movies (2026-11-11). v1 is TV only. This plan adds movies to the subtitle fixer, and through it to the Bazarr feature (`BAZARR-PLAN.md`, phase 3). Read `SPEC.md` and `CLAUDE.md` first; every non-negotiable still holds unless this file says otherwise.
 
