@@ -34,6 +34,8 @@
     var lastStatus = null;
     var preview = { pending: false, result: null, error: null };
     var retryAction = null;
+    var bazarrEnabled = false;       // GET Bazarr/Info; Find subtitles shows only when true
+    var findSeq = 0;                 // ignores answers to a dialog that was closed or reopened
 
     // ---------- API ----------
     function token() {
@@ -354,6 +356,21 @@
         badgesFor(item).forEach(function (b) { badges.appendChild(b); });
         if (badges.children.length) { li.appendChild(badges); }
 
+        // Find subtitles only where there is no English subtitle (D28); the server refuses the rest with has_subtitle.
+        if (canFind(item)) {
+            var find = el('button', 'find-btn');
+            find.type = 'button';
+            find.tabIndex = -1;
+            find.title = 'Search Bazarr for an English subtitle';
+            find.setAttribute('aria-label', 'Find subtitles for ' + label);
+            var fi = icon('find');
+            fi.setAttribute('class', 'icon');
+            find.appendChild(fi);
+            find.appendChild(el('span', 'find-text', 'Find subtitles'));
+            find.addEventListener('click', function (e) { e.stopPropagation(); openFind(item); });
+            li.appendChild(find);
+        }
+
         if (isVideo(item) && !li.classList.contains('openable')) {
             li.addEventListener('click', function (e) {
                 if (e.target.closest('button,input,a')) { return; }
@@ -401,9 +418,129 @@
         }
         if (job && job.status === 'done') { return out; }
         if (item.status === 'done') { out.push(badge('synced', 'Synced')); }
+        else if (canFind(item)) { out.push(badge('', 'No English subtitle', 'Not eligible for re-timing: ' + REASONS.no_sidecar)); }
         else if (!item.eligible) { out.push(badge('', 'Not eligible: ' + (REASONS[item.reason] || item.reason), REASONS[item.reason])); }
         else if (item.status === 'attempted') { out.push(badge('attempted', 'Previously attempted', item.message)); }
         return out;
+    }
+
+    // ---------- Find subtitles (BAZARR-PLAN.md phase 1: read-only) ----------
+    function canFind(item) {
+        if (!bazarrEnabled || !isVideo(item) || item.reason !== 'no_sidecar') { return false; }
+        var job = queueByItem.get(item.id);
+        return !(job && (job.status === 'queued' || job.status === 'running'));
+    }
+
+    function openFind(item) {
+        var dlg = $('find');
+        var seq = ++findSeq;
+        $('find-item').textContent = videoLabel(item) + (item.type === 'Episode' && item.seriesName ? ' · ' + item.seriesName : '');
+        $('find-resource').textContent = '…';
+        $('find-matched').textContent = '';
+        $('find-list').replaceChildren();
+        dlg.classList.remove('has-hits');
+        setFindStatus('busy', 'Asking Bazarr’s providers. This can take a while…');
+        // Rows are redrawn while the dialog is open (queue polling), so remember the item, not the button.
+        dlg.returnTo = item.id;
+        if (!dlg.open) { dlg.showModal(); }
+
+        api('GET', 'Bazarr/Search?itemId=' + encodeURIComponent(item.id)).then(function (r) {
+            if (seq !== findSeq || !dlg.open) { return; }
+            $('find-resource').textContent = r.resource || 'unknown';
+            $('find-matched').textContent = r.matchedBy === 'ids' ? '(matched by id, check it’s the right file)' : '';
+            renderHits(r.results);
+            var left = r.hidden ? ' ' + plural(r.hidden, 'result', 'results') + ' in other languages or forced-only left out.' : '';
+            if (!r.results.length) {
+                setFindStatus('empty', 'No English subtitles found.' + left);
+            } else {
+                setFindStatus('', plural(r.results.length, 'subtitle', 'subtitles') + ' found, best match first.' + left);
+                dlg.classList.add('has-hits');
+            }
+        }, function (err) {
+            if (seq !== findSeq || !dlg.open) { return; }
+            $('find-resource').textContent = '—';
+            setFindStatus('error', err.message);
+        });
+    }
+
+    function setFindStatus(state, text) {
+        var s = $('find-status');
+        s.dataset.state = state;
+        s.textContent = text;
+    }
+
+    function renderHits(results) {
+        var list = $('find-list');
+        list.replaceChildren();
+        results.forEach(function (h) {
+            var li = el('li', 'hit');
+
+            var score = el('span', 'hit-score');
+            score.appendChild(el('strong', null, h.score + '%'));
+            var meter = el('span', 'meter');
+            var fill = el('span', h.score >= 90 ? 'good' : h.score >= 70 ? 'fair' : 'poor');
+            fill.style.width = Math.max(0, Math.min(100, h.score)) + '%';
+            meter.appendChild(fill);
+            score.appendChild(meter);
+            li.appendChild(score);
+
+            var lang = el('span', 'hit-lang');
+            lang.appendChild(el('span', 'lang', 'EN'));
+            if (h.hearingImpaired) { lang.appendChild(badge('hi', 'HI', 'Hearing impaired: includes sound descriptions')); }
+            li.appendChild(lang);
+
+            li.appendChild(el('span', 'hit-provider', h.provider));
+
+            var rel = el('span', 'hit-release');
+            var releases = h.releases && h.releases.length ? h.releases : ['—'];
+            if (releases.length > 1) {
+                var more = el('details');
+                var sum = el('summary', null, releases[0]);
+                sum.appendChild(el('span', 'more-count', ' +' + (releases.length - 1)));
+                more.appendChild(sum);
+                releases.slice(1).forEach(function (r) { more.appendChild(el('span', 'alt-release', r)); });
+                rel.appendChild(more);
+            } else {
+                rel.textContent = releases[0];
+                rel.title = releases[0];
+            }
+            li.appendChild(rel);
+
+            li.appendChild(el('span', 'hit-uploader', h.uploader || '-'));
+
+            var miss = h.dontMatches || [];
+            var matches = h.matches || [];
+            var tip = miss.length
+                ? 'Doesn’t match: ' + miss.map(humanize).join(', ') + (matches.length ? '. Matches: ' + matches.map(humanize).join(', ') : '')
+                : 'Matches the file' + (matches.length ? ': ' + matches.map(humanize).join(', ') : '');
+            var match = el('button', 'hit-match ' + (miss.length ? 'partial' : 'full'));
+            match.type = 'button';
+            match.title = tip;
+            match.setAttribute('aria-label', (miss.length ? 'Partial match. ' : 'Full match. ') + tip);
+            match.setAttribute('aria-expanded', 'false');
+            var mi = icon(miss.length ? 'partial' : 'check');
+            mi.setAttribute('class', 'icon');
+            match.appendChild(mi);
+            match.appendChild(el('span', 'match-text', miss.length ? 'Partial' : 'Match'));
+            // No hover on touch screens: a tap shows the details inline.
+            var detail = el('span', 'hit-detail', tip);
+            detail.hidden = true;
+            match.addEventListener('click', function () {
+                detail.hidden = !detail.hidden;
+                match.setAttribute('aria-expanded', String(!detail.hidden));
+            });
+            li.appendChild(match);
+            li.appendChild(detail);
+
+            list.appendChild(li);
+        });
+    }
+
+    function humanize(key) { return String(key).replace(/_/g, ' '); }
+
+    function closeFind() {
+        findSeq++;
+        if ($('find').open) { $('find').close(); }
     }
 
     function openItem(item) {
@@ -695,7 +832,8 @@
             case 'End': focusRow(all[all.length - 1]); e.preventDefault(); break;
             case 'Enter':
                 if (item && !isVideo(item)) { openItem(item); e.preventDefault(); }
-                else if (item && view.mode === 'search') { openItem(item); e.preventDefault(); }
+                else if (item && view.mode === 'search' && item.type === 'Episode') { openItem(item); e.preventDefault(); }
+                else if (item && canFind(item)) { openFind(item); e.preventDefault(); }  // the row's Find subtitles button
                 break;
             case ' ':
                 if (e.target.tagName === 'INPUT') { return; }  // the checkbox handles its own space
@@ -768,6 +906,15 @@
         $('clear-finished').addEventListener('click', function () { api('POST', 'Jobs/Clear').then(renderQueue, function (err) { failed(err); }); });
         $('queue-more').addEventListener('click', function () { showAllQueue = !showAllQueue; if (lastStatus) { renderQueue(lastStatus); } });
         $('banner-retry').addEventListener('click', function () { var a = retryAction; clearBanner(); if (a) { a(); } });
+        $('find-close').addEventListener('click', closeFind);
+        $('find').addEventListener('close', function () {
+            findSeq++;
+            var id = $('find').returnTo;
+            var r = id ? $('list').querySelector('[data-id="' + CSS.escape(id) + '"]') : null;
+            var back = r && (r.querySelector('.find-btn') || r);
+            if (back) { back.focus(); }
+        });
+        $('find').addEventListener('click', function (e) { if (e.target === $('find')) { closeFind(); } });  // backdrop click
         document.addEventListener('visibilitychange', function () { if (!document.hidden) { pollNow(); } });
         document.addEventListener('keydown', function (e) {
             if (e.key === '/' && document.activeElement !== $('q') && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { $('q').focus(); e.preventDefault(); }
@@ -788,6 +935,11 @@
             showGate('app');
             wire();
             if (m.isAdmin) { initAdmin(); }
+            // Optional feature: any failure just leaves Find subtitles hidden.
+            api('GET', 'Bazarr/Info').then(function (i) {
+                bazarrEnabled = !!(i && i.enabled);
+                if (bazarrEnabled) { rerenderRows(); }
+            }, function () { bazarrEnabled = false; });
             browse(null);
             pollNow();
             renderFooter();

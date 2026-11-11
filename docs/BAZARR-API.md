@@ -27,8 +27,29 @@ Live checks so far: the local test Bazarr **1.6.2** at `http://127.0.0.1:6767` (
 - Used by `POST /SubtitleFixer/Admin/TestBazarr`, after a good status call. It warns when the setting is on (BAZARR-PLAN.md, owner decision 3), and also when it can't be read.
 - **Live check still to do (owner):** turn that checkbox on in Bazarr; Test connection then shows the amber warning.
 
-## Still to verify (phase 1)
-Series and episode lists, episode manual search, episode download, movie download, and the movie list. Not yet written into the client. Movie manual search was seen working live on 1.6.2 (`GET /api/providers/movies?radarrid=1`: 35 results in about 5 s, with `score`, `orig_score`, `score_without_hash`, `language`, `hearing_impaired`, `forced`, `provider`, `release_info`, `uploader`, `matches`, `dont_matches`, `original_format`, `subtitle`, `url`); record its full shape here from `/api/swagger.json` before using it. The test setup has no Sonarr, so episode calls can only be checked from source for now. See `BAZARR-PLAN.md`, "Do not guess the Bazarr API". Check each against the owner's instance (its Swagger page under `/api/`) before writing the client call.
+Swagger (`/api/swagger.json`, 1.6.2) lists parameters but no response models, so response shapes below come from live calls (movies) and from source at tag `v1.6.2` (series, episodes).
+
+## GET /api/movies?start=&length=
+- **Swagger (1.6.2):** `start`, `length`, `radarrid[]` and filters; `200` or `401`.
+- **Live (1.6.2):** `{ "data": [ ... ], "total": 1 }`. Each row has `radarrId` (int), `path` (Radarr's path, Windows-style here), `imdbId`, `title`, `year` (string), `audio_language`, `subtitles`, `missing_subtitles`, `profileId`, `monitored`, `sceneName` and artwork. **No `tmdbId`.**
+- We read `radarrId`, `path`, `imdbId`, `title`, in pages of 250, and cache the list 10 minutes (`BazarrItemResolver`).
+
+## GET /api/series?start=&length=
+- **From source** (`api/series/series.py`, `v1.6.2`): same paging. Rows have `sonarrSeriesId`, `path` (series folder), `tvdbId` (int), `imdbId`, `title` and more; `{ data, total }`.
+- **Not live-checked:** the test setup has no Sonarr.
+
+## GET /api/episodes?seriesid[]=
+- **From source** (`api/episodes/episodes.py`, `v1.6.2`): rows have `sonarrEpisodeId`, `sonarrSeriesId`, `season`, `episode`, `path`, `title`, `subtitles`, `missing_subtitles`. One series per call in our use, so a whole TV library is never read at once.
+- **Not live-checked** (no Sonarr).
+
+## GET /api/providers/movies?radarrid= and /api/providers/episodes?episodeid=
+- **Live (1.6.2, movies):** `{ "data": [ ... ] }`; 35 results for Radarr id 1 in 4.9 to 5.6 s. Fields: `score` (int, percent), `orig_score`, `score_without_hash`, `language` (`en`), `hearing_impaired`, `forced` and `original_format` as the **strings** `"True"`/`"False"`, `provider`, `release_info` (array), `uploader`, `matches`/`dont_matches` (arrays of property names such as `release_group`, `hash`, `audio_codec`), `subtitle` (opaque handle, a 36-character GUID here) and `url`.
+- **From source** (`api/providers/providers_movies.py`, `providers_episodes.py`, `v1.6.2`): `404 "Movie not found"` for an unknown id (live: confirmed for Radarr id 999999); `500` with a JSON string message, for example `"Movie file not found. Path mapping issue?"` when Bazarr can't see the file. The episode endpoint has the same result fields.
+- Episode search is **not live-checked** (no Sonarr).
+- We pass on `language`, `hearing_impaired`, `forced`, `score`, `provider`, `release_info`, `uploader`, `matches`, `dont_matches`. `subtitle` and `original_format` stay on the server for phase 2's download.
+
+## Still to verify (phase 2)
+`POST /api/providers/movies` and `/episodes` (download): parameters are in Swagger (`radarrid` or `seriesid`+`episodeid`, `hi`, `forced`, `original_format`, `provider`, `subtitle`, all required), response `204`. Check the live behavior, and the file name Bazarr writes, before using it.
 
 ## HTTP client
-- **From source** (`Jellyfin.Server/Startup.cs`, `v12.4`): the server calls `services.AddHttpClient(...)`, so `IHttpClientFactory` is in the container. `BazarrClient` asks it for the named client `SubtitleFixer.Bazarr`. Nothing configures that name, so it gets the default handler, and each call is capped at 30 s.
+- **From source** (`Jellyfin.Server/Startup.cs`, `v12.4`): the server calls `services.AddHttpClient(...)`, so `IHttpClientFactory` is in the container. `BazarrClient` asks it for the named client `SubtitleFixer.Bazarr`. Nothing configures that name, so it gets the default handler. Each call is capped at 30 s by our own token; manual search at 90 s (D30).

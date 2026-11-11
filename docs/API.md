@@ -70,8 +70,18 @@ Removes the caller's finished items from the list (an administrator clears all).
 - `POST /Admin/TestSubSync` -> `{ "ok":true, "version":"1.2.0", "mode":"GPU|CPU|unknown", "message":"..." }`
 - `POST /Admin/TestBazarr` with `{ "url":"...", "apiKey":"...", "pathMappings":"..." }` (unsaved form values; an empty `url` or `apiKey`, or a null `pathMappings`, uses the saved setting; the saved key is only sent to the saved address, so testing another address needs the key typed in) -> always `200 { "ok":true, "version":"1.5.3", "message":"...", "pathMappingErrors":["Line 2: ..."], "warnings":["..."] }`; `warnings` says when Bazarr's own sync is on or its setting can't be read (BAZARR-PLAN.md, owner decision 3). Calls Bazarr's `GET /api/system/status` server-side. Works whether or not `BazarrEnabled` is on. The response never contains the API key.
 
-## Error codes
-| Code | HTTP | Meaning |
+## Bazarr (Find subtitles, BAZARR-PLAN.md)
+Any allowed user (`AllowedUsers`, owner decision 4). The API key never leaves the server; responses carry our own short-lived handles, never Bazarr's opaque `subtitle` value.
+- `GET /Bazarr/Info` -> `{ "enabled": true }`. True when `BazarrEnabled` is on and the address and key are set. The page shows Find subtitles only when it is true.
+- `GET /Bazarr/Search?itemId=` -> `200 { "itemId", "kind":"movie|episode", "resource":"<video path as Bazarr reports it>", "matchedBy":"path|ids", "results":[ { "id", "score", "language":"EN|EN:HI", "hearingImpaired", "provider", "releases":[..], "uploader", "matches":[..], "dontMatches":[..] } ], "hidden":3 }`.
+  - Results are English and not forced (a forced subtitle saved as `.en.forced.srt` would never be re-timed), best score first. `hidden` counts the ones left out.
+  - `id` is a random handle kept server-side for 10 minutes, bound to the caller and the item; phase 2's Download sends it back.
+  - Checks, in order: Bazarr set up (`503 bazarr_unavailable`), item accessible (`404 not_found`), D28 no accepted sidecar (`409 has_subtitle`), video file (`409 no_video_file`), English audio (`409 no_english_audio`), rate limit (`429 rate_limited` with `Retry-After`), item known to Bazarr (`404 bazarr_not_found`), then the search (`502 search_failed` with Bazarr's own message, `503 bazarr_unavailable` when unreachable or the key is rejected).
+  - Rate limit: one search at a time per user, and at least 5 s between a user's searches. Refused requests (wrong item, has a subtitle) don't count.
+  - Item mapping: by path after `BazarrPathMappings`, then by IMDb id (movies) or TVDB/IMDb id plus season and episode number (episodes). Bazarr's movie and series lists are read in pages of 250 and kept 10 minutes; a miss on a cached list reads it once more.
+- `POST /Bazarr/Download` arrives in phase 2.
+
+## Error codes| Code | HTTP | Meaning |
 |---|---|---|
 | `multiple_series` | 400 | Items belong to more than one series |
 | `mixed_selection` | 400 | Movies and episodes in one request |
@@ -81,3 +91,9 @@ Removes the caller's finished items from the list (an administrator clears all).
 | `queue_full` | 409 | Would exceed `MaxQueuedEpisodes` |
 | `subsync_unavailable` | 503 | SubSync folder not set or `check` failed |
 | `forbidden` | 403 | Not allowed by `AllowedUsers` |
+| `bazarr_unavailable` | 503 | Bazarr search off, not set up, unreachable, or the key was rejected |
+| `bazarr_not_found` | 404 | Bazarr (Radarr/Sonarr) doesn't know the item; check path mappings |
+| `has_subtitle` | 409 | Find subtitles on an item that already has an accepted English sidecar (D28) |
+| `no_video_file` / `no_english_audio` | 409 | Find subtitles on an item that could never be re-timed |
+| `rate_limited` | 429 | Searched again within 5 s, or a search is still running; `Retry-After` says when |
+| `search_failed` | 502 | Bazarr's search answered with its own error (message passed through) |

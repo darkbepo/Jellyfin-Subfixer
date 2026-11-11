@@ -24,6 +24,10 @@ Title, disclaimer, search box, breadcrumb (Libraries > Library > Series > Season
 - Live search: debounce about 250 ms, 2+ characters, results are series and episodes (one page of 30; the hint says when there are more). Opening a result navigates like browsing: a series opens the series; an episode's name opens its season, pages until that episode is loaded, scrolls to it and highlights it. Esc clears the search.
 - Episode badges: Synced, Previously attempted (with the last message), "Not eligible: <reason>" (the reason is in the badge text, so it works without hover or long-press), and the live queue status (Queued, Syncing…, Fixed, Check, Failed, Cancelled, Skipped). Episodes already queued or running can't be ticked again.
 
+- **Find subtitles (Bazarr, BAZARR-PLAN.md).** Shown only when `GET /Bazarr/Info` says enabled, and only on episodes and movies with reason `no_sidecar` that aren't queued or running (D28). Those rows show a short "No English subtitle" badge plus the button; at phone width the button is icon-only. Keyboard: Enter on such a row opens it.
+  - The dialog (native `<dialog>`) shows the item, the **Resource** line (the path Bazarr matched; "matched by id" is called out so the user can check it) and the results, best score first: score with a meter, language (`EN`, plus an `HI` badge), provider, release (extra release names collapse behind "+N"), uploader, and a Match chip (green "Match", or amber "Partial" listing what doesn't match on hover; a tap shows it inline for touch screens).
+  - Under 820 px the table becomes cards; under 640 px the dialog is full screen. Errors and "no results" show in the dialog's status line. Esc, the close button or a click on the backdrop closes it, and focus returns to the row's button.
+  - Read-only in phase 1: no Get button yet; a note says downloading comes next.
 ## Selection model
 - State: `selected: Set<episodeId>`, `seasonChecks` derived, `lockedSeriesId | null`.
 - Checking a season selects all its eligible episodes (load the season's episodes if not loaded). Season checkbox shows unchecked, indeterminate or checked.
@@ -54,7 +58,7 @@ Map API error codes to plain messages (`API.md`). `subsync_unavailable`: "SubSyn
 
 ## Mock mode
 `?mock=1` runs against `mock-data.js` (3 libraries, 5 series, one season with 40 episodes, a mix of eligible, synced, attempted and ineligible) and simulates progress, so Track B can work without the backend. The mock starts with another user's hidden episode running, so the shared-queue display is visible at once.
-- Extra switches: `&user=member` (not admin), `&user=denied` (not allowed), `&subsync=off` (Start fails with `subsync_unavailable`), `&slow=1` (500 ms latency).
+- Extra switches: `&user=member` (not admin), `&user=denied` (not allowed), `&subsync=off` (Start fails with `subsync_unavailable`), `&slow=1` (500 ms latency), `&bazarr=off` (no Find subtitles), `&bazarr=error` (search fails), `&bazarr=none` (no results).
 - Without Jellyfin: `powershell -ExecutionPolicy Bypass -File build\dev-server.ps1` serves the page at `http://localhost:5178/SubtitleFixer/Page?mock=1` (also `.claude/launch.json` "page-mock").
 - The plugin serves `mock-data.js` too, so `?mock=1` also works on a real server for demos; it never touches real data.
 

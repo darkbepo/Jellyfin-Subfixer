@@ -40,6 +40,18 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<BrowseService>();
         serviceCollection.AddSingleton<SubSyncProbe>();
         serviceCollection.AddSingleton<IBazarrClient, BazarrClient>();
+        serviceCollection.AddSingleton<IBazarrLookupSource, JellyfinBazarrLookupSource>();
+        serviceCollection.AddSingleton(sp => new BazarrItemResolver(sp.GetRequiredService<IBazarrClient>(), sp.GetRequiredService<ILogger<BazarrItemResolver>>()));
+        serviceCollection.AddSingleton(_ => new BazarrResultStore());
+        serviceCollection.AddSingleton(_ => new BazarrRateLimiter());
+        serviceCollection.AddSingleton(sp => new BazarrSearchService(
+            sp.GetRequiredService<ILibraryFacade>(),
+            sp.GetRequiredService<IBazarrLookupSource>(),
+            sp.GetRequiredService<BazarrItemResolver>(),
+            sp.GetRequiredService<IBazarrClient>(),
+            sp.GetRequiredService<BazarrResultStore>(),
+            sp.GetRequiredService<BazarrRateLimiter>(),
+            sp.GetRequiredService<ILogger<BazarrSearchService>>()));
 
         // Job engine (M2).
         serviceCollection.TryAddSingleton(TimeProvider.System);

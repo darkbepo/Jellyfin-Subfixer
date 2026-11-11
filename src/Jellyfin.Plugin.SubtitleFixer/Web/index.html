@@ -16,6 +16,10 @@
         <symbol id="i-movie" viewBox="0 0 24 24"><path fill="currentColor" d="M3 5h18v14H3zm2 2v2h2V7zm0 4v2h2v-2zm0 4v2h2v-2zm12-8v2h2V7zm0 4v2h2v-2zm0 4v2h2v-2zM9 7v10h6V7z"/></symbol>
         <symbol id="i-search" viewBox="0 0 24 24"><path fill="currentColor" d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/></symbol>
         <symbol id="i-back" viewBox="0 0 24 24"><path fill="currentColor" d="M11 5 4 12l7 7 1.4-1.4L7.8 13H20v-2H7.8l4.6-4.6z"/></symbol>
+        <symbol id="i-find" viewBox="0 0 24 24"><path fill="currentColor" d="M3 5h14a1 1 0 0 1 1 1v3.3a6.5 6.5 0 0 0-2-.3V7H4v9h5.1c.1.7.3 1.4.6 2H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm2 4h4v2H5zm0 3h3v2H5zm11-1a4.5 4.5 0 0 1 3.7 7.1l2.6 2.6-1.4 1.4-2.6-2.6A4.5 4.5 0 1 1 16 11zm0 2a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm4.3 6.3L10.5 14l-2.8-2.8-1.4 1.4 4.2 4.2 7.2-7.1z"/></symbol>
+        <symbol id="i-partial" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2 1 21h22zm-1 7h2v6h-2zm0 8h2v2h-2z"/></symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4z"/></symbol>
     </svg>
 
     <header class="top">
@@ -103,6 +107,23 @@
             </div>
         </div>
     </footer>
+
+    <dialog id="find" class="find" aria-labelledby="find-title">
+        <div class="find-head">
+            <div class="find-title-wrap">
+                <h2 id="find-title">Find subtitles</h2>
+                <p id="find-item" class="muted"></p>
+            </div>
+            <button id="find-close" type="button" class="iconbtn" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button>
+        </div>
+        <p class="find-resource"><span class="muted">Resource</span> <code id="find-resource"></code> <span id="find-matched" class="muted small"></span></p>
+        <p id="find-status" class="find-status" role="status" aria-live="polite"></p>
+        <div class="hits-head" aria-hidden="true">
+            <span>Score</span><span>Language</span><span>Provider</span><span>Release</span><span>Uploader</span><span>Match</span>
+        </div>
+        <ul id="find-list" class="hits" aria-label="Subtitles found"></ul>
+        <p id="find-note" class="muted small find-note">Results come from your Bazarr's providers. Downloading them arrives in the next update.</p>
+    </dialog>
 
     <script src="Page/app.js"></script>
 </body>

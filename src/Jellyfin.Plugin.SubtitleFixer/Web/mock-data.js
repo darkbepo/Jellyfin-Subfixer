@@ -1,7 +1,8 @@
 /* Subtitle Fixer mock API for ?mock=1 (UI.md, mock mode). Loaded only in mock mode.
    3 libraries, 5 series, one season with 40 episodes mixing eligible, synced, attempted and ineligible.
    Simulates the shared queue: another user's (hidden) episode is running when the page opens.
-   Options: &user=member (not admin), &user=denied (not allowed), &subsync=off, &slow=1 (500 ms latency). */
+   Options: &user=member (not admin), &user=denied (not allowed), &subsync=off, &slow=1 (500 ms latency),
+   &bazarr=off (no Find subtitles), &bazarr=error (search fails), &bazarr=none (no results). */
 (function () {
     'use strict';
 
@@ -329,7 +330,30 @@
             if (!isAdmin) { return err('forbidden', 403, 'Administrators only.'); }
             return ok({ ok: true, version: '1.2.0-mock', mode: 'GPU', message: 'SubSync is ready.', checkExitCode: 0, checkOutput: 'mock check output' });
         }
+        if (p === 'Bazarr/Info') { return ok({ enabled: params.get('bazarr') !== 'off' }); }
+        if (p === 'Bazarr/Search') {
+            var target = items[q.get('itemId')];
+            if (!target || (target.type !== 'Episode' && target.type !== 'Movie')) { return err('not_found', 404, 'That item was not found or you cannot access it.'); }
+            if (evaluate(target).reason !== 'no_sidecar') { return err('has_subtitle', 409, 'This item already has an English subtitle. Re-time it instead.'); }
+            if (params.get('bazarr') === 'error') { return err('search_failed', 502, 'Bazarr: Movie file not found. Path mapping issue?'); }
+            var base = target.type === 'Movie' ? target.name.replace(/\W+/g, '.') + '.' + target.productionYear : 'Show.S01E' + pad(target.indexNumber || 1);
+            var results = params.get('bazarr') === 'none' ? [] : [
+                hit(97, false, 'opensubtitlescom', [base + '.1080p.BluRay.x264-GROUP', base + '.1080p.BluRay.x264-OTHER', base + '.720p.BluRay.x264-GROUP'], 'subsmaster', ['title', 'year', 'source', 'resolution', 'release_group'], []),
+                hit(91, true, 'yifysubtitles', [base + '.1080p.BluRay.H264.AAC-RARBG'], 'FUNKSW', ['title', 'year', 'source'], ['release_group', 'streaming_service']),
+                hit(84, false, 'podnapisi', [base + '.WEB-DL.DDP5.1.H.264-NTb'], null, ['title', 'year'], ['source', 'release_group']),
+                hit(66, false, 'embeddedsubtitles', [base], null, ['title'], ['source', 'resolution', 'video_codec', 'release_group'])
+            ];
+            return ok({ itemId: target.id, kind: target.type === 'Movie' ? 'movie' : 'episode',
+                resource: (target.type === 'Movie' ? 'D:\\Movies\\' : '/tv/Show/Season 01/') + base + '.mkv',
+                matchedBy: 'path', results: results, hidden: 3 });
+        }
         return err('not_found', 404, 'No mock for ' + method + ' ' + p);
+    }
+
+    var hitSeq = 0;
+    function hit(score, hi, provider, releases, uploader, matches, dontMatches) {
+        return { id: 'mock-' + (++hitSeq), score: score, language: hi ? 'EN:HI' : 'EN', hearingImpaired: hi, provider: provider,
+            releases: releases, uploader: uploader, matches: matches, dontMatches: dontMatches };
     }
 
     function pad(n) { return n < 10 ? '0' + n : String(n); }

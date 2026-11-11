@@ -80,6 +80,43 @@ public interface IBazarrClient
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The setting, or null when it couldn't be read. Never throws for network or HTTP failures.</returns>
     Task<bool?> GetUseSubsyncAsync(BazarrConnection connection, CancellationToken cancellationToken);
+
+    /// <summary>Gets a page of Bazarr's movies (<c>GET /api/movies?start=&amp;length=</c>).</summary>
+    /// <param name="connection">Where to reach Bazarr.</param>
+    /// <param name="start">First row.</param>
+    /// <param name="length">Rows.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The page.</returns>
+    Task<BazarrResult<BazarrPage<BazarrMovie>>> GetMoviesAsync(BazarrConnection connection, int start, int length, CancellationToken cancellationToken);
+
+    /// <summary>Gets a page of Bazarr's series (<c>GET /api/series?start=&amp;length=</c>).</summary>
+    /// <param name="connection">Where to reach Bazarr.</param>
+    /// <param name="start">First row.</param>
+    /// <param name="length">Rows.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The page.</returns>
+    Task<BazarrResult<BazarrPage<BazarrSeries>>> GetSeriesAsync(BazarrConnection connection, int start, int length, CancellationToken cancellationToken);
+
+    /// <summary>Gets all episodes of one series (<c>GET /api/episodes?seriesid[]=</c>).</summary>
+    /// <param name="connection">Where to reach Bazarr.</param>
+    /// <param name="sonarrSeriesId">Sonarr series id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The episodes.</returns>
+    Task<BazarrResult<IReadOnlyList<BazarrEpisode>>> GetEpisodesAsync(BazarrConnection connection, int sonarrSeriesId, CancellationToken cancellationToken);
+
+    /// <summary>Runs Bazarr's manual search for a movie (<c>GET /api/providers/movies?radarrid=</c>).</summary>
+    /// <param name="connection">Where to reach Bazarr.</param>
+    /// <param name="radarrId">Radarr id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The results.</returns>
+    Task<BazarrResult<IReadOnlyList<BazarrSearchResult>>> SearchMovieAsync(BazarrConnection connection, int radarrId, CancellationToken cancellationToken);
+
+    /// <summary>Runs Bazarr's manual search for an episode (<c>GET /api/providers/episodes?episodeid=</c>).</summary>
+    /// <param name="connection">Where to reach Bazarr.</param>
+    /// <param name="sonarrEpisodeId">Sonarr episode id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The results.</returns>
+    Task<BazarrResult<IReadOnlyList<BazarrSearchResult>>> SearchEpisodeAsync(BazarrConnection connection, int sonarrEpisodeId, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -95,6 +132,12 @@ public sealed class BazarrClient : IBazarrClient
 
     /// <summary>Per-call timeout (BAZARR-PLAN.md).</summary>
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Timeout for a manual search, which asks every enabled provider in turn (5.6 s for three providers on the test
+    /// Bazarr; slow providers take longer). See D30.
+    /// </summary>
+    public static readonly TimeSpan SearchTimeout = TimeSpan.FromSeconds(90);
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<BazarrClient> _logger;
@@ -203,6 +246,205 @@ public sealed class BazarrClient : IBazarrClient
         {
             _logger.LogWarning("Could not read Bazarr settings at {BaseUri}: {Error}", connection.BaseUri, ex.Message);
             return null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<BazarrResult<BazarrPage<BazarrMovie>>> GetMoviesAsync(BazarrConnection connection, int start, int length, CancellationToken cancellationToken) =>
+        GetJsonAsync(connection, Query("api/movies", ("start", start), ("length", length)), Timeout, root => ReadPage(root, row => new BazarrMovie(
+            Int(row, "radarrId") ?? throw new JsonException("radarrId"),
+            Str(row, "path"),
+            Str(row, "imdbId"),
+            Str(row, "title"))), cancellationToken);
+
+    /// <inheritdoc />
+    public Task<BazarrResult<BazarrPage<BazarrSeries>>> GetSeriesAsync(BazarrConnection connection, int start, int length, CancellationToken cancellationToken) =>
+        GetJsonAsync(connection, Query("api/series", ("start", start), ("length", length)), Timeout, root => ReadPage(root, row => new BazarrSeries(
+            Int(row, "sonarrSeriesId") ?? throw new JsonException("sonarrSeriesId"),
+            Str(row, "path"),
+            Int(row, "tvdbId"),
+            Str(row, "imdbId"),
+            Str(row, "title"))), cancellationToken);
+
+    /// <inheritdoc />
+    public Task<BazarrResult<IReadOnlyList<BazarrEpisode>>> GetEpisodesAsync(BazarrConnection connection, int sonarrSeriesId, CancellationToken cancellationToken) =>
+        GetJsonAsync<IReadOnlyList<BazarrEpisode>>(connection, Query("api/episodes", ("seriesid[]", sonarrSeriesId)), Timeout, root => ReadData(root, row => new BazarrEpisode(
+            Int(row, "sonarrEpisodeId") ?? throw new JsonException("sonarrEpisodeId"),
+            Int(row, "sonarrSeriesId") ?? sonarrSeriesId,
+            Int(row, "season"),
+            Int(row, "episode"),
+            Str(row, "path"))), cancellationToken);
+
+    /// <inheritdoc />
+    public Task<BazarrResult<IReadOnlyList<BazarrSearchResult>>> SearchMovieAsync(BazarrConnection connection, int radarrId, CancellationToken cancellationToken) =>
+        GetJsonAsync<IReadOnlyList<BazarrSearchResult>>(connection, Query("api/providers/movies", ("radarrid", radarrId)), SearchTimeout, root => ReadData(root, ReadSearchResult), cancellationToken);
+
+    /// <inheritdoc />
+    public Task<BazarrResult<IReadOnlyList<BazarrSearchResult>>> SearchEpisodeAsync(BazarrConnection connection, int sonarrEpisodeId, CancellationToken cancellationToken) =>
+        GetJsonAsync<IReadOnlyList<BazarrSearchResult>>(connection, Query("api/providers/episodes", ("episodeid", sonarrEpisodeId)), SearchTimeout, root => ReadData(root, ReadSearchResult), cancellationToken);
+
+    /// <summary>Reads one search row. Booleans arrive as the strings <c>"True"</c>/<c>"False"</c> (verified on 1.6.2).</summary>
+    /// <param name="row">Row.</param>
+    /// <returns>The result, or null when the row lacks a provider or handle.</returns>
+    internal static BazarrSearchResult? ReadSearchResult(JsonElement row)
+    {
+        var provider = Str(row, "provider");
+        var subtitle = Str(row, "subtitle");
+        if (string.IsNullOrEmpty(provider) || string.IsNullOrEmpty(subtitle))
+        {
+            return null;
+        }
+
+        return new BazarrSearchResult(
+            provider,
+            subtitle,
+            Str(row, "language") ?? string.Empty,
+            Bool(row, "hearing_impaired"),
+            Bool(row, "forced"),
+            Bool(row, "original_format"),
+            Int(row, "score") ?? 0,
+            Strings(row, "release_info"),
+            Str(row, "uploader"),
+            Strings(row, "matches"),
+            Strings(row, "dont_matches"));
+    }
+
+    private static string Query(string path, params (string Name, int Value)[] args) =>
+        path + "?" + string.Join('&', args.Select(a => Uri.EscapeDataString(a.Name) + "=" + a.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+
+    private static BazarrPage<T> ReadPage<T>(JsonElement root, Func<JsonElement, T?> read)
+        where T : class
+    {
+        var items = ReadData(root, read);
+        var total = root.TryGetProperty("total", out var t) && t.ValueKind == JsonValueKind.Number ? t.GetInt32() : items.Count;
+        return new BazarrPage<T>(items, total);
+    }
+
+    private static IReadOnlyList<T> ReadData<T>(JsonElement root, Func<JsonElement, T?> read)
+        where T : class
+    {
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+        {
+            throw new JsonException("Expected { data: [...] }.");
+        }
+
+        var list = new List<T>(data.GetArrayLength());
+        foreach (var row in data.EnumerateArray())
+        {
+            if (row.ValueKind == JsonValueKind.Object && read(row) is { } item)
+            {
+                list.Add(item);
+            }
+        }
+
+        return list;
+    }
+
+    private static string? Str(JsonElement row, string name) =>
+        row.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private static int? Int(JsonElement row, string name) =>
+        row.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : null;
+
+    private static bool Bool(JsonElement row, string name)
+    {
+        if (!row.TryGetProperty(name, out var v))
+        {
+            return false;
+        }
+
+        return v.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.String => string.Equals(v.GetString(), "True", StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
+    }
+
+    private static IReadOnlyList<string> Strings(JsonElement row, string name)
+    {
+        if (!row.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return v.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString()!).ToList();
+    }
+
+    private async Task<BazarrResult<T>> GetJsonAsync<T>(BazarrConnection connection, string relativePath, TimeSpan timeoutAfter, Func<JsonElement, T> parse, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(timeoutAfter);
+
+        try
+        {
+            using var request = CreateRequest(HttpMethod.Get, connection, relativePath);
+            var client = _httpClientFactory.CreateClient(HttpClientName);
+            client.Timeout = System.Threading.Timeout.InfiniteTimeSpan; // Our own token enforces the limit.
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                return BazarrResult<T>.Fail(BazarrFailure.Unauthorized, "Bazarr rejected the API key.");
+            }
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return BazarrResult<T>.Fail(BazarrFailure.NotFound, "Bazarr doesn't know this item.");
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var text = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
+                return BazarrResult<T>.Fail(BazarrFailure.Failed, BazarrMessage(text) ?? $"Bazarr answered HTTP {(int)response.StatusCode}.");
+            }
+
+            var stream = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
+            await using (stream.ConfigureAwait(false))
+            {
+                using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: timeout.Token).ConfigureAwait(false);
+                return BazarrResult<T>.Success(parse(doc.RootElement));
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return BazarrResult<T>.Fail(BazarrFailure.Unavailable, $"Bazarr did not answer within {timeoutAfter.TotalSeconds:0} seconds.");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning("Could not reach Bazarr at {BaseUri}: {Error}", connection.BaseUri, ex.Message);
+            return BazarrResult<T>.Fail(BazarrFailure.Unavailable, $"Could not reach Bazarr at {connection.BaseUri}.");
+        }
+        catch (JsonException)
+        {
+            return BazarrResult<T>.Fail(BazarrFailure.Unavailable, "Bazarr answered with something unexpected. Check the Bazarr address.");
+        }
+    }
+
+    /// <summary>
+    /// Bazarr's error bodies are a JSON string, for example <c>"Movie file not found. Path mapping issue?"</c>
+    /// (<c>providers_movies.py</c>). Returns it, trimmed and capped, or null when the body is something else.
+    /// </summary>
+    /// <param name="body">Response body.</param>
+    /// <returns>The message.</returns>
+    internal static string? BazarrMessage(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var text = doc.RootElement.ValueKind switch
+            {
+                JsonValueKind.String => doc.RootElement.GetString(),
+                JsonValueKind.Object when doc.RootElement.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String => m.GetString(),
+                _ => null,
+            };
+            text = text?.Trim();
+            return string.IsNullOrEmpty(text) ? null : "Bazarr: " + (text.Length > 200 ? text[..200] + "..." : text);
         }
         catch (JsonException)
         {

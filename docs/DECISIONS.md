@@ -33,6 +33,8 @@
 | D26 | Movies are supported, per `MOVIES-PLAN.md` | Owner (2026-11-11) | Built 2026-11-11 with the plan's proposed rules: no mixing movies and episodes in one request (`mixed_selection`), no series lock for movies. Owner confirmed both rules on 2026-11-11 |
 | D27 | Hearing-impaired sidecars (`.en.hi.srt`, `.eng.hi.srt`) are processed | Owner (2026-11-11) | Lower priority than plain English when several exist. `--suffix en.hi` / `eng.hi` keeps the name; whether SubSync accepts a dotted suffix is unverified (S5) |
 | D28 | Bazarr: everyone who may use Subtitle Fixer can search and download, but Find subtitles appears only on episodes and movies with no English sidecar; everywhere else the page only re-times | Owner (2026-11-11) | No separate Bazarr permission. The server rejects Bazarr calls for items that already have a sidecar (`409 has_subtitle`) |
+| D30 | Bazarr manual search gets a 90 s timeout; other Bazarr calls keep 30 s | Proposed | Search asks every enabled provider in turn: 4.9 to 5.6 s for three providers on the test Bazarr 1.6.2, and accounts like opensubtitles can be much slower. The page shows a spinner meanwhile |
+| D31 | Find subtitles shows only English, non-forced results, and is refused where the item has no English audio | Proposed | Bazarr saves forced subtitles as `.en.forced.srt`, which the fixer never re-times (D6), and an English subtitle can't be re-timed to non-English audio. The dialog counts the hidden results |
 
 ## Deferred
 Embedded subtitle extraction, other languages, movies, other names and formats (`.ass`, `.vtt`), Linux sidecar, parallel jobs.
