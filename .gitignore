@@ -5,3 +5,5 @@ obj/
 artifacts/
 *.user
 TestResults/
+# Owner's local release helper (never committed, so release.ps1 sees a clean tree)
+/publish-release.bat
