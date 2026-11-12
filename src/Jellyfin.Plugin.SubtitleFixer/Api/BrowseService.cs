@@ -26,8 +26,9 @@ public sealed class BrowseService
     /// <param name="startIndex">First item.</param>
     /// <param name="limit">Page size.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="startsWith">Library pages only: a parsed <see cref="LetterFilter"/> letter, or null for all.</param>
     /// <returns>The page, or null when the parent is unknown or not accessible.</returns>
-    public async Task<PageDto?> BrowseAsync(Guid userId, Guid? parentId, int startIndex, int limit, CancellationToken cancellationToken)
+    public async Task<PageDto?> BrowseAsync(Guid userId, Guid? parentId, int startIndex, int limit, CancellationToken cancellationToken, string? startsWith = null)
     {
         if (parentId is null || parentId == Guid.Empty)
         {
@@ -45,7 +46,7 @@ public sealed class BrowseService
             parentNode.Id,
             parentNode.Name,
             TypeName(parentNode.Kind),
-            _library.GetBreadcrumb(userId, parentNode.Id).Select(n => new CrumbDto(n.Id, n.Name, TypeName(n.Kind))).ToList());
+            _library.GetBreadcrumb(userId, parentNode.Id).Select(n => new CrumbDto(n.Id, n.Name, TypeName(n.Kind), n.ImageTag)).ToList());
 
         if (parentNode.Kind == NodeKind.Season)
         {
@@ -55,7 +56,7 @@ public sealed class BrowseService
             return new PageDto(parent, all.Count, items);
         }
 
-        var children = _library.GetChildren(userId, parentNode.Id, startIndex, limit);
+        var children = _library.GetChildren(userId, parentNode.Id, startIndex, limit, parentNode.Kind == NodeKind.Library ? startsWith : null);
         if (children is null)
         {
             return null;
@@ -114,6 +115,7 @@ public sealed class BrowseService
         ParentIndexNumber = node.ParentIndexNumber,
         LibraryType = node.LibraryType,
         ProductionYear = node.ProductionYear,
+        ImageTag = node.ImageTag,
     };
 
     private async Task<Dictionary<Guid, ItemDto>> VideoRowsAsync(Guid userId, IReadOnlyList<LibraryNode> nodes, CancellationToken cancellationToken)
@@ -130,7 +132,7 @@ public sealed class BrowseService
     {
         var episodes = _library.GetSeasonEpisodes(userId, season.Id);
         var records = await _state.GetAsync(episodes.Select(e => e.Node.Id).ToArray(), cancellationToken).ConfigureAwait(false);
-        int eligible = 0, synced = 0;
+        int eligible = 0, synced = 0, noSubtitle = 0;
         foreach (var episode in episodes)
         {
             records.TryGetValue(episode.Node.Id, out var record);
@@ -144,9 +146,14 @@ public sealed class BrowseService
             {
                 synced++;
             }
+
+            if (EligibilityService.ReasonCode(evaluation.Reason) == "no_sidecar")
+            {
+                noSubtitle++;
+            }
         }
 
-        return Plain(season) with { EpisodeCount = episodes.Count, EligibleCount = eligible, SyncedCount = synced };
+        return Plain(season) with { EpisodeCount = episodes.Count, EligibleCount = eligible, SyncedCount = synced, NoSubtitleCount = noSubtitle };
     }
 
     private async Task<IReadOnlyList<ItemDto>> EpisodesAsync(IReadOnlyList<VideoFacts> episodes, CancellationToken cancellationToken)

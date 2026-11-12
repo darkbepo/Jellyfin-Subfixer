@@ -1,5 +1,5 @@
 /* Subtitle Fixer mock API for ?mock=1 (UI.md, mock mode). Loaded only in mock mode.
-   3 libraries, 5 series, one season with 40 episodes mixing eligible, synced, attempted and ineligible.
+   4 libraries (one of movies), 9 series, one season with 40 episodes mixing eligible, synced, attempted and ineligible.
    Simulates the shared queue: another user's (hidden) episode is running when the page opens.
    Options: &user=member (not admin), &user=denied (not allowed), &subsync=off, &slow=1 (500 ms latency),
    &bazarr=off (no Find subtitles), &bazarr=error (search fails), &bazarr=none (no results), &bazarr=dlfail (Get fails). */
@@ -88,6 +88,20 @@
     makeSeries('ser-quiet', 'Quiet Signal', 'lib-tv', [6]);
     makeSeries('ser-mecha', 'Mecha Dawn', 'lib-anime', [12]);
     makeSeries('ser-kids', 'Little Explorers', 'lib-kids', [10]);
+    // More names for the letter picker (D47): a leading "The" sorts by the next word, numbers go under #.
+    makeSeries('ser-archive', 'The Archive Room', 'lib-tv', [6]);
+    makeSeries('ser-autumn', 'Autumn Ward', 'lib-tv', [8]);
+    makeSeries('ser-nine', '9 Lives Café', 'lib-tv', [5]);
+    makeSeries('ser-zero', 'Zero Hour Radio', 'lib-tv', [7]);
+
+    // Jellyfin's sort name: a leading article dropped, numbers padded so they sort first.
+    function sortName(name) {
+        return String(name).replace(/^(the|a|an)\s+/i, '').replace(/\d+/g, function (d) { return ('0000000000' + d).slice(-10); }).toLowerCase();
+    }
+    function startsWith(node, letter) {
+        var s = sortName(node.name);
+        return letter === '#' ? s < 'a' : s.charAt(0) === letter.toLowerCase();
+    }
 
     function libraryOf(node) {
         var seriesId = node.type === 'Library' ? null : node.seriesId;
@@ -121,6 +135,7 @@
             r.episodeCount = eps.length;
             r.eligibleCount = eps.filter(function (e) { return evaluate(e).eligible; }).length;
             r.syncedCount = eps.filter(function (e) { return evaluate(e).status === 'done'; }).length;
+            r.noSubtitleCount = eps.filter(function (e) { return evaluate(e).reason === 'no_sidecar'; }).length;
         }
         if (node.type === 'Episode' || node.type === 'Movie') {
             var ev = evaluate(node);
@@ -312,7 +327,16 @@
             if (!parentId) { var libs = page(children.root, start, limit); libs.parent = null; return ok(libs); }
             var parent = items[parentId];
             if (!parent || parent.type === 'Episode') { return err('not_found', 404, 'That item was not found or you cannot access it.'); }
-            var result = page(children[parentId] || [], start, limit);
+            var ids = children[parentId] || [];
+            if (parent.type === 'Library') {
+                var letter = q.get('startsWith');
+                if (letter && !/^([A-Za-z]|#)$/.test(letter)) {
+                    return err('bad_request', 400, 'startsWith must be a letter A to Z, or # for names that start with a digit or symbol.');
+                }
+                ids = ids.filter(function (id) { return !letter || startsWith(items[id], letter); })
+                    .sort(function (a, b) { return sortName(items[a].name) < sortName(items[b].name) ? -1 : 1; });
+            }
+            var result = page(ids, start, limit);
             result.parent = { id: parent.id, name: parent.name, type: parent.type, breadcrumb: crumbs(parent) };
             return ok(result);
         }

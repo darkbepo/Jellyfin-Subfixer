@@ -114,7 +114,46 @@ public sealed class FakeLibrary : ILibraryFacade
 
     public IReadOnlyList<LibraryNode> GetLibraries(Guid userId) => _nodes.Values.Where(n => n.Kind == NodeKind.Library).ToList();
 
-    public Paged<LibraryNode>? GetChildren(Guid userId, Guid parentId, int startIndex, int limit) => null;
+    /// <summary>Gets the letter the last library page was asked for.</summary>
+    public string? LastStartsWith { get; private set; }
+
+    // A library lists its series or movies by name (leading "The " dropped, like Jellyfin's sort name); a series
+    // lists its seasons. Anything else has no children here.
+    public Paged<LibraryNode>? GetChildren(Guid userId, Guid parentId, int startIndex, int limit, string? startsWith = null)
+    {
+        if (GetNode(userId, parentId) is not { } parent)
+        {
+            return null;
+        }
+
+        List<LibraryNode> all;
+        if (parent.Kind == NodeKind.Library)
+        {
+            LastStartsWith = startsWith;
+            all = _libraryOf.Where(p => p.Value == parent.Id && !Hidden.Contains(p.Key))
+                .Select(p => _nodes[p.Key])
+                .Where(n => LetterFilter.Matches(SortName(n.Name), startsWith))
+                .OrderBy(n => SortName(n.Name), StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        else if (parent.Kind == NodeKind.Series)
+        {
+            all = _nodes.Values.Where(n => n.Kind == NodeKind.Season && n.SeriesId == parent.Id && !Hidden.Contains(n.Id))
+                .OrderBy(n => n.IndexNumber)
+                .ToList();
+        }
+        else
+        {
+            return null;
+        }
+
+        return new Paged<LibraryNode>(all.Skip(startIndex).Take(limit).ToList(), all.Count);
+    }
+
+    /// <summary>Gives an item a primary image tag.</summary>
+    public void SetImage(Guid itemId, string tag) => _nodes[itemId] = _nodes[itemId] with { ImageTag = tag };
+
+    private static string SortName(string name) => name.StartsWith("The ", StringComparison.OrdinalIgnoreCase) ? name[4..] : name;
 
     public LibraryNode? GetNode(Guid userId, Guid itemId) =>
         !Hidden.Contains(itemId) && _nodes.TryGetValue(itemId, out var n) ? n : null;
@@ -132,7 +171,25 @@ public sealed class FakeLibrary : ILibraryFacade
             return [node];
         }
 
-        return _libraryOf.TryGetValue(key, out var lib) ? [_nodes[lib], node] : [node];
+        // Like Jellyfin: library, then series, season and episode down to the item.
+        var trail = new List<LibraryNode>();
+        if (_libraryOf.TryGetValue(key, out var lib))
+        {
+            trail.Add(_nodes[lib]);
+        }
+
+        if (node.Kind is NodeKind.Season or NodeKind.Episode && node.SeriesId is { } seriesId && _nodes.TryGetValue(seriesId, out var series))
+        {
+            trail.Add(series);
+        }
+
+        if (node.Kind == NodeKind.Episode && node.SeasonId is { } seasonId && _nodes.TryGetValue(seasonId, out var season))
+        {
+            trail.Add(season);
+        }
+
+        trail.Add(node);
+        return trail;
     }
 
     public IReadOnlyList<VideoFacts> GetSeasonEpisodes(Guid userId, Guid seasonId) =>

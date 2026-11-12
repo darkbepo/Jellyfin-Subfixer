@@ -83,18 +83,24 @@ public sealed class SubtitleFixerController : ControllerBase
     /// <param name="parentId">Parent; empty for libraries.</param>
     /// <param name="startIndex">First item.</param>
     /// <param name="limit">Page size.</param>
+    /// <param name="startsWith">Library pages only: <c>A</c>–<c>Z</c>, or <c>#</c> for names before A (D47).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A page.</returns>
     [HttpGet("Browse")]
     [Produces(MediaTypeNames.Application.Json)]
-    public async Task<IActionResult> Browse([FromQuery] Guid? parentId, [FromQuery] int startIndex = 0, [FromQuery] int limit = 50, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> Browse([FromQuery] Guid? parentId, [FromQuery] int startIndex = 0, [FromQuery] int limit = 50, [FromQuery] string? startsWith = null, CancellationToken cancellationToken = default)
     {
         if (Deny(out var caller) is { } denied)
         {
             return denied;
         }
 
-        var page = await _browse.BrowseAsync(caller.User.Id, parentId, Math.Max(0, startIndex), Clamp(limit), cancellationToken).ConfigureAwait(false);
+        if (!LetterFilter.TryParse(startsWith, out var letter))
+        {
+            return Error(StatusCodes.Status400BadRequest, "bad_request", "startsWith must be a letter A to Z, or # for names that start with a digit or symbol.");
+        }
+
+        var page = await _browse.BrowseAsync(caller.User.Id, parentId, Math.Max(0, startIndex), Clamp(limit), cancellationToken, letter).ConfigureAwait(false);
         return page is null
             ? Error(StatusCodes.Status404NotFound, "not_found", "That item was not found or you cannot access it.")
             : Json(page);

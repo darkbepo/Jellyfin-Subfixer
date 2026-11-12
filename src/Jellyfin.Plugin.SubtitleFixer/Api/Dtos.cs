@@ -38,7 +38,8 @@ public sealed record MeDto(Guid UserId, string Name, bool IsAdmin, bool Allowed,
 /// <param name="Id">Item id.</param>
 /// <param name="Name">Name.</param>
 /// <param name="Type">Library, Series, Season or Episode.</param>
-public sealed record CrumbDto(Guid Id, string Name, string Type);
+/// <param name="ImageTag">Primary image tag, or null (the page shows the series poster above its seasons and episodes, D47).</param>
+public sealed record CrumbDto(Guid Id, string Name, string Type, string? ImageTag = null);
 
 /// <summary>The parent of a browse page.</summary>
 /// <param name="Id">Item id.</param>
@@ -88,6 +89,12 @@ public sealed record ItemDto
 
     /// <summary>Gets the synced episode count (seasons only).</summary>
     public int? SyncedCount { get; init; }
+
+    /// <summary>Gets the count of episodes with no English subtitle (seasons only; Find subtitles can help with those).</summary>
+    public int? NoSubtitleCount { get; init; }
+
+    /// <summary>Gets the primary image tag for <c>/Items/{id}/Images/Primary?tag=</c>, or null when there is none (D47).</summary>
+    public string? ImageTag { get; init; }
 
     /// <summary>Gets the status: none, done or attempted (episodes; seasons report none).</summary>
     public string Status { get; init; } = "none";

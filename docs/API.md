@@ -11,8 +11,10 @@ Base path `/SubtitleFixer`. All data endpoints require an authenticated user (`[
 ## Libraries setting (D43)
 `AllowedLibraryIds` limits every endpoint that reads the library: Browse lists only the chosen libraries, Search only searches them, and an item anywhere else is `not_found` for Browse, Preview, Jobs, Retry and Bazarr, exactly as if the user had no access. Empty means every library. It applies to administrators too. Queue and log entries for items outside the chosen libraries show as "Episode in another library" to users who didn't queue them.
 
-## GET /Browse?parentId=&startIndex=0&limit=50
+## GET /Browse?parentId=&startIndex=0&limit=50[&startsWith=A]
 Empty `parentId` lists TV libraries. Library -> series, series -> seasons, season -> episodes.
+`startsWith` (library pages only, D47): `A`–`Z` (any case) keeps the series or movies whose sort name starts with that letter (a leading "The" doesn't count), `#` keeps those that sort before A (digits, symbols). `totalCount` counts the filtered list. Any other value returns `400 bad_request`; below a library it is ignored.
+Every row and breadcrumb entry carries `imageTag`, Jellyfin's tag for the item's primary image, or null when it has none (libraries always null). The page loads the poster from `../Items/{id}/Images/Primary?fillHeight=<px>&quality=90&tag=<imageTag>`, which needs no token. Season rows also carry `noSubtitleCount` (episodes with no English subtitle; Find subtitles can help with those).
 ```json
 {
   "parent": { "id": "...", "name": "Show", "type": "Series",

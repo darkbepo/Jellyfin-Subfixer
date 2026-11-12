@@ -24,7 +24,9 @@
         <symbol id="i-download" viewBox="0 0 24 24"><path fill="currentColor" d="M11 3h2v9.2l3.3-3.3 1.4 1.4L12 16l-5.7-5.7 1.4-1.4 3.3 3.3zM4 18h16v2H4z"/></symbol>
         <symbol id="i-chevron" viewBox="0 0 24 24"><path fill="currentColor" d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z"/></symbol>
         <symbol id="i-retry" viewBox="0 0 24 24"><path fill="currentColor" d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"/></symbol>
-        <symbol id="i-close" viewBox="0 0 24 24"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4z"/></symbol>
+        <symbol id="i-grid" viewBox="0 0 24 24"><path fill="currentColor" d="M4 4h7v7H4zm2 2v3h3V6zm7-2h7v7h-7zm2 2v3h3V6zM4 13h7v7H4zm2 2v3h3v-3zm7-2h7v7h-7zm2 2v3h3v-3z"/></symbol>
+<symbol id="i-list" viewBox="0 0 24 24"><path fill="currentColor" d="M4 5h3v3H4zm5 .5h11v2H9zM4 10.5h3v3H4zm5 .5h11v2H9zM4 16h3v3H4zm5 .5h11v2H9z"/></symbol>
+<symbol id="i-close"viewBox="0 0 24 24"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4z"/></symbol>
     </svg>
 
     <header class="top">
@@ -71,11 +73,27 @@
 
                     <nav id="crumbs" class="crumbs" aria-label="Breadcrumb"></nav>
 
+                    <div id="tools" class="tools" hidden>
+                        <div id="letters" class="letters" role="group" aria-label="Show only names starting with" hidden></div>
+                        <div class="tool-row">
+                            <div class="toggles">
+                                <label class="toggle"><input id="hide-ineligible" type="checkbox"> Hide not eligible</label>
+                                <label class="toggle"><input id="hide-synced" type="checkbox"> Hide already synced</label>
+                            </div>
+                            <div id="layout" class="seg" role="group" aria-label="View" hidden>
+                                <button type="button" data-layout="cards" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span>Cards</span></button>
+                                <button type="button" data-layout="list" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg><span>List</span></button>
+                            </div>
+                        </div>
+                    </div>
+
                     <section class="explorer" aria-labelledby="list-title">
                         <h2 id="list-title" class="sr-only">Items</h2>
+                        <div id="list-head" class="list-head" hidden></div>
                         <p id="list-hint" class="hint" hidden></p>
                         <ul id="list" class="rows" aria-labelledby="list-title"></ul>
                         <p id="list-empty" class="muted empty" hidden></p>
+                        <p id="hidden-note" class="hidden-note muted small" hidden></p>
                         <button id="more" type="button" class="more" hidden>Load more</button>
                     </section>
                 </div>

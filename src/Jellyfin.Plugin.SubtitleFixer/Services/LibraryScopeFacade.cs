@@ -56,8 +56,8 @@ public sealed class LibraryScopeFacade : ILibraryFacade
     }
 
     /// <inheritdoc />
-    public Paged<LibraryNode>? GetChildren(Guid userId, Guid parentId, int startIndex, int limit) =>
-        InScope(userId, parentId, Allowed()) ? _inner.GetChildren(userId, parentId, startIndex, limit) : null;
+    public Paged<LibraryNode>? GetChildren(Guid userId, Guid parentId, int startIndex, int limit, string? startsWith = null) =>
+        InScope(userId, parentId, Allowed()) ? _inner.GetChildren(userId, parentId, startIndex, limit, startsWith) : null;
 
     /// <inheritdoc />
     public LibraryNode? GetNode(Guid userId, Guid itemId) =>

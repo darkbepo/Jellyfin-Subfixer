@@ -16,8 +16,9 @@ public interface ILibraryFacade
     /// <param name="parentId">Parent item.</param>
     /// <param name="startIndex">First item.</param>
     /// <param name="limit">Page size.</param>
+    /// <param name="startsWith">Library pages only: a <see cref="LetterFilter"/> letter, or null for all (ignored below a library).</param>
     /// <returns>The page, or null when the parent is unknown or not accessible.</returns>
-    Paged<LibraryNode>? GetChildren(Guid userId, Guid parentId, int startIndex, int limit);
+    Paged<LibraryNode>? GetChildren(Guid userId, Guid parentId, int startIndex, int limit, string? startsWith = null);
 
     /// <summary>Gets one item, or null when unknown or not accessible.</summary>
     /// <param name="userId">User.</param>

@@ -48,6 +48,24 @@
     var bazarrEnabled = false;       // GET Bazarr/Info; Find subtitles shows only when true
     var findSeq = 0;                 // ignores answers to a dialog that was closed or reopened
     var spotlight = null;            // item id to scroll to and highlight in the queue after Get
+    var letters = new Map();         // libraryId -> picked letter ('A'..'Z' or '#'); none means all (D47)
+
+    // Per-viewer view settings (D47): cards or list on library pages, and two hide switches. Defaults: cards, hide
+    // not eligible, show already synced (greyed out). Browser storage may be blocked; then the defaults apply.
+    var VIEW_KEY = 'subtitle-fixer-view';
+    var prefs = (function () {
+        var p = { layout: 'cards', hideIneligible: true, hideSynced: false };
+        try {
+            var saved = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}') || {};
+            if (saved.layout === 'list' || saved.layout === 'cards') { p.layout = saved.layout; }
+            if (typeof saved.hideIneligible === 'boolean') { p.hideIneligible = saved.hideIneligible; }
+            if (typeof saved.hideSynced === 'boolean') { p.hideSynced = saved.hideSynced; }
+        } catch (e) { /* defaults */ }
+        return p;
+    })();
+    function savePrefs() {
+        try { localStorage.setItem(VIEW_KEY, JSON.stringify(prefs)); } catch (e) { /* not remembered */ }
+    }
 
     // ---------- API ----------
     function token() {
@@ -177,12 +195,31 @@
         h.classList.toggle('error', !!isError);
     }
 
+    // Every folder opened gets a history entry, so the browser's Back (a mouse back button, Alt+Left) goes up one
+    // folder instead of moving the Jellyfin page behind the pop-up. In the pop-up the page is an iframe: its entries
+    // join the window's history, and the browser drops them when the pop-up closes and removes the iframe.
     function browse(parentId, opts) {
         opts = opts || {};
         view.mode = 'browse';
         view.query = '';
         if (!opts.keepSearch) { $('q').value = ''; }
+        var here = history.state && history.state.subtitleFixer ? history.state : null;
+        if (!opts.fromHistory && !(here && !here.guard && here.parentId === (parentId || null))) {
+            try { history.pushState({ subtitleFixer: true, parentId: parentId || null }, ''); } catch (e) { /* no history: Back leaves the page */ }
+        }
         return loadPage(parentId, false, opts.focusId);
+    }
+
+    function onHistory(e) {
+        var s = e.state;
+        if (!s || !s.subtitleFixer) { return; }
+        closeFind();
+        if (s.guard) {
+            // Back from the top level of the pop-up closes it, rather than leaving the pop-up open over another page.
+            if (EMBEDDED) { window.parent.postMessage({ type: 'subtitle-fixer-close' }, window.location.origin); }
+            return;
+        }
+        browse(s.parentId, { fromHistory: true });
     }
 
     function loadPage(parentId, append, focusId) {
@@ -190,7 +227,9 @@
         view.loading = true;
         showHint('');
         var start = append ? view.items.length : 0;
-        var path = 'Browse?startIndex=' + start + '&limit=' + PAGE + (parentId ? '&parentId=' + encodeURIComponent(parentId) : '');
+        var letter = parentId ? letters.get(parentId) : null;  // only ever set for library pages
+        var path = 'Browse?startIndex=' + start + '&limit=' + PAGE + (parentId ? '&parentId=' + encodeURIComponent(parentId) : '') +
+            (letter ? '&startsWith=' + encodeURIComponent(letter) : '');
         return api('GET', path).then(function (page) {
             clearBanner();
             if (!append) {
@@ -215,6 +254,13 @@
                 return loadPage(parentId, true, target);
             }
             view.focusId = null;
+            // Hidden items can leave "Load more" on screen, where the scroll observer won't fire again: keep paging
+            // while it is in view (D47). Ends when everything is loaded or the button scrolls out of view.
+            var more = $('more');
+            if (ok && view.mode === 'browse' && view.parentId === parentId && !more.hidden) {
+                var box = more.getBoundingClientRect();
+                if (box.top < window.innerHeight + 200 && box.bottom > 0) { return loadPage(parentId, true); }
+            }
         });
     }
 
@@ -243,18 +289,160 @@
             .then(function () { view.loading = false; });
     }
 
+    // ---------- view: cards, letters, hiding what can't be fixed (D47) ----------
+    function isLibraryPage() { return view.mode === 'browse' && !!view.parent && view.parent.type === 'Library'; }
+    function useCards() { return isLibraryPage() && prefs.layout === 'cards'; }
+
+    // Already synced: always shown, greyed out with "Already synced" (owner, 2026-11-12), never hidden.
+    function isSynced(item) {
+        if (item.type === 'Season') { return item.eligibleCount === 0 && item.syncedCount > 0; }
+        if (!isVideo(item) || item.status !== 'done') { return false; }
+        var job = queueByItem.get(item.id);
+        return !(job && (job.status === 'queued' || job.status === 'running'));
+    }
+
+    // Which hide switch an item falls under: 'synced', 'ineligible', or null (always shown). Never hidden: series,
+    // libraries, anything selected or in the queue, anything that can be fixed, and, only when Bazarr is set up,
+    // items Find subtitles can help with. A season counts as synced when nothing in it is left to fix but some is synced.
+    function hideKind(item) {
+        if (item.type === 'Season') {
+            if (item.eligibleCount > 0 || (bazarrEnabled && item.noSubtitleCount > 0)) { return null; }
+            return item.syncedCount > 0 ? 'synced' : 'ineligible';
+        }
+        if (!isVideo(item) || item.eligible || selected.has(item.id) || queueByItem.has(item.id)) { return null; }
+        if (item.status === 'done') { return 'synced'; }
+        return canFind(item) ? null : 'ineligible';
+    }
+
+    function shown(item) {
+        if (view.mode === 'browse' && !view.parentId) { return true; }
+        var kind = hideKind(item);
+        return !(kind === 'ineligible' && prefs.hideIneligible) && !(kind === 'synced' && prefs.hideSynced);
+    }
+
+    // Jellyfin's own image endpoint: served without a token, cached for good with the tag (M0-SPIKES S2).
+    function imageUrl(id, tag, height) {
+        if (MOCK || !tag) { return null; }
+        return apiRoot + '../Items/' + encodeURIComponent(id) + '/Images/Primary?fillHeight=' + height + '&quality=90&tag=' + encodeURIComponent(tag);
+    }
+
+    function initials(name) {
+        var words = String(name || '').replace(/^the\s+/i, '').split(/\s+/).filter(Boolean);
+        return ((words[0] || '?').charAt(0) + (words[1] ? words[1].charAt(0) : '')).toUpperCase();
+    }
+
+    // A 2:3 poster, or the name's initials when there is no image or it fails to load.
+    function poster(id, tag, name, height) {
+        var box = el('div', 'poster');
+        var fallback = function () {
+            box.textContent = '';
+            box.classList.add('none');
+            box.appendChild(el('span', null, initials(name)));
+        };
+        var src = imageUrl(id, tag, height);
+        if (!src) { fallback(); return box; }
+        var img = el('img');
+        img.alt = '';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.addEventListener('error', fallback);
+        img.src = src;
+        box.appendChild(img);
+        return box;
+    }
+
+    function renderTools() {
+        var libraryPage = isLibraryPage();
+        var applies = view.mode === 'search' || !!view.parentId;
+        $('tools').hidden = !applies;
+        $('hide-ineligible').checked = prefs.hideIneligible;
+        $('hide-synced').checked = prefs.hideSynced;
+        $('layout').hidden = !libraryPage;
+        Array.prototype.forEach.call($('layout').querySelectorAll('button'), function (b) {
+            b.setAttribute('aria-pressed', String(b.dataset.layout === prefs.layout));
+        });
+
+        var bar = $('letters');
+        bar.hidden = !libraryPage;
+        if (!libraryPage) { return; }
+        var current = letters.get(view.parentId) || null;
+        bar.textContent = '';
+        ['', '#'].concat('ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')).forEach(function (l) {
+            var b = el('button', 'letter', l || 'All');
+            b.type = 'button';
+            b.setAttribute('aria-pressed', String((l || null) === current));
+            if (l === '#') { b.setAttribute('aria-label', 'Names starting with a number or symbol'); }
+            b.addEventListener('click', function () { pickLetter(l || null); });
+            bar.appendChild(b);
+        });
+    }
+
+    function pickLetter(l) {
+        if (!view.parentId) { return; }
+        if (l) { letters.set(view.parentId, l); } else { letters.delete(view.parentId); }
+        loadPage(view.parentId, false);
+    }
+
+    // Above a series' seasons and episodes: its poster and name, so it's clear which show this is.
+    function renderHead() {
+        var head = $('list-head');
+        head.textContent = '';
+        var trail = view.mode === 'browse' && view.parent ? view.parent.breadcrumb : [];
+        var series = trail.filter(function (c) { return c.type === 'Series'; })[0];
+        head.hidden = !series;
+        if (!series) { return; }
+        head.appendChild(poster(series.id, series.imageTag, series.name, 240));
+        var text = el('div', 'head-text');
+        text.appendChild(el('strong', null, series.name));
+        var sub = view.parent.type === 'Season' ? view.parent.name + ' · ' + plural(view.total, 'episode', 'episodes')
+            : plural(view.total, 'season', 'seasons');
+        text.appendChild(el('span', 'muted small', sub));
+        head.appendChild(text);
+    }
+
+    function itemEl(item) { return useCards() ? card(item) : row(item); }
+
     function render() {
         renderCrumbs();
+        renderTools();
+        renderHead();
         var list = $('list');
         list.textContent = '';
-        view.items.forEach(function (item) { list.appendChild(row(item)); });
+        list.classList.toggle('cards', useCards());
+        var visible = view.items.filter(shown);
+        var hidden = view.items.length - visible.length;
+        var hiddenSynced = view.items.filter(function (i) { return !shown(i) && hideKind(i) === 'synced'; }).length;
+        var hiddenIneligible = hidden - hiddenSynced;
+        visible.forEach(function (item) { list.appendChild(itemEl(item)); });
 
         var empty = $('list-empty');
-        if (!view.items.length) {
-            empty.textContent = view.mode === 'search' ? 'No series or episodes match “' + view.query + '”.' :
-                view.parentId ? 'Nothing here.' : 'No TV libraries you can access.';
+        if (!visible.length) {
+            empty.textContent = hidden ? 'Nothing to show with these filters.' :
+                view.mode === 'search' ? 'No series or episodes match “' + view.query + '”.' :
+                view.parentId ? (letters.get(view.parentId) ? 'Nothing starts with ' + letters.get(view.parentId) + '.' : 'Nothing here.') :
+                'No TV libraries you can access.';
         }
-        empty.hidden = view.items.length > 0;
+        empty.hidden = visible.length > 0;
+
+        var note = $('hidden-note');
+        note.textContent = '';
+        note.hidden = !hidden;
+        // "Hidden: 3 not eligible (Show) · 5 already synced (Show)"
+        var addPart = function (count, text, turnOff) {
+            if (!count) { return; }
+            if (note.childNodes.length > 1) { note.appendChild(document.createTextNode(' · ')); }
+            note.appendChild(document.createTextNode(count + ' ' + text + ' '));
+            var show = el('button', 'linkish', 'Show');
+            show.type = 'button';
+            show.setAttribute('aria-label', 'Show ' + text + ' items');
+            show.addEventListener('click', turnOff);
+            note.appendChild(show);
+        };
+        if (hidden) {
+            note.appendChild(document.createTextNode('Hidden: '));
+            addPart(hiddenIneligible, 'not eligible', function () { setHide('hideIneligible', false); });
+            addPart(hiddenSynced, 'already synced', function () { setHide('hideSynced', false); });
+        }
 
         if (view.mode === 'search') {
             showHint(view.searchTotal > view.items.length ? 'Showing ' + view.items.length + ' of ' + view.searchTotal + ' matches. Type more to narrow it down.' : '');
@@ -307,6 +495,7 @@
         li.dataset.id = item.id;
         li.dataset.type = item.type;
         li.tabIndex = -1;
+        if (isSynced(item)) { li.classList.add('synced'); }
         var dim = otherSeries(item);
         var lockTip = 'Clear your selection to choose from here';
         if (dim) { li.classList.add('dimmed'); li.title = lockTip; }
@@ -395,6 +584,90 @@
         return li;
     }
 
+    // A card on a library page (D47): poster, name, and for movies the checkbox, year and badges. Keeps the .row
+    // class, so focus, queue updates and selection treat it like a row.
+    function card(item) {
+        var li = el('li', 'row card');
+        li.dataset.id = item.id;
+        li.dataset.type = item.type;
+        li.tabIndex = -1;
+        if (isSynced(item)) { li.classList.add('synced'); }
+        var dim = otherSeries(item);
+        var lockTip = 'Clear your selection to choose from here';
+        if (dim) { li.classList.add('dimmed'); li.title = lockTip; }
+        var label = isVideo(item) ? videoLabel(item) : item.name;
+
+        var art = poster(item.id, item.imageTag, item.name, 330);
+        li.appendChild(art);
+
+        if (isVideo(item)) {
+            var box = el('input');
+            box.type = 'checkbox';
+            box.setAttribute('aria-label', 'Select ' + label);
+            var inQueue = queueByItem.get(item.id);
+            var pending = inQueue && (inQueue.status === 'queued' || inQueue.status === 'running');
+            box.checked = selected.has(item.id);
+            box.disabled = dim || !item.eligible || !!pending;
+            if (!item.eligible) { box.title = 'Not eligible: ' + (REASONS[item.reason] || item.reason); }
+            if (pending) { box.title = 'Already in the queue'; }
+            if (dim) { box.title = lockTip; }
+            box.addEventListener('change', function () { toggle(item, box.checked); });
+            box.addEventListener('click', function (e) { e.stopPropagation(); });
+            art.appendChild(box);
+            if (box.checked) { li.classList.add('picked'); }
+            li.addEventListener('click', function (e) {
+                if (e.target.closest('button,input,a')) { return; }
+                if (!box.disabled) { box.checked = !box.checked; toggle(item, box.checked); }
+            });
+        } else {
+            li.classList.add('openable');
+            li.addEventListener('click', function () { openItem(item); });
+        }
+
+        var name = el('span', 'name');
+        if (isVideo(item)) {
+            name.textContent = item.name;
+        } else {
+            var open = el('button', null, item.name);
+            open.type = 'button';
+            open.tabIndex = -1;
+            open.addEventListener('click', function (e) { e.stopPropagation(); openItem(item); });
+            name.appendChild(open);
+        }
+        li.appendChild(name);
+        if (item.type === 'Movie' && item.productionYear) { li.appendChild(el('span', 'sub', String(item.productionYear))); }
+
+        var badges = el('div', 'badges');
+        badgesFor(item).forEach(function (b) { badges.appendChild(b); });
+        if (canFind(item)) {
+            var find = el('button', 'find-btn');
+            find.type = 'button';
+            find.tabIndex = -1;
+            find.title = 'Search for an English subtitle';
+            find.setAttribute('aria-label', 'Find subtitles for ' + label);
+            var fi = icon('find');
+            fi.setAttribute('class', 'icon');
+            find.appendChild(fi);
+            find.addEventListener('click', function (e) { e.stopPropagation(); openFind(item); });
+            badges.appendChild(find);
+        }
+        if (badges.children.length) { li.appendChild(badges); }
+        return li;
+    }
+
+    function setHide(which, on) {
+        prefs[which] = on;
+        savePrefs();
+        render();
+    }
+
+    function setLayout(layout) {
+        if (prefs.layout === layout) { return; }
+        prefs.layout = layout;
+        savePrefs();
+        render();
+    }
+
     function secondary(item) {
         switch (item.type) {
             case 'Library': return item.libraryType === 'movies' ? 'Movie library' : 'TV library';
@@ -423,6 +696,7 @@
 
     function badgesFor(item) {
         var out = [];
+        if (item.type === 'Season' && isSynced(item)) { out.push(badge('synced', 'All synced', 'Every episode here that can be re-timed already is')); }
         if (!isVideo(item)) { return out; }
         var job = queueByItem.get(item.id);
         if (job) {
@@ -431,7 +705,7 @@
             if (job.status === 'queued' || job.status === 'running') { return out; }
         }
         if (job && job.status === 'done') { return out; }
-        if (item.status === 'done') { out.push(badge('synced', 'Synced')); }
+        if (item.status === 'done') { out.push(badge('synced', 'Already synced', 'Re-timed before; it runs again only if the video file changes')); }
         else if (canFind(item)) { out.push(badge('', 'No English subtitle', 'Not eligible for re-timing: ' + REASONS.no_sidecar)); }
         else if (!item.eligible) { out.push(badge('', 'Not eligible: ' + (REASONS[item.reason] || item.reason), REASONS[item.reason])); }
         else if (item.status === 'attempted') { out.push(badge('attempted', 'Previously attempted', item.message)); }
@@ -911,11 +1185,22 @@
 
     function rerenderRows() {
         var list = $('list');
+        // A queue change can show or hide an item (D47); then the whole list is redrawn.
+        var moved = view.items.some(function (item) {
+            return shown(item) !== !!list.querySelector('[data-id="' + CSS.escape(item.id) + '"]');
+        });
+        if (moved) {
+            var focusedId = document.activeElement && document.activeElement.closest && document.activeElement.closest('.row') ? document.activeElement.closest('.row').dataset.id : null;
+            render();
+            var back = focusedId && list.querySelector('[data-id="' + CSS.escape(focusedId) + '"]');
+            if (back) { focusRow(back); }
+            return;
+        }
         view.items.forEach(function (item) {
             if (!isVideo(item)) { return; }
             var old = list.querySelector('[data-id="' + CSS.escape(item.id) + '"]');
             if (!old) { return; }
-            var fresh = row(item);
+            var fresh = itemEl(item);
             fresh.tabIndex = old.tabIndex;
             var hadFocus = old.contains(document.activeElement);
             list.replaceChild(fresh, old);
@@ -1060,6 +1345,17 @@
         var all = rows();
         var i = all.indexOf(r);
         var item = view.items.filter(function (x) { return x.id === r.dataset.id; })[0];
+        // Cards: arrows move across the grid; Backspace still goes up a level (D47).
+        if ($('list').classList.contains('cards') && /^Arrow/.test(e.key)) {
+            var cols = all.filter(function (x) { return x.offsetTop === all[0].offsetTop; }).length || 1;
+            var step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -cols, ArrowDown: cols }[e.key];
+            var to = i + step;
+            if (to >= 0 && to < all.length) { focusRow(all[to]); }
+            else if (to < 0 && e.key === 'ArrowUp') { $('q').focus(); }
+            else if (to >= all.length && e.key === 'ArrowDown') { if (!$('more').hidden) { $('more').focus(); } else { focusRow(all[all.length - 1]); } }
+            e.preventDefault();
+            return;
+        }
         switch (e.key) {
             case 'ArrowDown': if (i < all.length - 1) { focusRow(all[i + 1]); } else if (!$('more').hidden) { $('more').focus(); } e.preventDefault(); break;
             case 'ArrowUp': if (i > 0) { focusRow(all[i - 1]); } else { $('q').focus(); } e.preventDefault(); break;
@@ -1130,6 +1426,11 @@
             if (r && r.tabIndex !== 0) { rows().forEach(function (x) { x.tabIndex = -1; }); r.tabIndex = 0; }
         });
         $('more').addEventListener('click', function () { loadPage(view.parentId, true); });
+        $('hide-ineligible').addEventListener('change', function () { setHide('hideIneligible', $('hide-ineligible').checked); });
+        $('hide-synced').addEventListener('change', function () { setHide('hideSynced', $('hide-synced').checked); });
+        Array.prototype.forEach.call($('layout').querySelectorAll('button'), function (b) {
+            b.addEventListener('click', function () { setLayout(b.dataset.layout); });
+        });
         if ('IntersectionObserver' in window) {
             new IntersectionObserver(function (entries) {
                 if (entries[0].isIntersecting && !$('more').hidden && !view.loading) { loadPage(view.parentId, true); }
@@ -1183,6 +1484,9 @@
                 bazarrEnabled = !!(i && i.enabled);
                 if (bazarrEnabled) { rerenderRows(); }
             }, function () { bazarrEnabled = false; });
+            // The page's first entry: in the pop-up a guard that closes it on Back, on the full page the top level.
+            try { history.replaceState(EMBEDDED ? { subtitleFixer: true, guard: true } : { subtitleFixer: true, parentId: null }, ''); } catch (e) { /* ignore */ }
+            window.addEventListener('popstate', onHistory);
             browse(null);
             pollNow();
             loadFailed(false);

@@ -33,6 +33,10 @@ public enum NodeKind
 /// <param name="ParentIndexNumber">Season number, for episodes.</param>
 /// <param name="LibraryType">For libraries: <c>tvshows</c> or <c>movies</c>.</param>
 /// <param name="ProductionYear">For movies: the year.</param>
+/// <param name="ImageTag">
+/// Jellyfin's cache tag of the item's primary image, or null when it has none. The page loads the poster from
+/// Jellyfin's own image endpoint with it (D47).
+/// </param>
 public sealed record LibraryNode(
     Guid Id,
     string Name,
@@ -43,7 +47,8 @@ public sealed record LibraryNode(
     int? IndexNumber = null,
     int? ParentIndexNumber = null,
     string? LibraryType = null,
-    int? ProductionYear = null);
+    int? ProductionYear = null,
+    string? ImageTag = null);
 
 /// <summary>Everything eligibility needs about one video item (episode or movie).</summary>
 /// <param name="Node">The episode or movie node.</param>
