@@ -7,9 +7,11 @@ namespace Jellyfin.Plugin.SubtitleFixer.Services.Jobs;
 
 /// <summary>
 /// The single consumer: one SubSync at a time, in queue order (SPEC.md hard rule 5). Waits for startup recovery
-/// before the first run. Stops the queue on exit 7 and after three consecutive crashes (D14).
+/// before the first run. Stops the queue on exit 7 and after three consecutive crashes (D14). With SubSync 1.3.0 one
+/// <c>serve</c> process handles the whole queue run, with up to two items in it (D45, <c>JobProcessor.Serve.cs</c>);
+/// otherwise one <c>sync</c> per item.
 /// </summary>
-public sealed class JobProcessor : BackgroundService
+public sealed partial class JobProcessor : BackgroundService
 {
     /// <summary>Consecutive crashes that stop the queue (D14).</summary>
     public const int MaxConsecutiveCrashes = 3;
@@ -49,8 +51,7 @@ public sealed class JobProcessor : BackgroundService
         RunOutcome outcome;
         try
         {
-            var jobId = job.Snapshot.JobId;
-            outcome = await _runner.RunAsync(job.Snapshot, job.CancellationToken, (stage, expected) => _queue.SetProgress(jobId, stage, expected)).ConfigureAwait(false);
+            outcome = await _runner.RunAsync(job.Snapshot, job.CancellationToken, Progress(job.Snapshot.JobId)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -60,6 +61,16 @@ public sealed class JobProcessor : BackgroundService
             outcome = new RunOutcome(JobItemStatus.Failed, "Failed: " + ex.Message + " If a .bak backup was left, it is restored on the next Jellyfin start.", null, WorkerStatus.Crashed);
         }
 
+        await SettleAsync(job, outcome, countCrash: true).ConfigureAwait(false);
+    }
+
+    /// <summary>Records how an entry ended and applies the stop rules.</summary>
+    /// <param name="job">Entry.</param>
+    /// <param name="outcome">Outcome.</param>
+    /// <param name="countCrash">False for the second item of one SubSync crash, which counts once (D45).</param>
+    /// <returns>A task.</returns>
+    private async Task SettleAsync(RunningJob job, RunOutcome outcome, bool countCrash)
+    {
         _queue.Complete(job.Snapshot.JobId, outcome.Status, outcome.Message, outcome.Seconds);
         LogOutcome(job.Snapshot, outcome);
         await AddToFailedLogAsync(job.Snapshot, outcome).ConfigureAwait(false);
@@ -73,6 +84,11 @@ public sealed class JobProcessor : BackgroundService
 
         if (outcome.Worker == WorkerStatus.Crashed)
         {
+            if (!countCrash)
+            {
+                return;
+            }
+
             _consecutiveCrashes++;
             if (_consecutiveCrashes >= MaxConsecutiveCrashes)
             {
@@ -151,13 +167,14 @@ public sealed class JobProcessor : BackgroundService
             while (!stoppingToken.IsCancellationRequested)
             {
                 var job = await _queue.TakeAsync(stoppingToken).ConfigureAwait(false);
-                await ProcessAsync(job).ConfigureAwait(false);
+                await RunQueueAsync(job, stoppingToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            // Shutdown. A sync in progress was not handed this token; if Jellyfin is killed mid-run,
-            // the journal lets startup recovery restore the subtitle.
+            // Shutdown. A per-item sync in progress was not handed this token; a serve session ends its process and
+            // restores what it had in flight. If Jellyfin is killed mid-run, the journal lets startup recovery restore
+            // the subtitle.
         }
     }
 }

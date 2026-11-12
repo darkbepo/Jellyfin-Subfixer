@@ -12,6 +12,20 @@ namespace Jellyfin.Plugin.SubtitleFixer.Services.Jobs;
 /// <param name="Worker">Worker outcome, when SubSync ran.</param>
 public sealed record RunOutcome(JobItemStatus Status, string? Message, double? Seconds, WorkerStatus? Worker);
 
+/// <summary>An entry that passed re-validation and has its backup, ready for SubSync.</summary>
+/// <param name="Job">Entry.</param>
+/// <param name="Runtime">Video length, when Jellyfin knows it.</param>
+/// <param name="Video">Video fingerprint.</param>
+/// <param name="Sidecar">The subtitle to re-time.</param>
+/// <param name="Backup">Its backup (journal row and <c>.bak</c>).</param>
+/// <param name="Options">Settings for this item, with its time limit (D34).</param>
+public sealed record PreparedRun(JobItemSnapshot Job, TimeSpan? Runtime, VideoFingerprint Video, Sidecar Sidecar, InFlightBackup Backup, WorkerOptions Options);
+
+/// <summary>Result of <see cref="JobRunner.PrepareAsync"/>: an outcome, or a prepared run.</summary>
+/// <param name="Outcome">Set when the entry is already decided.</param>
+/// <param name="Run">Set when SubSync should run.</param>
+public sealed record Preparation(RunOutcome? Outcome, PreparedRun? Run);
+
 /// <summary>
 /// One episode, start to finish (JOB-FLOW.md steps 1 to 7 and the failure matrix): re-validate, back up, run,
 /// verify, then either keep the new file or restore the original. The original subtitle is restored on every
@@ -59,18 +73,46 @@ public sealed class JobRunner
         _logger = logger;
     }
 
-    /// <summary>Runs one entry.</summary>
+    /// <summary>Starts a SubSync that stays running for the queue (D45); see <see cref="ISubSyncWorker.StartSessionAsync"/>.</summary>
+    /// <param name="options">Settings for the session.</param>
+    /// <param name="cancellationToken">Cancels the wait.</param>
+    /// <returns>The result.</returns>
+    public Task<SessionStart> StartSessionAsync(WorkerOptions options, CancellationToken cancellationToken) =>
+        _worker.StartSessionAsync(options, cancellationToken);
+
+    /// <summary>Gets the current worker settings (read per item so settings apply at once).</summary>
+    /// <returns>Options.</returns>
+    public WorkerOptions CurrentOptions() => _options();
+
+    /// <summary>Runs one entry with one SubSync of its own (D5, the fallback of D45).</summary>
     /// <param name="job">Entry.</param>
     /// <param name="cancellationToken">Cancels this entry.</param>
-    /// <param name="progress">Told the estimated total seconds once SubSync is about to start, then each stage it reports.</param>
+    /// <param name="progress">
+    /// Told (stage, item percent, expected seconds): first the estimated total once SubSync is about to start, then each
+    /// stage it reports, with the item's share of the bar while SubSync says how far listening is (D40).
+    /// </param>
     /// <returns>The outcome.</returns>
-    public async Task<RunOutcome> RunAsync(JobItemSnapshot job, CancellationToken cancellationToken, Action<string?, double?>? progress = null)
+    public async Task<RunOutcome> RunAsync(JobItemSnapshot job, CancellationToken cancellationToken, Action<string?, int?, double?>? progress = null)
+    {
+        var prepared = await PrepareAsync(job, cancellationToken).ConfigureAwait(false);
+        return prepared.Outcome ?? await RunPreparedAsync(prepared.Run!, cancellationToken, progress).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Steps 1 and 2 of JOB-FLOW.md: re-validate, then back up (journal first). Either the entry is already decided
+    /// (skipped, file missing, no backup, cancelled) or it is ready for SubSync. From here the caller must end with
+    /// <see cref="FinishAsync"/>, <see cref="FailAsync"/> or <see cref="RestoreAsync"/>, or the backup stays for recovery.
+    /// </summary>
+    /// <param name="job">Entry.</param>
+    /// <param name="cancellationToken">Checked before the backup.</param>
+    /// <returns>The outcome, or the prepared run.</returns>
+    public async Task<Preparation> PrepareAsync(JobItemSnapshot job, CancellationToken cancellationToken)
     {
         // 1. Re-validate: state may have changed since queuing.
         var facts = _library.GetVideo(job.UserId, job.ItemId);
         if (facts is null)
         {
-            return new RunOutcome(JobItemStatus.Failed, "The episode is gone or no longer accessible.", null, null);
+            return Done(new RunOutcome(JobItemStatus.Failed, "The episode is gone or no longer accessible.", null, null));
         }
 
         var records = await _state.GetAsync([job.ItemId], CancellationToken.None).ConfigureAwait(false);
@@ -79,19 +121,19 @@ public sealed class JobRunner
         switch (check.Reason)
         {
             case IneligibleReason.AlreadySynced:
-                return new RunOutcome(JobItemStatus.Skipped, "Already synced.", null, null);
+                return Done(new RunOutcome(JobItemStatus.Skipped, "Already synced.", null, null));
             case IneligibleReason.NoEnglishAudio:
-                return new RunOutcome(JobItemStatus.Skipped, "No English audio.", null, null);
+                return Done(new RunOutcome(JobItemStatus.Skipped, "No English audio.", null, null));
             case IneligibleReason.NoVideoFile:
-                return new RunOutcome(JobItemStatus.Failed, "The video file is missing or can't be read.", null, null);
+                return Done(new RunOutcome(JobItemStatus.Failed, "The video file is missing or can't be read.", null, null));
             case IneligibleReason.NoSidecar:
                 await RecordAsync(job.ItemId, check.Video!, SubtitleGuess(check.Video!.Path), SyncStatus.Failed, "file missing: subtitle", null).ConfigureAwait(false);
-                return new RunOutcome(JobItemStatus.Failed, "The English subtitle next to the video is gone.", null, null);
+                return Done(new RunOutcome(JobItemStatus.Failed, "The English subtitle next to the video is gone.", null, null));
         }
 
         if (cancellationToken.IsCancellationRequested)
         {
-            return new RunOutcome(JobItemStatus.Cancelled, "Cancelled.", null, null);
+            return Done(new RunOutcome(JobItemStatus.Cancelled, "Cancelled.", null, null));
         }
 
         var video = check.Video!;
@@ -107,36 +149,78 @@ public sealed class JobRunner
         {
             await RecordAsync(job.ItemId, video, sidecar.Path, SyncStatus.Failed, "cannot create backup", null).ConfigureAwait(false);
             _logger.LogWarning(ex, "No backup for {Subtitle}; SubSync not started", sidecar.Path);
-            return new RunOutcome(JobItemStatus.Failed, ex.Message, null, null);
+            return Done(new RunOutcome(JobItemStatus.Failed, ex.Message, null, null));
         }
 
-        // 3 to 7. From here the original must come back unless the new file is verified.
+        return new Preparation(null, new PreparedRun(job, facts.Runtime, video, sidecar, backup, WithTimeLimit(_options(), facts.Runtime)));
+    }
+
+    /// <summary>Steps 3 to 7 with one SubSync process of its own.</summary>
+    /// <param name="run">Prepared run.</param>
+    /// <param name="cancellationToken">Cancels this entry.</param>
+    /// <param name="progress">See <see cref="RunAsync"/>.</param>
+    /// <returns>The outcome.</returns>
+    public async Task<RunOutcome> RunPreparedAsync(PreparedRun run, CancellationToken cancellationToken, Action<string?, int?, double?>? progress = null)
+    {
+        // From here the original must come back unless the new file is verified.
         try
         {
-            var options = WithTimeLimit(_options(), facts.Runtime);
+            var options = run.Options;
             if (progress is not null)
             {
-                progress(null, RunTimeEstimate.Expect(facts.Runtime));
-                options = options with { OnStage = stage => progress(stage, null) };
+                var estimate = RunTimeEstimate.Expect(run.Runtime);
+                progress(null, null, estimate?.Total);
+                options = options with { OnProgress = p => progress(p.Stage, RunTimeEstimate.Percent(estimate, p.Stage, p.Percent), null) };
             }
 
-            var result = await _worker.RunAsync(video.Path, sidecar.Path, sidecar.LanguageTag, options, cancellationToken).ConfigureAwait(false);
-            if (result.Status is WorkerStatus.Synced or WorkerStatus.NoMatch)
-            {
-                // Both listened to the whole soundtrack, so both say how fast this server is.
-                RunTimeEstimate.Record(facts.Runtime, result.Seconds);
-            }
-
-            return await FinishAsync(job, video, sidecar, backup, result).ConfigureAwait(false);
+            var result = await _worker.RunAsync(run.Video.Path, run.Sidecar.Path, run.Sidecar.LanguageTag, options, cancellationToken).ConfigureAwait(false);
+            return await FinishAsync(run, result).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error while syncing {Subtitle}; restoring the original", sidecar.Path);
-            await _backup.RestoreAsync(backup, CancellationToken.None).ConfigureAwait(false);
-            await RecordAsync(job.ItemId, video, sidecar.Path, SyncStatus.Failed, "unexpected error: " + ex.Message, null).ConfigureAwait(false);
-            return new RunOutcome(JobItemStatus.Failed, "Unexpected error: " + ex.Message, null, WorkerStatus.Crashed);
+            return await FailAsync(run, ex).ConfigureAwait(false);
         }
     }
+
+    /// <summary>Steps 4 to 7 for SubSync's result: verify and keep, or restore and record (failure matrix).</summary>
+    /// <param name="run">Prepared run.</param>
+    /// <param name="result">SubSync's result, or ours (cancelled, timed out, crashed).</param>
+    /// <returns>The outcome.</returns>
+    public async Task<RunOutcome> FinishAsync(PreparedRun run, WorkerResult result)
+    {
+        try
+        {
+            if (result.Status is WorkerStatus.Synced or WorkerStatus.NoMatch)
+            {
+                // Both listened to the whole soundtrack, so both say how fast this server is, unless the transcript
+                // came from SubSync's cache (RunTimeEstimate.Record skips those).
+                RunTimeEstimate.Record(run.Runtime, result);
+            }
+
+            return await FinishCoreAsync(run.Job, run.Video, run.Sidecar, run.Backup, result).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            return await FailAsync(run, ex).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>An unexpected error after the backup: restore, record failed (counts as a crash, D14).</summary>
+    /// <param name="run">Prepared run.</param>
+    /// <param name="ex">The error.</param>
+    /// <returns>The outcome.</returns>
+    public async Task<RunOutcome> FailAsync(PreparedRun run, Exception ex)
+    {
+        _logger.LogError(ex, "Unexpected error while syncing {Subtitle}; restoring the original", run.Sidecar.Path);
+        await _backup.RestoreAsync(run.Backup, CancellationToken.None).ConfigureAwait(false);
+        await RecordAsync(run.Job.ItemId, run.Video, run.Sidecar.Path, SyncStatus.Failed, "unexpected error: " + ex.Message, null).ConfigureAwait(false);
+        return new RunOutcome(JobItemStatus.Failed, "Unexpected error: " + ex.Message, null, WorkerStatus.Crashed);
+    }
+
+    /// <summary>Puts the original back and records nothing: the item goes back to the queue untried (D45).</summary>
+    /// <param name="run">Prepared run.</param>
+    /// <returns>A task.</returns>
+    public Task RestoreAsync(PreparedRun run) => _backup.RestoreAsync(run.Backup, CancellationToken.None);
 
     /// <summary>
     /// The time limit for one item (D34): the larger of the setting and twice the video's length plus 10 minutes.
@@ -161,7 +245,9 @@ public sealed class JobRunner
     private static string SubtitleGuess(string videoPath) =>
         Path.Combine(Path.GetDirectoryName(videoPath) ?? string.Empty, Path.GetFileNameWithoutExtension(videoPath) + ".en.srt");
 
-    private async Task<RunOutcome> FinishAsync(JobItemSnapshot job, VideoFingerprint video, Sidecar sidecar, InFlightBackup backup, WorkerResult result)
+    private static Preparation Done(RunOutcome outcome) => new(outcome, null);
+
+    private async Task<RunOutcome> FinishCoreAsync(JobItemSnapshot job, VideoFingerprint video, Sidecar sidecar, InFlightBackup backup, WorkerResult result)
     {
         switch (result.Status)
         {

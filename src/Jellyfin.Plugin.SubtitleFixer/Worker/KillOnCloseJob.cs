@@ -169,6 +169,22 @@ public static class RunningWorkerFile
         }
     }
 
+    /// <summary>Forgets the process only if the record is still this one's (a newer run may have replaced it).</summary>
+    /// <param name="processId">Process id recorded by <see cref="Write"/>.</param>
+    public static void Clear(int processId)
+    {
+        try
+        {
+            if (File.Exists(PathName) && File.ReadAllText(PathName).StartsWith(processId.ToString(System.Globalization.CultureInfo.InvariantCulture) + "|", StringComparison.Ordinal))
+            {
+                File.Delete(PathName);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
     /// <summary>Kills the recorded process tree if it is still the same process (same id and start time).</summary>
     /// <returns>True when a leftover run was killed.</returns>
     public static bool KillLeftover()

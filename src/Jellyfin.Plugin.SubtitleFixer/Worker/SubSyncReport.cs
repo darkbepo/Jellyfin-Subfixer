@@ -8,11 +8,22 @@ namespace Jellyfin.Plugin.SubtitleFixer.Worker;
 /// <param name="AudioLanguage">Audio language used.</param>
 /// <param name="Seconds">Seconds SubSync reports.</param>
 /// <param name="SubSyncVersion">SubSync version.</param>
-public sealed record SubSyncReport(string? Status, string? Reason, string? AudioLanguage, double? Seconds, string? SubSyncVersion)
+/// <param name="Speech">Top-level <c>speech_recognition</c> (1.3.0 and later); null when absent or when nothing was listened to.</param>
+/// <param name="Timings">The item's <c>timings</c> (1.3.0 and later, synced items); null when absent.</param>
+public sealed record SubSyncReport(
+    string? Status,
+    string? Reason,
+    string? AudioLanguage,
+    double? Seconds,
+    string? SubSyncVersion,
+    SubSyncSpeech? Speech = null,
+    SubSyncTimings? Timings = null)
 {
     /// <summary>
-    /// Parses a report. The exact layout is unverified (spike S5), so this accepts the fields at the top level,
-    /// or the first entry of a top-level array, or the first entry of an array property (results, pairs, items, files).
+    /// Parses a report. The layout is confirmed (S5: live with 1.2.0, and from SubSync 1.3.0's <c>write_report</c>):
+    /// a top-level object with <c>items</c>. Older guesses stay accepted: the fields at the top level, the first entry
+    /// of a top-level array, or the first entry of <c>results</c>/<c>pairs</c>/<c>files</c>. The 1.3.0 fields
+    /// (<c>speech_recognition</c>, <c>timings</c>) are optional, and a malformed one is read as absent.
     /// </summary>
     /// <param name="json">Report text.</param>
     /// <returns>The report, or null when it has no status anywhere.</returns>
@@ -48,8 +59,32 @@ public sealed record SubSyncReport(string? Status, string? Reason, string? Audio
                 Str(e, "reason") ?? Str(e, "message"),
                 Str(e, "audio_language"),
                 Num(e, "seconds"),
-                Str(e, "subsync_version") ?? version);
+                Str(e, "subsync_version") ?? version,
+                SpeechOf(root),
+                TimingsOf(e));
         }
+    }
+
+    private static SubSyncSpeech? SpeechOf(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("speech_recognition", out var sr) || sr.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var device = Str(sr, "device")?.ToLowerInvariant();
+        return device is "gpu" or "cpu" ? new SubSyncSpeech(device, Str(sr, "name"), Num(sr, "model_load_seconds")) : null;
+    }
+
+    private static SubSyncTimings? TimingsOf(JsonElement entry)
+    {
+        if (entry.ValueKind != JsonValueKind.Object || !entry.TryGetProperty("timings", out var t) || t.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var fromCache = t.TryGetProperty("from_cache", out var c) && c.ValueKind == JsonValueKind.True;
+        return new SubSyncTimings(fromCache, Num(t, "read_audio"), Num(t, "listen"), Num(t, "match"));
     }
 
     private static JsonElement? FindEntry(JsonElement root)
@@ -86,6 +121,19 @@ public sealed record SubSyncReport(string? Status, string? Reason, string? Audio
     private static double? Num(JsonElement e, string name) =>
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
 }
+
+/// <summary>What listened during the run (report <c>speech_recognition</c>, SubSync 1.3.0 and later).</summary>
+/// <param name="Device"><c>gpu</c> or <c>cpu</c> (a GPU problem during the run makes it <c>cpu</c>).</param>
+/// <param name="Name">Graphics card, or null.</param>
+/// <param name="ModelLoadSeconds">How long the speech model took to load, or null.</param>
+public sealed record SubSyncSpeech(string Device, string? Name, double? ModelLoadSeconds);
+
+/// <summary>Seconds per step of one item (report <c>timings</c>, SubSync 1.3.0 and later).</summary>
+/// <param name="FromCache">The transcript came from SubSync's cache; reading audio and listening did not run.</param>
+/// <param name="ReadAudio">Reading the soundtrack, or null.</param>
+/// <param name="Listen">Speech recognition, or null.</param>
+/// <param name="Match">Placing the lines, or null.</param>
+public sealed record SubSyncTimings(bool FromCache, double? ReadAudio, double? Listen, double? Match);
 
 /// <summary>Maps the CLI's exit code and report to a <see cref="WorkerStatus"/>.</summary>
 public static class SubSyncOutcome

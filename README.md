@@ -7,7 +7,7 @@ Fix out-of-sync English subtitles from inside Jellyfin. Pick seasons, episodes o
 ## Requirements
 - **Jellyfin 12** on a **Windows** server. SubSync is Windows-only, so Linux, Docker and macOS servers aren't supported.
 - The **File Transformation** plugin, which adds the menu entry. Install it first.
-- **SubSync**, installed on the same server in a folder the account Jellyfin runs as can write to (not `Program Files`). Download it from its [releases](https://github.com/darkbepo/SubSync/releases), then run `subsync-cli setup` once in that folder. Setup downloads about 1.8 GB on a server without an NVIDIA card, and more with one (the CUDA libraries).
+- **SubSync**, installed on the same server in a folder the account Jellyfin runs as can write to (not `Program Files`). **SubSync 1.3.0 or later is recommended**; 1.2.0 still works. Download it from its [releases](https://github.com/darkbepo/SubSync/releases), then run `subsync-cli setup` once in that folder. Setup downloads about 1.8 GB on a server without an NVIDIA card, and more with one (the CUDA libraries).
 - An NVIDIA graphics card is strongly recommended (see below). It also works on CPU, just more slowly.
 - Optional: **Bazarr**, if you want the Find subtitles button.
 
@@ -23,7 +23,8 @@ SubSync listens to the whole soundtrack (Whisper speech recognition) to place ea
 
 - Only two rows rest on measurements: an RTX 3050 (1 to 2 min per 45-minute episode), and an i7-13850HX on CPU (a 22-minute episode in about 6.5 minutes, roughly a third of real time). The rest are scaled from those, so expect your own numbers to differ.
 - AMD and Intel graphics cards don't help: SubSync's GPU mode needs NVIDIA (CUDA), so those servers run at CPU speed.
-- SubSync works on one item at a time, so a queue takes the sum of its items.
+- SubSync works on one item at a time, so a queue takes the sum of its items. Each item also pays SubSync's start-up (self-check, Python, loading the speech model; the model alone took about 6 s on the GPU in SubSync's own example).
+- With **SubSync 1.3.0** one SubSync process handles the whole queue, so start-up is paid once instead of once per item, and the next item's audio is read while the current one is listened to. The progress bar follows SubSync's own listening percentage instead of an estimate, and hearing-impaired subtitles (`.en.hi.srt`) are re-timed even when a plain `.en.srt` sits next to them. How much faster a season gets hasn't been measured yet. With 1.2.0 the plugin detects the older version and keeps working as before, one SubSync per item.
 - The time limit per item adjusts itself: twice the video's length plus 10 minutes, or the **Minimum time limit** setting if that is longer (30 minutes by default). A 2-hour movie gets about 4 hours, so CPU-only servers need no change. If a run is stopped anyway, the subtitle is put back untouched.
 
 ## Install

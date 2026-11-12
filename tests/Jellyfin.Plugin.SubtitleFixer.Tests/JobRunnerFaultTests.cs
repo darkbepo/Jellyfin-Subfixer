@@ -22,6 +22,12 @@ public sealed class FakeWorker : ISubSyncWorker
     public static WorkerResult Result(WorkerStatus status, string? reason = null) =>
         new(status, null, reason, "eng", 42, "1.2.0", status == WorkerStatus.Synced ? 0 : 4);
 
+    /// <summary>Gets or sets what <see cref="StartSessionAsync"/> does; null means no serve (one sync per item).</summary>
+    public Func<WorkerOptions, CancellationToken, Task<SessionStart>>? Sessions { get; set; }
+
+    public Task<SessionStart> StartSessionAsync(WorkerOptions options, CancellationToken cancellationToken) =>
+        Sessions?.Invoke(options, cancellationToken) ?? Task.FromResult(SessionStart.NotAvailable("fake worker"));
+
     public Task<WorkerResult> RunAsync(string videoPath, string subtitlePath, string languageTag, WorkerOptions options, CancellationToken cancellationToken)
     {
         Calls++;
@@ -98,12 +104,12 @@ public sealed class JobRunnerFaultTests : IDisposable
         _library.SetRuntime(_episode.Node.Id, TimeSpan.FromMinutes(22));
         _worker.Behavior = (_, _, _) =>
         {
-            _worker.LastOptions!.OnStage!(SubSyncStage.Listening);
+            _worker.LastOptions!.OnProgress!(new WorkerProgress(SubSyncStage.Listening, null));
             return Task.FromResult(FakeWorker.Result(WorkerStatus.Synced));
         };
         var seen = new List<(string? Stage, double? Expected)>();
 
-        var outcome = await _runner.RunAsync(Job(), CancellationToken.None, (stage, expected) => seen.Add((stage, expected)));
+        var outcome = await _runner.RunAsync(Job(), CancellationToken.None, (stage, _, expected) => seen.Add((stage, expected)));
 
         Assert.Equal(JobItemStatus.Done, outcome.Status);
         Assert.Equal(2, seen.Count);
@@ -112,7 +118,44 @@ public sealed class JobRunnerFaultTests : IDisposable
         Assert.Equal((SubSyncStage.Listening, (double?)null), seen[1]);
 
         // The 42-second fake run taught the estimate that this "server" is fast.
-        Assert.True(RunTimeEstimate.Expect(TimeSpan.FromMinutes(22)) < seen[0].Expected);
+        Assert.True(RunTimeEstimate.Expect(TimeSpan.FromMinutes(22))!.Total < seen[0].Expected);
+        RunTimeEstimate.Reset();
+    }
+
+    [Fact]
+    public async Task SubSyncs_listening_percent_becomes_the_items_share_of_the_bar()
+    {
+        RunTimeEstimate.Reset();
+        _library.SetRuntime(_episode.Node.Id, TimeSpan.FromMinutes(22));
+        _worker.Behavior = (_, _, _) =>
+        {
+            _worker.LastOptions!.OnProgress!(new WorkerProgress(SubSyncStage.ReadingAudio, null));
+            _worker.LastOptions!.OnProgress!(new WorkerProgress(SubSyncStage.Listening, 50));
+            _worker.LastOptions!.OnProgress!(new WorkerProgress(SubSyncStage.Matching, 50));
+            return Task.FromResult(FakeWorker.Result(WorkerStatus.Synced));
+        };
+        var seen = new List<(string? Stage, int? Percent)>();
+
+        await _runner.RunAsync(Job(), CancellationToken.None, (stage, percent, _) => seen.Add((stage, percent)));
+
+        var expected = RunTimeEstimate.Percent(new RunEstimate(15 + 435.6, 15 + (435.6 * 0.15), 15 + 435.6), SubSyncStage.Listening, 50);
+        Assert.Equal([(null, null), (SubSyncStage.ReadingAudio, null), (SubSyncStage.Listening, expected), (SubSyncStage.Matching, null)], seen);
+        Assert.InRange(expected!.Value, 50, 60);
+        RunTimeEstimate.Reset();
+    }
+
+    [Fact]
+    public async Task A_cached_retry_does_not_change_the_estimate()
+    {
+        RunTimeEstimate.Reset();
+        _library.SetRuntime(_episode.Node.Id, TimeSpan.FromMinutes(22));
+        var before = RunTimeEstimate.Expect(TimeSpan.FromMinutes(22));
+        _worker.Behavior = (_, _, _) => Task.FromResult(FakeWorker.Result(WorkerStatus.NoMatch) with { Seconds = 3.4 });
+
+        var outcome = await _runner.RunAsync(Job(), CancellationToken.None);
+
+        Assert.Equal(JobItemStatus.Check, outcome.Status);
+        Assert.Equal(before, RunTimeEstimate.Expect(TimeSpan.FromMinutes(22)));
         RunTimeEstimate.Reset();
     }
 

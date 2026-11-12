@@ -29,8 +29,13 @@ public enum WorkerStatus
 /// <param name="TidyUpLines">Off passes <c>--keep-layout</c>.</param>
 /// <param name="ForceCpu">Passes <c>--cpu</c>.</param>
 /// <param name="Timeout">Kill the run after this long.</param>
-/// <param name="OnStage">Called with each stage SubSync reports while it runs (<see cref="SubSyncStage"/> codes).</param>
-public sealed record WorkerOptions(bool TidyUpLines, bool ForceCpu, TimeSpan Timeout, Action<string>? OnStage = null);
+/// <param name="OnProgress">Called with each stage SubSync reports while it runs (<see cref="SubSyncStage"/> codes, and a percent from 1.3.0 on).</param>
+public sealed record WorkerOptions(bool TidyUpLines, bool ForceCpu, TimeSpan Timeout, Action<WorkerProgress>? OnProgress = null);
+
+/// <summary>What SubSync is doing now.</summary>
+/// <param name="Stage">A <see cref="SubSyncStage"/> code.</param>
+/// <param name="Percent">0 to 100 within the stage (SubSync 1.3.0 and later), or null.</param>
+public sealed record WorkerProgress(string Stage, int? Percent);
 
 /// <summary>Result of one run.</summary>
 /// <param name="Status">Outcome.</param>
@@ -40,6 +45,9 @@ public sealed record WorkerOptions(bool TidyUpLines, bool ForceCpu, TimeSpan Tim
 /// <param name="Seconds">Wall time of the run.</param>
 /// <param name="SubSyncVersion">SubSync version from the report.</param>
 /// <param name="ExitCode">Process exit code, when it exited on its own.</param>
+/// <param name="Timings">Per-step seconds (SubSync 1.3.0 and later), or a from-cache marker; null when unknown.</param>
+/// <param name="ProcessSeconds">Wall time of the whole process, start-up included, when it ran.</param>
+/// <param name="ModelLoadSeconds">How long the speech model took to load (1.3.0 report), or null.</param>
 public sealed record WorkerResult(
     WorkerStatus Status,
     string? OutputPath,
@@ -47,7 +55,10 @@ public sealed record WorkerResult(
     string? AudioLanguage,
     double Seconds,
     string? SubSyncVersion,
-    int? ExitCode);
+    int? ExitCode,
+    SubSyncTimings? Timings = null,
+    double? ProcessSeconds = null,
+    double? ModelLoadSeconds = null);
 
 /// <summary>
 /// Runs SubSync on one video/subtitle pair. v1 spawns <c>subsync-cli.exe</c>; a later implementation can call a
@@ -66,4 +77,15 @@ public interface ISubSyncWorker
     /// <param name="cancellationToken">Cancels the run (kills the process tree).</param>
     /// <returns>The result.</returns>
     Task<WorkerResult> RunAsync(string videoPath, string subtitlePath, string languageTag, WorkerOptions options, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Starts one SubSync that stays running for many items (<c>serve</c>, SubSync 1.3.0 and later; D45) and waits until
+    /// it accepts requests. <see cref="SessionStart.Fallback"/> means it isn't available, and the queue run uses
+    /// <see cref="RunAsync"/> per item instead; that is the default.
+    /// </summary>
+    /// <param name="options">Settings for every item of the session; <see cref="WorkerOptions.Timeout"/> bounds the wait for it.</param>
+    /// <param name="cancellationToken">Cancels the wait (and ends the process).</param>
+    /// <returns>The result.</returns>
+    Task<SessionStart> StartSessionAsync(WorkerOptions options, CancellationToken cancellationToken) =>
+        Task.FromResult(SessionStart.NotAvailable("this worker runs one SubSync per item"));
 }

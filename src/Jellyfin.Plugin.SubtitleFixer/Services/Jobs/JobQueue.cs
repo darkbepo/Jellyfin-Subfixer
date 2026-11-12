@@ -72,6 +72,7 @@ public sealed record JobRequestItem(Guid ItemId, string Name, string SeriesName)
 /// <param name="Seconds">SubSync seconds, when it ran.</param>
 /// <param name="Stage">While running: the stage SubSync last reported (<c>SubSyncStage</c> codes).</param>
 /// <param name="ExpectedSeconds">While running: the estimated total time, for the progress bar (D40).</param>
+/// <param name="Percent">While running and SubSync says how far it has listened (1.3.0): the item's share of the bar, 0 to 95.</param>
 public sealed record JobItemSnapshot(
     Guid JobId,
     Guid ItemId,
@@ -87,7 +88,8 @@ public sealed record JobItemSnapshot(
     DateTime? FinishedUtc,
     double? Seconds,
     string? Stage = null,
-    double? ExpectedSeconds = null);
+    double? ExpectedSeconds = null,
+    int? Percent = null);
 
 /// <summary>Immutable view of the whole queue.</summary>
 /// <param name="State">State.</param>
@@ -247,11 +249,74 @@ public sealed class JobQueue : IDisposable
         }
     }
 
+    /// <summary>
+    /// Takes the next queued entry without waiting, for sending it to SubSync ahead of time (D45). Marks it running.
+    /// </summary>
+    /// <returns>The entry, or null when nothing is queued.</returns>
+    public RunningJob? TryTake()
+    {
+        lock (_lock)
+        {
+            var next = _entries.FirstOrDefault(e => e.Status == JobItemStatus.Queued);
+            if (next is null)
+            {
+                return null;
+            }
+
+            // Every queued entry has a permit (cancelled ones leave extra), so this one is there.
+            _work.Wait(0);
+            next.Status = JobItemStatus.Running;
+            next.StartedUtc = Now();
+            next.Cancel = new CancellationTokenSource();
+            Publish();
+            return new RunningJob(next.ToSnapshot(), next.Cancel.Token);
+        }
+    }
+
+    /// <summary>
+    /// Puts a running entry back at its place in the queue, untried: SubSync had to be stopped for another entry
+    /// (a cancel or a timeout, D45). An entry someone asked to cancel in the meantime is cancelled instead.
+    /// </summary>
+    /// <param name="jobId">Entry.</param>
+    /// <returns>True when it is queued again.</returns>
+    public bool Requeue(Guid jobId)
+    {
+        lock (_lock)
+        {
+            var entry = _entries.FirstOrDefault(e => e.JobId == jobId);
+            if (entry is null || entry.Status != JobItemStatus.Running)
+            {
+                return false;
+            }
+
+            entry.Cancel?.Dispose();
+            entry.Cancel = null;
+            entry.Stage = null;
+            entry.ExpectedSeconds = null;
+            entry.Percent = null;
+            entry.StartedUtc = null;
+            if (entry.CancelRequested)
+            {
+                entry.Status = JobItemStatus.Cancelled;
+                entry.Message = "Cancelled.";
+                entry.FinishedUtc = Now();
+                Publish();
+                return false;
+            }
+
+            entry.Status = JobItemStatus.Queued;
+            Publish();
+            _work.Release();
+            return true;
+        }
+    }
+
     /// <summary>Updates a running entry's stage and estimate. Ignored once the entry has finished.</summary>
     /// <param name="jobId">Entry.</param>
-    /// <param name="stage">Stage code, or null to keep the current one.</param>
+    /// <param name="stage">Stage code, or null to keep the current one (and its percent).</param>
     /// <param name="expectedSeconds">Estimated total seconds, or null to keep the current one.</param>
-    public void SetProgress(Guid jobId, string? stage, double? expectedSeconds)
+    /// <param name="percent">With a stage: the item's share of the bar for it, or null when only time tells (D40).</param>
+    public void SetProgress(Guid jobId, string? stage, double? expectedSeconds, int? percent = null)
     {
         lock (_lock)
         {
@@ -261,9 +326,14 @@ public sealed class JobQueue : IDisposable
                 return;
             }
 
-            if ((stage is null || stage == entry.Stage) && (expectedSeconds is null || expectedSeconds == entry.ExpectedSeconds))
+            if ((stage is null || (stage == entry.Stage && percent == entry.Percent)) && (expectedSeconds is null || expectedSeconds == entry.ExpectedSeconds))
             {
                 return;
+            }
+
+            if (stage is not null)
+            {
+                entry.Percent = percent;
             }
 
             entry.Stage = stage ?? entry.Stage;
@@ -446,6 +516,8 @@ public sealed class JobQueue : IDisposable
 
         public double? ExpectedSeconds { get; set; }
 
+        public int? Percent { get; set; }
+
         public bool CancelRequested { get; set; }
 
         public CancellationTokenSource? Cancel { get; set; }
@@ -455,6 +527,7 @@ public sealed class JobQueue : IDisposable
         public JobItemSnapshot ToSnapshot() =>
             new(JobId, ItemId, Name, SeriesName, UserId, Source, Note, Status, Message, QueuedUtc, StartedUtc, FinishedUtc, Seconds,
                 Status == JobItemStatus.Running ? Stage : null,
-                Status == JobItemStatus.Running ? ExpectedSeconds : null);
+                Status == JobItemStatus.Running ? ExpectedSeconds : null,
+                Status == JobItemStatus.Running ? Percent : null);
     }
 }

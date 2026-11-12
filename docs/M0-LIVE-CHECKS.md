@@ -99,3 +99,21 @@ On the settings page, turn off one TV library (leave at least one on) and save.
 - A season from the turned-off library can't be queued: `POST /SubtitleFixer/Jobs` with its id returns `404 not_found` or `400`.
 - Turn every library back on and save: the settings page shows all switches on and search finds everything again.
 - Start one episode. About a minute after it finishes, it leaves the queue list. If it ended failed or check, it's in the Failed syncs panel, and still there after restarting Jellyfin. Retry puts it back in the queue.
+
+### SubSync 1.3.0, Phase 1 (M7)
+Install SubSync 1.3.0 over 1.2.0 (same folder), then on the settings page press Test SubSync: it shows `SubSync 1.3.0`.
+**Record:**
+- A `.en.hi.srt` episode (put a copy of some other subtitle next to it as `.en.srt`) syncs in place: the `.en.hi.srt` changes, the `.en.srt` is byte-identical, no `.bak` is left.
+- During a long episode the bar moves in steps while SubSync listens, never backwards, and the line shows a percentage from the start.
+- After that sync, Test SubSync says "Last sync: GPU (<card>)".
+- Retry a no-match item from the Failed syncs panel (it finishes in seconds from SubSync's cache), then start a fresh episode: its first estimate (`expectedSeconds` in `/SubtitleFixer/Status`, or the "about N min left" line) is still about as long as a real run, not a few seconds.
+- SubSync's `logs\cli.log` for one run: the `speech model ready after …` and `read audio … total …` lines, and the per-item seconds in the Jellyfin log.
+
+### SubSync 1.3.0, Phase 2: one SubSync for the queue (D45)
+**Record:**
+- Start a whole season. In Task Manager (Details, add the "Command line" column) there is one `subsync-cli.exe serve --overwrite` for the whole season, not one per episode, and it is gone a few seconds after the last episode. The Jellyfin log ends the run with "queue run finished: N item(s) through 1 SubSync process(es) in S s".
+- While an episode is listening, the next one already shows "syncing" on the page; at most two do.
+- Season time: S from that log line, against the same season with Phase 1 (one SubSync per episode; to measure that, run the season on Phase 1's build, or add up the per-item seconds in the Jellyfin log of a Phase 1 run). Note GPU or CPU.
+- Cancel mid-season (while an episode is listening, so the next one is already in SubSync): every subtitle of the season is byte-identical to before for the unfinished episodes (compare with copies), no `.bak` is left, and the queue shows the cancelled items. As a non-admin with another user's episode in SubSync, cancel your own: the other user's episode runs again afterwards.
+- Change Tidy up lines mid-season and save: the episode in progress finishes, then a new `serve` with `--keep-layout` appears.
+- Stop the Jellyfin service mid-season: no `subsync-cli.exe` or `python.exe` is left, and after a restart every subtitle is intact.

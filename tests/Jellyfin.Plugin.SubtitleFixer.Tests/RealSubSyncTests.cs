@@ -25,6 +25,9 @@ public sealed class RealSubSyncTests : IDisposable
 
     private CliWorker Worker() => new(() => Folder, NullLogger<CliWorker>.Instance);
 
+    private static async Task<Version?> InstalledAsync() =>
+        await SubSyncVersion.Shared.GetAsync(Path.Combine(Folder!, SubSyncProbe.CliFileName), CancellationToken.None);
+
     private (string Video, string Subtitle) Copy(string subtitleSuffix)
     {
         var video = Path.Combine(_dir.Path, "Clip é.mp4");
@@ -48,7 +51,7 @@ public sealed class RealSubSyncTests : IDisposable
         var result = await Worker().RunAsync(video, subtitle, "en", Options, CancellationToken.None);
 
         Assert.Equal(WorkerStatus.Synced, result.Status);
-        Assert.Equal("1.2.0", result.SubSyncVersion);
+        Assert.Equal((await InstalledAsync())?.ToString(3), result.SubSyncVersion);
         Assert.Equal("en", result.AudioLanguage);
         Assert.NotEqual(before, File.ReadAllText(subtitle));
         Assert.True(SubtitleVerifier.IsValidSrt(subtitle, out _));
@@ -76,7 +79,8 @@ public sealed class RealSubSyncTests : IDisposable
     [Fact]
     public async Task Hearing_impaired_refuses_when_a_plain_file_exists()
     {
-        if (!Enabled)
+        // SubSync 1.2.0 only: from 1.3.0 the .hi file is re-timed in place (next test).
+        if (!Enabled || SubSyncVersion.HasProgressAndOutput(await InstalledAsync()))
         {
             return;
         }
@@ -89,6 +93,32 @@ public sealed class RealSubSyncTests : IDisposable
 
         Assert.Equal(WorkerStatus.Failed, result.Status);
         Assert.Equal("someone else's subtitle", File.ReadAllText(plain));
+    }
+
+    [Fact]
+    public async Task From_1_3_0_hearing_impaired_syncs_in_place_next_to_a_plain_file()
+    {
+        if (!Enabled || !SubSyncVersion.HasProgressAndOutput(await InstalledAsync()))
+        {
+            return;
+        }
+
+        var (video, hiSubtitle) = Copy(".en.hi.srt");
+        var plain = CliWorker.CliOutputPath(video, "en.hi");
+        File.WriteAllText(plain, "someone else's subtitle");
+        var before = File.ReadAllText(hiSubtitle);
+        var stages = new List<WorkerProgress>();
+        var options = Options with { OnProgress = p => { lock (stages) { stages.Add(p); } } };
+
+        var result = await Worker().RunAsync(video, hiSubtitle, "en.hi", options, CancellationToken.None);
+
+        Assert.Equal(WorkerStatus.Synced, result.Status);
+        Assert.NotEqual(before, File.ReadAllText(hiSubtitle));
+        Assert.True(SubtitleVerifier.IsValidSrt(hiSubtitle, out _));
+        Assert.Equal("someone else's subtitle", File.ReadAllText(plain));
+        Assert.NotNull(result.Timings);
+        Assert.Contains(stages, p => p.Stage == SubSyncStage.Matching);
+        Assert.NotNull(SpeechRecognition.LastMode);
     }
 
     [Fact]

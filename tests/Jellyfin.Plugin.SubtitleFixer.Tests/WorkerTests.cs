@@ -277,6 +277,7 @@ public sealed class ProcessRunnerTests
     }
 }
 
+[Collection(RunTimeEstimateTests.Collection)]
 public sealed class SpeechRecognitionTests
 {
     [Theory]
