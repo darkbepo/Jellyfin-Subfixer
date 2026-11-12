@@ -14,6 +14,7 @@ public sealed class CliWorker : ISubSyncWorker
     private readonly ILogger<CliWorker> _logger;
     private readonly Func<string, CancellationToken, Task<Version?>> _version;
     private readonly RunProcess _run;
+    private readonly Func<string, IReadOnlyList<string>, string, IServeTransport> _serve;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CliWorker"/> class.
@@ -21,7 +22,7 @@ public sealed class CliWorker : ISubSyncWorker
     /// <param name="folder">Returns the configured SubSync folder (read on every run so settings apply at once).</param>
     /// <param name="logger">Logger.</param>
     public CliWorker(Func<string?> folder, ILogger<CliWorker> logger)
-        : this(folder, logger, SubSyncVersion.Shared.GetAsync, DefaultRun)
+        : this(folder, logger, SubSyncVersion.Shared.GetAsync, DefaultRun, (file, args, dir) => new ServeProcess(file, args, dir))
     {
     }
 
@@ -33,12 +34,14 @@ public sealed class CliWorker : ISubSyncWorker
     /// <param name="logger">Logger.</param>
     /// <param name="version">Returns the installed SubSync version for a CLI path, or null when unknown.</param>
     /// <param name="run">Runs the CLI.</param>
-    internal CliWorker(Func<string?> folder, ILogger<CliWorker> logger, Func<string, CancellationToken, Task<Version?>> version, RunProcess run)
+    /// <param name="serve">Creates the <c>serve</c> process (CLI path, arguments, working directory).</param>
+    internal CliWorker(Func<string?> folder, ILogger<CliWorker> logger, Func<string, CancellationToken, Task<Version?>> version, RunProcess run, Func<string, IReadOnlyList<string>, string, IServeTransport>? serve = null)
     {
         _folder = folder;
         _logger = logger;
         _version = version;
         _run = run;
+        _serve = serve ?? ((file, args, dir) => new ServeProcess(file, args, dir));
     }
 
     /// <summary>Runs the CLI once (see <see cref="ProcessRunner.RunAsync"/>).</summary>
@@ -98,6 +101,61 @@ public sealed class CliWorker : ISubSyncWorker
     /// <returns>The CLI's output path.</returns>
     public static string CliOutputPath(string videoPath, string languageTag) =>
         Path.Combine(Path.GetDirectoryName(videoPath) ?? string.Empty, Path.GetFileNameWithoutExtension(videoPath) + "." + CliSuffix(languageTag) + ".srt");
+
+    /// <summary>Builds the <c>serve</c> arguments: <c>serve --overwrite [--keep-layout] [--cpu]</c> (D45).</summary>
+    /// <param name="options">Options.</param>
+    /// <returns>Arguments.</returns>
+    public static IReadOnlyList<string> BuildServeArguments(WorkerOptions options)
+    {
+        var args = new List<string> { "serve", "--overwrite" };
+        if (!options.TidyUpLines)
+        {
+            args.Add("--keep-layout");
+        }
+
+        if (options.ForceCpu)
+        {
+            args.Add("--cpu");
+        }
+
+        return args;
+    }
+
+    /// <inheritdoc />
+    public async Task<SessionStart> StartSessionAsync(WorkerOptions options, CancellationToken cancellationToken)
+    {
+        var cli = CliPath();
+        if (cli is null || !File.Exists(cli))
+        {
+            return SessionStart.NotAvailable("SubSync is not configured");
+        }
+
+        var version = await _version(cli, cancellationToken).ConfigureAwait(false);
+        if (!SubSyncVersion.HasProgressAndOutput(version))
+        {
+            return SessionStart.NotAvailable($"SubSync {(version is null ? "of unknown version" : version.ToString(3))} has no serve command");
+        }
+
+        var tidy = options.TidyUpLines;
+        var cpu = options.ForceCpu;
+        bool Matches(WorkerOptions o) => o.TidyUpLines == tidy && o.ForceCpu == cpu && string.Equals(CliPath(), cli, StringComparison.OrdinalIgnoreCase);
+        var start = await ServeSession.StartAsync(
+            _serve(cli, BuildServeArguments(options), Path.GetDirectoryName(cli)!),
+            Matches,
+            options.Timeout,
+            _logger,
+            cancellationToken).ConfigureAwait(false);
+        if (start.Session is not null)
+        {
+            _logger.LogInformation("Subtitle Fixer started SubSync {Version} for the queue (serve)", start.Session.Version);
+        }
+        else if (start.Fallback)
+        {
+            _logger.LogWarning("Subtitle Fixer runs one SubSync per item for this queue run: {Reason}", start.Reason);
+        }
+
+        return start;
+    }
 
     /// <inheritdoc />
     public async Task<WorkerResult> RunAsync(string videoPath, string subtitlePath, string languageTag, WorkerOptions options, CancellationToken cancellationToken)

@@ -22,6 +22,12 @@ public sealed class FakeWorker : ISubSyncWorker
     public static WorkerResult Result(WorkerStatus status, string? reason = null) =>
         new(status, null, reason, "eng", 42, "1.2.0", status == WorkerStatus.Synced ? 0 : 4);
 
+    /// <summary>Gets or sets what <see cref="StartSessionAsync"/> does; null means no serve (one sync per item).</summary>
+    public Func<WorkerOptions, CancellationToken, Task<SessionStart>>? Sessions { get; set; }
+
+    public Task<SessionStart> StartSessionAsync(WorkerOptions options, CancellationToken cancellationToken) =>
+        Sessions?.Invoke(options, cancellationToken) ?? Task.FromResult(SessionStart.NotAvailable("fake worker"));
+
     public Task<WorkerResult> RunAsync(string videoPath, string subtitlePath, string languageTag, WorkerOptions options, CancellationToken cancellationToken)
     {
         Calls++;

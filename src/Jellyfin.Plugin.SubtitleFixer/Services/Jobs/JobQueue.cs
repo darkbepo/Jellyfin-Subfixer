@@ -249,6 +249,68 @@ public sealed class JobQueue : IDisposable
         }
     }
 
+    /// <summary>
+    /// Takes the next queued entry without waiting, for sending it to SubSync ahead of time (D45). Marks it running.
+    /// </summary>
+    /// <returns>The entry, or null when nothing is queued.</returns>
+    public RunningJob? TryTake()
+    {
+        lock (_lock)
+        {
+            var next = _entries.FirstOrDefault(e => e.Status == JobItemStatus.Queued);
+            if (next is null)
+            {
+                return null;
+            }
+
+            // Every queued entry has a permit (cancelled ones leave extra), so this one is there.
+            _work.Wait(0);
+            next.Status = JobItemStatus.Running;
+            next.StartedUtc = Now();
+            next.Cancel = new CancellationTokenSource();
+            Publish();
+            return new RunningJob(next.ToSnapshot(), next.Cancel.Token);
+        }
+    }
+
+    /// <summary>
+    /// Puts a running entry back at its place in the queue, untried: SubSync had to be stopped for another entry
+    /// (a cancel or a timeout, D45). An entry someone asked to cancel in the meantime is cancelled instead.
+    /// </summary>
+    /// <param name="jobId">Entry.</param>
+    /// <returns>True when it is queued again.</returns>
+    public bool Requeue(Guid jobId)
+    {
+        lock (_lock)
+        {
+            var entry = _entries.FirstOrDefault(e => e.JobId == jobId);
+            if (entry is null || entry.Status != JobItemStatus.Running)
+            {
+                return false;
+            }
+
+            entry.Cancel?.Dispose();
+            entry.Cancel = null;
+            entry.Stage = null;
+            entry.ExpectedSeconds = null;
+            entry.Percent = null;
+            entry.StartedUtc = null;
+            if (entry.CancelRequested)
+            {
+                entry.Status = JobItemStatus.Cancelled;
+                entry.Message = "Cancelled.";
+                entry.FinishedUtc = Now();
+                Publish();
+                return false;
+            }
+
+            entry.Status = JobItemStatus.Queued;
+            Publish();
+            _work.Release();
+            return true;
+        }
+    }
+
     /// <summary>Updates a running entry's stage and estimate. Ignored once the entry has finished.</summary>
     /// <param name="jobId">Entry.</param>
     /// <param name="stage">Stage code, or null to keep the current one (and its percent).</param>

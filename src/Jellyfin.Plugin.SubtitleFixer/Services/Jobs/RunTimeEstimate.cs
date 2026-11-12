@@ -44,8 +44,9 @@ public static class RunTimeEstimate
 
     /// <summary>Expected run for a video of this length, or null when the length is unknown.</summary>
     /// <param name="runtime">Video length.</param>
+    /// <param name="includeStartup">False for an item sent to a SubSync that is already running (<c>serve</c>, D45).</param>
     /// <returns>The estimate, or null.</returns>
-    public static RunEstimate? Expect(TimeSpan? runtime)
+    public static RunEstimate? Expect(TimeSpan? runtime, bool includeStartup = true)
     {
         if (runtime is not { } length || length <= TimeSpan.Zero)
         {
@@ -57,7 +58,7 @@ public static class RunTimeEstimate
         {
             if (_listenRatio is { } listenRatio)
             {
-                var startup = _startup ?? Overhead.TotalSeconds;
+                var startup = includeStartup ? _startup ?? Overhead.TotalSeconds : 0;
                 var listenStart = startup + ((_readRatio ?? 0) * seconds);
                 var listenEnd = listenStart + (listenRatio * seconds);
                 return new RunEstimate(Math.Round(listenEnd + (_match ?? 0)), listenStart, listenEnd);
@@ -65,7 +66,7 @@ public static class RunTimeEstimate
 
             var ratio = _legacyRatio ?? (SpeechRecognition.LastMode == "GPU" ? GpuRatio : CpuRatio);
             var work = seconds * ratio;
-            var start = Overhead.TotalSeconds;
+            var start = includeStartup ? Overhead.TotalSeconds : 0;
             return new RunEstimate(Math.Round(start + work), start + (work * DefaultReadShare), start + work);
         }
     }

@@ -24,7 +24,7 @@ Enforced on the server; the UI mirrors them. See `docs/API.md` for error codes.
 2. **Only episodes and movies reach the queue.** Season IDs expand to episodes. Series IDs and library IDs are rejected.
 3. **UI series lock.** Once anything is selected, items of other series cannot be selected until the selection is cleared (they stay visible and browsable, dimmed).
 4. **Caps** (configurable): `MaxEpisodesPerRequest` default 150, `MaxQueuedEpisodes` default 300. Skipped and ineligible episodes do not count.
-5. **One job at a time**; global queue.
+5. **One SubSync at a time**; global queue. With SubSync 1.3.0 that one process may hold the next item too, sent ahead while the current one listens (D45).
 6. **Never re-sync** an episode with a matching `done` record.
 7. **Never lose a subtitle**: backup, run, verify, swap, delete backup; restore on any failure (`docs/JOB-FLOW.md`).
 8. **Permissions**: `AllowedUsers` = `AllAuthenticated` (default) or `AdminOnly`. Admins are always allowed; everyone else only once SubSync is configured, so a fresh install is admin-only until set up (D10). Users only see what they can access in Jellyfin, within the libraries chosen in `AllowedLibraryIds` (D43). Bazarr search and download follow the same rule (D28).

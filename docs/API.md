@@ -56,7 +56,7 @@ Same request; validates exactly like Preview, then appends the eligible episodes
                "mine":true, "source":"manual|bazarr", "note":null, "seconds":71.2, "startedUtc":null } ] }
 ```
 - One global queue shared by everyone, visible to every allowed user. A second Start appends to it; it never starts a second SubSync.
-- `items` order: finished (oldest first), then running, then queued. Finished items stay for one minute after they end, or until the owner clears them sooner (`POST /Jobs/Clear`); failed and check ones are in the failed-syncs log by then (D44). The queue itself is in memory and empties on restart (D11). `stopReason` stays after its items expire, until the next Start.
+- `items` order: finished (oldest first), then running, then queued. With SubSync 1.3.0 up to two items are `running` at once: the item SubSync works on, and the next one sent ahead while it listens (D45, its stage `queued` until its turn). `current` is the older one. Finished items stay for one minute after they end, or until the owner clears them sooner (`POST /Jobs/Clear`); failed and check ones are in the failed-syncs log by then (D44). The queue itself is in memory and empties on restart (D11). `stopReason` stays after its items expire, until the next Start.
 - `mine` marks items the caller queued. For other users' items in a library the caller can't access, `itemId`, `seriesName` and `note` are null and `name` is "Episode in another library".
 - `skipped` means the episode was no longer eligible when its turn came (for example synced in the meantime); nothing was touched.
 - `source`/`note`: where the job came from; Bazarr downloads use `source:"bazarr"` and a note such as "downloaded from opensubtitlescom" (BAZARR-PLAN.md). Server code queues them with `JobQueue.Enqueue(userId, items, JobSource.Bazarr, note, MaxQueuedEpisodes)`.
@@ -66,7 +66,7 @@ Same request; validates exactly like Preview, then appends the eligible episodes
 - ETA = pending (queued + running) x average `seconds` of finished episodes; null until one has finished (the page then uses the running item's `expectedSeconds`). The page polls every 1 s while running and every 5 s when idle, and stops while the tab is hidden.
 
 ## POST /Jobs/Cancel
-Cancels the caller's own running and queued items; an administrator cancels all items. Returns the new Status. The running episode's subtitle is restored from its backup before it is marked `cancelled` (`state` is `stopping` meanwhile; `JOB-FLOW.md`).
+Cancels the caller's own running and queued items; an administrator cancels all items. Returns the new Status. The running episode's subtitle is restored from its backup before it is marked `cancelled` (`state` is `stopping` meanwhile; `JOB-FLOW.md`). With SubSync 1.3.0 a cancel ends the queue's SubSync process; another user's item that was in it goes back to the head of the queue and runs again (D45).
 
 ## POST /Jobs/Clear
 Removes the caller's finished items from the list (an administrator clears all). Returns the new Status.

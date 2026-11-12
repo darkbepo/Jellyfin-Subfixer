@@ -77,4 +77,15 @@ public interface ISubSyncWorker
     /// <param name="cancellationToken">Cancels the run (kills the process tree).</param>
     /// <returns>The result.</returns>
     Task<WorkerResult> RunAsync(string videoPath, string subtitlePath, string languageTag, WorkerOptions options, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Starts one SubSync that stays running for many items (<c>serve</c>, SubSync 1.3.0 and later; D45) and waits until
+    /// it accepts requests. <see cref="SessionStart.Fallback"/> means it isn't available, and the queue run uses
+    /// <see cref="RunAsync"/> per item instead; that is the default.
+    /// </summary>
+    /// <param name="options">Settings for every item of the session; <see cref="WorkerOptions.Timeout"/> bounds the wait for it.</param>
+    /// <param name="cancellationToken">Cancels the wait (and ends the process).</param>
+    /// <returns>The result.</returns>
+    Task<SessionStart> StartSessionAsync(WorkerOptions options, CancellationToken cancellationToken) =>
+        Task.FromResult(SessionStart.NotAvailable("this worker runs one SubSync per item"));
 }
