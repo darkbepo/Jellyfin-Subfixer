@@ -10,12 +10,17 @@
     var apiRoot = new URL('./', window.location.href).href;  // .../SubtitleFixer/
     var $ = function (id) { return document.getElementById(id); };
 
-    // What SubSync is doing for the running item (StatusItemDto.stage). It prints no percentage itself.
+    // What SubSync is doing for the running item (StatusItemDto.stage). Unknown stages read as "working".
     var STAGES = {
+        queued: 'starting',
         reading_audio: 'reading the audio',
         listening: 'listening to the dialogue',
-        matching: 'matching the lines'
+        matching: 'matching the lines',
+        waiting_for_file: 'waiting for the subtitle file to be free',
+        working: 'working'
     };
+    // The running item's highest share shown so far, so the bar never moves backwards (jobId -> 0..0.95).
+    var shownPart = { jobId: null, part: 0 };
     var MESSAGES = {
         subsync_unavailable: 'SubSync is not configured. Ask an administrator.',
         forbidden: 'An administrator has not allowed your account to use Subtitle Fixer.',
@@ -796,15 +801,21 @@
         var panel = $('queue-panel');
         panel.hidden = total === 0 && !s.stopReason && s.subsyncAvailable;
 
-        // SubSync reports no percentage, so the running item's share is elapsed time over the server's estimate (D40),
-        // held below 95% until it really finishes. Without an estimate the bar counts finished items only.
+        // The running item's share (D40): while SubSync 1.3.0 listens, the server's `percent` from SubSync's own
+        // percentage; otherwise elapsed time over the server's estimate. Held below 95% until it really finishes, and
+        // never moved backwards. Without either the bar counts finished items only.
         var currentPart = 0, currentPct = null;
         var cur = s.current;
         if (cur && cur.startedUtc) {
             var ran = Math.max(0, (Date.now() - new Date(cur.startedUtc).getTime()) / 1000);
-            if (cur.expectedSeconds) { currentPart = Math.min(0.95, ran / cur.expectedSeconds); }
-            if (cur.stage === 'matching') { currentPart = Math.max(currentPart, 0.95); }
-            if (cur.expectedSeconds || cur.stage === 'matching') { currentPct = Math.round(currentPart * 100); }
+            var known = false;
+            if (cur.percent != null) { currentPart = Math.min(0.95, cur.percent / 100); known = true; }
+            else if (cur.expectedSeconds) { currentPart = Math.min(0.95, ran / cur.expectedSeconds); known = true; }
+            if (cur.stage === 'matching') { currentPart = Math.max(currentPart, 0.95); known = true; }
+            if (shownPart.jobId !== cur.jobId) { shownPart = { jobId: cur.jobId, part: 0 }; }
+            currentPart = Math.max(currentPart, shownPart.part);
+            shownPart.part = currentPart;
+            if (known) { currentPct = Math.round(currentPart * 100); }
         }
 
         var bar = $('bar');

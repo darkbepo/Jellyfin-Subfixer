@@ -136,9 +136,11 @@ public sealed class SubSyncProbe
 }
 
 /// <summary>
-/// Remembers SubSync's "Speech recognition: GPU (…)" / "CPU (…)" line from the last real sync. `check` doesn't
-/// print it (verified live, S5), so this is the only reliable source, and it also catches a GPU server that
-/// silently fell back to CPU (for example under a service account, S6).
+/// Remembers GPU or CPU from the last real sync (D38). `check` doesn't say (verified live, S5), so a sync is the
+/// only reliable source, and it also catches a GPU server that silently fell back to CPU (for example under a service
+/// account, S6). SubSync 1.3.0 and later: the <c>device</c> progress event (live, latest wins), then the report's
+/// <c>speech_recognition</c>. Fallback: the "Speech recognition: GPU (…)" / "CPU (…)" line, the last one in the output,
+/// because SubSync prints it again when a GPU problem switches it to the CPU.
 /// </summary>
 public static class SpeechRecognition
 {
@@ -160,6 +162,28 @@ public static class SpeechRecognition
         {
             Volatile.Write(ref _lastLine, line);
         }
+    }
+
+    /// <summary>Forgets the last line (tests).</summary>
+    internal static void Reset() => Volatile.Write(ref _lastLine, null);
+
+    /// <summary>Remembers a device SubSync reported (<c>device</c> progress event or report <c>speech_recognition</c>).</summary>
+    /// <param name="device"><c>gpu</c> or <c>cpu</c>; anything else is ignored.</param>
+    /// <param name="name">Graphics card, or null.</param>
+    public static void ObserveDevice(string? device, string? name)
+    {
+        var mode = device?.ToLowerInvariant() switch
+        {
+            "gpu" => "GPU",
+            "cpu" => "CPU",
+            _ => null,
+        };
+        if (mode is null)
+        {
+            return;
+        }
+
+        Volatile.Write(ref _lastLine, string.IsNullOrWhiteSpace(name) ? mode : mode + " (" + name.Trim() + ")");
     }
 
     /// <summary>Reads GPU or CPU from output that contains the speech-recognition line.</summary>
@@ -188,15 +212,16 @@ public static class SpeechRecognition
             return null;
         }
 
+        string? last = null;
         foreach (var raw in output.Split('\n'))
         {
             var text = raw.Trim();
             if (text.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
             {
-                return text[Prefix.Length..].Trim();
+                last = text[Prefix.Length..].Trim();
             }
         }
 
-        return null;
+        return last;
     }
 }

@@ -43,17 +43,17 @@ public sealed class RunTimeEstimateLearningTests
     {
         RunTimeEstimate.Reset();
         var twentyTwo = TimeSpan.FromMinutes(22);
-        var guess = RunTimeEstimate.Expect(twentyTwo)!.Value;
+        var guess = RunTimeEstimate.Expect(twentyTwo)!.Total;
 
         // Measured on the test PC's CPU: a 22-minute episode in about 6.5 minutes.
         RunTimeEstimate.Record(twentyTwo, 390);
-        Assert.Equal(390, RunTimeEstimate.Expect(twentyTwo)!.Value, 0);
-        Assert.NotEqual(guess, RunTimeEstimate.Expect(twentyTwo));
+        Assert.Equal(390, RunTimeEstimate.Expect(twentyTwo)!.Total, 0);
+        Assert.NotEqual(guess, RunTimeEstimate.Expect(twentyTwo)!.Total);
 
         // Clips under a minute and runs without a time teach nothing.
         RunTimeEstimate.Record(TimeSpan.FromSeconds(30), 5000);
-        RunTimeEstimate.Record(twentyTwo, null);
-        Assert.Equal(390, RunTimeEstimate.Expect(twentyTwo)!.Value, 0);
+        RunTimeEstimate.Record(twentyTwo, (double?)null);
+        Assert.Equal(390, RunTimeEstimate.Expect(twentyTwo)!.Total, 0);
         RunTimeEstimate.Reset();
     }
 }

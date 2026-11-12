@@ -236,6 +236,14 @@
         return ran < 0.4 ? 'reading_audio' : ran < 2.2 ? 'listening' : 'matching';
     }
 
+    // Like SubSync 1.3.0: listening reports how much of the soundtrack has been heard, in steps.
+    function mockPercent(j) {
+        var ran = (Date.now() - new Date(j.startedUtc).getTime()) / 1000;
+        if (ran < 0.4 || ran >= 2.2) { return null; }
+        var heard = Math.floor((ran - 0.4) / 1.8 * 5) / 5;
+        return Math.round((0.15 + heard * 0.8) * 100);
+    }
+
     // Finished entries drop out of the list a minute after they end (D44).
     function prune() {
         var cutoff = Date.now() - 60000;
@@ -249,7 +257,8 @@
             var v = visible(j);
             return { jobId: j.jobId, itemId: v ? j.itemId : null, name: v ? j.name : 'Episode in another library', seriesName: v ? j.seriesName : null,
                 status: j.status, message: j.message, mine: j.userId === ME, source: j.source, note: v ? j.note : null, seconds: j.seconds, startedUtc: j.startedUtc,
-                stage: j.status === 'running' ? mockStage(j) : null, expectedSeconds: j.status === 'running' ? 3 : null };
+                stage: j.status === 'running' ? mockStage(j) : null, expectedSeconds: j.status === 'running' ? 3 : null,
+                percent: j.status === 'running' ? mockPercent(j) : null };
         };
         var order = queue.filter(function (j) { return ['queued', 'running'].indexOf(j.status) < 0; })
             .concat(queue.filter(function (j) { return j.status === 'running'; }))

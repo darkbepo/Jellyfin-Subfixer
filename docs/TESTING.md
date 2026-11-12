@@ -22,7 +22,9 @@ After each case the original subtitle must be byte-identical to before (except t
 | Success | new content, `.bak` deleted, record `done`, refresh requested |
 
 ## Real SubSync tests
-`RealSubSyncTests` run the real `subsync-cli.exe` through `CliWorker`: a normal sync, the HI move, the HI refusal, `no_match`, and cancel with no processes left. They do nothing unless `SUBFIXER_SUBSYNC_FOLDER` and `SUBFIXER_TEST_CLIP` are set (CI doesn't set them). `KillOnCloseJob` and `RunningWorkerFile` have their own process tests (Windows only).
+`RealSubSyncTests` run the real `subsync-cli.exe` through `CliWorker`: a normal sync, the HI move, the HI refusal (1.2.0 only), the HI in-place sync next to a plain file (1.3.0 and later only), `no_match`, and cancel with no processes left. They check the installed version themselves.
+
+`CliWorkerPlaybackTests` (any OS) run `CliWorker` against recorded SubSync output through a scripted process runner: 1.3.0 in place with `--output` and `--progress`, the 1.2.0 HI move and refusal, a GPU-to-CPU switch, a cached run, a cached `no_match`, and junk lines. `SubSyncVersionTests`, `SubSyncProgressTests`, `SubSyncReport13Tests`, `RunTimeEstimate13Tests` and `SubSyncStage13Tests` cover version detection and caching, the progress lines, both report versions, the estimate (cached runs, the 1% / 10 s rule, 1.3.0 learning, the listening percent) and the new `cli.log` lines. They do nothing unless `SUBFIXER_SUBSYNC_FOLDER` and `SUBFIXER_TEST_CLIP` are set (CI doesn't set them). `KillOnCloseJob` and `RunningWorkerFile` have their own process tests (Windows only).
 
 ## API tests
 Error codes in `API.md`; permissions (`AdminOnly`, `AllAuthenticated`); users cannot see inaccessible libraries; Status visible to allowed users.

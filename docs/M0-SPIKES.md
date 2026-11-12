@@ -108,10 +108,11 @@ On one real episode: `--pair`, `--overwrite`, `--suffix`, `--report` with spaces
 - **Paths:** the exact plugin command (`sync --pair V S --overwrite --suffix en --report R`) works with spaces and non-ASCII in the paths. The result overwrites `<video>.en.srt` in place.
   - The result takes the **video's** letter case for its name (`S01e01 … Webdl-1080P.en.srt` replaced `S01E01 … WEBDL-1080p.en.srt`). Harmless on Windows.
 - **Report:** `{ subsync_version, finished, exit_code, seconds, summary, items: [ { video, subtitle, status, output, reason, audio_language, seconds, lines_matched, … } ] }`. `SubSyncReport.Parse` reads it as is.
+- **Report layout confirmed (2026-11-12, from SubSync 1.3.0's `app/cli.py` `write_report`):** the same top-level object with `items`. 1.3.0 adds top-level `speech_recognition` (`{ device: gpu|cpu, name, model_load_seconds }`, or `null` when nothing was listened to) and, per synced item, `timings` (`{ from_cache, read_audio, listen, match }`, `read_audio`/`listen` null when `from_cache`). `no_match` items have neither `seconds` nor `timings`. `subsync_version` is `"1.3.0"`. `SubSyncReport.Parse` reads both versions; the tolerant handling of other layouts stays. Not yet seen live with 1.3.0.
 - **Outcomes:**
   - Synced: exit 0, `status: synced`.
   - Wrong subtitle: exit 4, `status: no_match`, nothing written.
-- **`--suffix`** accepts only `en`, `eng`, `.en` or `.eng`. `en.hi` gives exit 6 ("invalid choice"). Hearing-impaired files therefore run with the plain tag, and `CliWorker` moves the result over the `.hi` file (D27). It refuses to run if a plain `.en.srt` already exists.
+- **`--suffix`** accepts only `en`, `eng`, `.en` or `.eng`. `en.hi` gives exit 6 ("invalid choice"). With 1.2.0, hearing-impaired files therefore run with the plain tag, and `CliWorker` moves the result over the `.hi` file (D27). It refuses to run if a plain `.en.srt` already exists. From 1.3.0, `--output` writes the `.hi` file in place instead (from SubSync's docs and code; owner's live check pending).
 - **Timing (CPU, i7-13850HX):**
   - A 6-minute clip took 96 s.
   - A 22-minute episode takes about 6.5 minutes.

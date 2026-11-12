@@ -72,6 +72,7 @@ public sealed record JobRequestItem(Guid ItemId, string Name, string SeriesName)
 /// <param name="Seconds">SubSync seconds, when it ran.</param>
 /// <param name="Stage">While running: the stage SubSync last reported (<c>SubSyncStage</c> codes).</param>
 /// <param name="ExpectedSeconds">While running: the estimated total time, for the progress bar (D40).</param>
+/// <param name="Percent">While running and SubSync says how far it has listened (1.3.0): the item's share of the bar, 0 to 95.</param>
 public sealed record JobItemSnapshot(
     Guid JobId,
     Guid ItemId,
@@ -87,7 +88,8 @@ public sealed record JobItemSnapshot(
     DateTime? FinishedUtc,
     double? Seconds,
     string? Stage = null,
-    double? ExpectedSeconds = null);
+    double? ExpectedSeconds = null,
+    int? Percent = null);
 
 /// <summary>Immutable view of the whole queue.</summary>
 /// <param name="State">State.</param>
@@ -249,9 +251,10 @@ public sealed class JobQueue : IDisposable
 
     /// <summary>Updates a running entry's stage and estimate. Ignored once the entry has finished.</summary>
     /// <param name="jobId">Entry.</param>
-    /// <param name="stage">Stage code, or null to keep the current one.</param>
+    /// <param name="stage">Stage code, or null to keep the current one (and its percent).</param>
     /// <param name="expectedSeconds">Estimated total seconds, or null to keep the current one.</param>
-    public void SetProgress(Guid jobId, string? stage, double? expectedSeconds)
+    /// <param name="percent">With a stage: the item's share of the bar for it, or null when only time tells (D40).</param>
+    public void SetProgress(Guid jobId, string? stage, double? expectedSeconds, int? percent = null)
     {
         lock (_lock)
         {
@@ -261,9 +264,14 @@ public sealed class JobQueue : IDisposable
                 return;
             }
 
-            if ((stage is null || stage == entry.Stage) && (expectedSeconds is null || expectedSeconds == entry.ExpectedSeconds))
+            if ((stage is null || (stage == entry.Stage && percent == entry.Percent)) && (expectedSeconds is null || expectedSeconds == entry.ExpectedSeconds))
             {
                 return;
+            }
+
+            if (stage is not null)
+            {
+                entry.Percent = percent;
             }
 
             entry.Stage = stage ?? entry.Stage;
@@ -446,6 +454,8 @@ public sealed class JobQueue : IDisposable
 
         public double? ExpectedSeconds { get; set; }
 
+        public int? Percent { get; set; }
+
         public bool CancelRequested { get; set; }
 
         public CancellationTokenSource? Cancel { get; set; }
@@ -455,6 +465,7 @@ public sealed class JobQueue : IDisposable
         public JobItemSnapshot ToSnapshot() =>
             new(JobId, ItemId, Name, SeriesName, UserId, Source, Note, Status, Message, QueuedUtc, StartedUtc, FinishedUtc, Seconds,
                 Status == JobItemStatus.Running ? Stage : null,
-                Status == JobItemStatus.Running ? ExpectedSeconds : null);
+                Status == JobItemStatus.Running ? ExpectedSeconds : null,
+                Status == JobItemStatus.Running ? Percent : null);
     }
 }

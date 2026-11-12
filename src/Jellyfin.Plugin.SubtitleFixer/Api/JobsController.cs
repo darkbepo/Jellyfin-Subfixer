@@ -32,6 +32,7 @@ public sealed record JobsAcceptedDto(int Queued, int Skipped, int QueueLength);
 /// <param name="StartedUtc">When it started.</param>
 /// <param name="Stage">While running: reading_audio, listening or matching, once SubSync reports it.</param>
 /// <param name="ExpectedSeconds">While running: estimated total seconds, or null when the video length is unknown (D40).</param>
+/// <param name="Percent">While running: the item's progress from SubSync's own listening percentage (SubSync 1.3.0 and later), 0 to 95, or null.</param>
 public sealed record StatusItemDto(
     Guid JobId,
     Guid? ItemId,
@@ -45,7 +46,8 @@ public sealed record StatusItemDto(
     double? Seconds,
     DateTime? StartedUtc,
     string? Stage = null,
-    double? ExpectedSeconds = null);
+    double? ExpectedSeconds = null,
+    int? Percent = null);
 
 /// <summary>Counts by status.</summary>
 /// <param name="Queued">Queued.</param>
@@ -367,7 +369,8 @@ public sealed class JobsController : ControllerBase
                 i.Seconds,
                 i.StartedUtc,
                 i.Stage,
-                i.ExpectedSeconds);
+                i.ExpectedSeconds,
+                i.Percent);
         }
 
         var items = snapshot.Items.Select(Map).ToList();

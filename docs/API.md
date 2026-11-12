@@ -47,7 +47,7 @@ Same request; validates exactly like Preview, then appends the eligible episodes
 { "state":"idle|running|stopping", "subsyncAvailable":true, "stopReason":null,
   "current": { "jobId":"...", "itemId":"...", "name":"S01E04 Title", "seriesName":"Show", "status":"running",
                "message":null, "mine":true, "source":"manual", "note":null, "seconds":null, "startedUtc":"...",
-               "stage":"listening", "expectedSeconds":448 },
+               "stage":"listening", "expectedSeconds":448, "percent":41 },
   "totals": { "queued":35, "running":1, "done":3, "check":0, "failed":0, "cancelled":0, "skipped":0 },
   "etaSeconds": 2100,
   "aheadOfYours": 0,
@@ -62,7 +62,7 @@ Same request; validates exactly like Preview, then appends the eligible episodes
 - `source`/`note`: where the job came from; Bazarr downloads use `source:"bazarr"` and a note such as "downloaded from opensubtitlescom" (BAZARR-PLAN.md). Server code queues them with `JobQueue.Enqueue(userId, items, JobSource.Bazarr, note, MaxQueuedEpisodes)`.
 - `stopReason` is set when the queue stopped by itself (SubSync exit 7, or 3 consecutive crashes); the remaining queued items are then `cancelled` with that reason. Cleared by the next successful Start.
 - `aheadOfYours`: pending items in front of the caller's first pending one; null when the caller has none.
-- `stage` and `expectedSeconds` are set only on the running item. `stage` is what SubSync last reported (`reading_audio`, `listening` or `matching`; null until its first line). `expectedSeconds` is the server's estimate of the whole run (D40): the video's length times a speed ratio learned from finished runs on this server, or null when Jellyfin has no runtime. SubSync prints no percentage, so the page draws the running item's share of the bar from elapsed time over `expectedSeconds`, held below 95% until it finishes.
+- `stage`, `expectedSeconds` and `percent` are set only on the running item. `stage` is what SubSync last reported (`queued`, `reading_audio`, `listening`, `matching`, `waiting_for_file`, or `working` for a stage this plugin doesn't know; null until its first report; SubSync 1.2.0 reports only the middle three). `expectedSeconds` is the server's estimate of the whole run (D40): start-up plus the video's length times a speed ratio learned from finished runs on this server, or null when Jellyfin has no runtime. `percent` (0 to 95) is the running item's share of the bar while SubSync 1.3.0 listens and reports how much of the soundtrack it has heard: listening's expected slice of the run, filled by SubSync's own percentage. It is null otherwise, and then the page draws the share from elapsed time over `expectedSeconds`. Either way the share stays below 95% until the item finishes, and the page never moves it backwards.
 - ETA = pending (queued + running) x average `seconds` of finished episodes; null until one has finished (the page then uses the running item's `expectedSeconds`). The page polls every 1 s while running and every 5 s when idle, and stops while the tab is hidden.
 
 ## POST /Jobs/Cancel
@@ -89,7 +89,7 @@ Empties the log. Admin only (`403 forbidden` otherwise). Returns `{ "totalCount"
 
 ## Admin
 - `GET /Admin/Libraries` -> `[ { "id":"...", "name":"TV Shows", "libraryType":"tvshows|movies", "allowed":true } ]`: every TV and movie library the admin can see, ignoring the `AllowedLibraryIds` setting, for the settings page (D43). `allowed` is the current setting (all true when none are chosen).
-- `POST /Admin/TestSubSync` -> `{ "ok":true, "version":"1.2.0", "mode":"GPU|CPU|unknown", "message":"..." }`
+- `POST /Admin/TestSubSync` -> `{ "ok":true, "version":"SubSync 1.3.0", "mode":"GPU|CPU|unknown", "message":"..." }`
 - `POST /Admin/TestBazarr` with `{ "url":"...", "apiKey":"...", "pathMappings":"..." }` (unsaved form values; an empty `url` or `apiKey`, or a null `pathMappings`, uses the saved setting; the saved key is only sent to the saved address, so testing another address needs the key typed in) -> always `200 { "ok":true, "version":"1.5.3", "message":"...", "pathMappingErrors":["Line 2: ..."], "warnings":["..."] }`; `warnings` says when Bazarr's own sync is on or its setting can't be read (BAZARR-PLAN.md, owner decision 3). Calls Bazarr's `GET /api/system/status` server-side. Works whether or not `BazarrEnabled` is on. The response never contains the API key.
 
 ## Bazarr (Find subtitles, BAZARR-PLAN.md)

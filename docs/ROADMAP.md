@@ -63,3 +63,14 @@ Acceptance: all settings take effect; non-admin and admin paths verified.
 - [ ] Owner: the `M0-LIVE-CHECKS.md` "Libraries setting, auto-clear and failed-syncs log" checks on the real server.
 Acceptance: the items above work against the real server; a user can't browse, search, queue or retry anything outside the chosen libraries through the API.
 
+## M7 SubSync 1.3.0 (2026-11-12)
+Phase 1: use 1.3.0 with one SubSync process per episode (D5 unchanged), and keep 1.2.0 working.
+- [x] Version detection: `subsync-cli version`, cached per CLI path, size and modification time; unreadable counts as 1.2.0.
+- [x] `--output <subtitle> --overwrite` from 1.3.0: every name re-timed in place, no `.hi` workaround (D27). The 1.2.0 path is unchanged.
+- [x] `--progress` from 1.3.0: stage, listening percent mapped into the bar (`percent` in `/Status`), GPU/CPU from `device` events (D38, D40). No `LogTail` then.
+- [x] Report: optional `speech_recognition` and `timings`; layout confirmed (S5).
+- [x] Estimate: cached runs are skipped (1.3.0 `from_cache`; 1.2.0 runs under 1% of the video's length or under 10 s); 1.3.0 learns start-up, reading, listening and matching (D40). Fixes a Retry or no-match re-sync dragging the estimate down, on 1.2.0 too.
+- Tested 2026-11-12 on Linux: build clean, 412 tests, including recorded-output playback of `CliWorker` for both versions, and the page in mock mode in headless Chromium (bar follows `percent`, never moves backwards). Windows-only process tests and the real CLI were not run.
+- [ ] Owner, on the real server with SubSync 1.3.0: a `.en.hi.srt` episode syncs in place; the bar follows SubSync's real percentage; GPU shows on the settings page; a Retry of a no-match item doesn't throw off the estimate. Optionally `RealSubSyncTests` with `SUBFIXER_SUBSYNC_FOLDER` and `SUBFIXER_TEST_CLIP`.
+
+Phase 2 (`subsync-cli serve`, one process per queue run, replacing D5): to be proposed as a new decision; not started.

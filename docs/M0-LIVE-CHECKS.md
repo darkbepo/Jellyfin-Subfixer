@@ -99,3 +99,12 @@ On the settings page, turn off one TV library (leave at least one on) and save.
 - A season from the turned-off library can't be queued: `POST /SubtitleFixer/Jobs` with its id returns `404 not_found` or `400`.
 - Turn every library back on and save: the settings page shows all switches on and search finds everything again.
 - Start one episode. About a minute after it finishes, it leaves the queue list. If it ended failed or check, it's in the Failed syncs panel, and still there after restarting Jellyfin. Retry puts it back in the queue.
+
+### SubSync 1.3.0, Phase 1 (M7)
+Install SubSync 1.3.0 over 1.2.0 (same folder), then on the settings page press Test SubSync: it shows `SubSync 1.3.0`.
+**Record:**
+- A `.en.hi.srt` episode (put a copy of some other subtitle next to it as `.en.srt`) syncs in place: the `.en.hi.srt` changes, the `.en.srt` is byte-identical, no `.bak` is left.
+- During a long episode the bar moves in steps while SubSync listens, never backwards, and the line shows a percentage from the start.
+- After that sync, Test SubSync says "Last sync: GPU (<card>)".
+- Retry a no-match item from the Failed syncs panel (it finishes in seconds from SubSync's cache), then start a fresh episode: its first estimate (`expectedSeconds` in `/SubtitleFixer/Status`, or the "about N min left" line) is still about as long as a real run, not a few seconds.
+- SubSync's `logs\cli.log` for one run: the `speech model ready after …` and `read audio … total …` lines, and the per-item seconds in the Jellyfin log.

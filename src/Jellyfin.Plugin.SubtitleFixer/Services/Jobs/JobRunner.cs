@@ -62,9 +62,12 @@ public sealed class JobRunner
     /// <summary>Runs one entry.</summary>
     /// <param name="job">Entry.</param>
     /// <param name="cancellationToken">Cancels this entry.</param>
-    /// <param name="progress">Told the estimated total seconds once SubSync is about to start, then each stage it reports.</param>
+    /// <param name="progress">
+    /// Told (stage, item percent, expected seconds): first the estimated total once SubSync is about to start, then each
+    /// stage it reports, with the item's share of the bar while SubSync says how far listening is (D40).
+    /// </param>
     /// <returns>The outcome.</returns>
-    public async Task<RunOutcome> RunAsync(JobItemSnapshot job, CancellationToken cancellationToken, Action<string?, double?>? progress = null)
+    public async Task<RunOutcome> RunAsync(JobItemSnapshot job, CancellationToken cancellationToken, Action<string?, int?, double?>? progress = null)
     {
         // 1. Re-validate: state may have changed since queuing.
         var facts = _library.GetVideo(job.UserId, job.ItemId);
@@ -116,15 +119,17 @@ public sealed class JobRunner
             var options = WithTimeLimit(_options(), facts.Runtime);
             if (progress is not null)
             {
-                progress(null, RunTimeEstimate.Expect(facts.Runtime));
-                options = options with { OnStage = stage => progress(stage, null) };
+                var estimate = RunTimeEstimate.Expect(facts.Runtime);
+                progress(null, null, estimate?.Total);
+                options = options with { OnProgress = p => progress(p.Stage, RunTimeEstimate.Percent(estimate, p.Stage, p.Percent), null) };
             }
 
             var result = await _worker.RunAsync(video.Path, sidecar.Path, sidecar.LanguageTag, options, cancellationToken).ConfigureAwait(false);
             if (result.Status is WorkerStatus.Synced or WorkerStatus.NoMatch)
             {
-                // Both listened to the whole soundtrack, so both say how fast this server is.
-                RunTimeEstimate.Record(facts.Runtime, result.Seconds);
+                // Both listened to the whole soundtrack, so both say how fast this server is, unless the transcript
+                // came from SubSync's cache (RunTimeEstimate.Record skips those).
+                RunTimeEstimate.Record(facts.Runtime, result);
             }
 
             return await FinishAsync(job, video, sidecar, backup, result).ConfigureAwait(false);
