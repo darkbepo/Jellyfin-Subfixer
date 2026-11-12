@@ -105,6 +105,42 @@ public sealed class BrowseCardsTests : IDisposable
     }
 
     [Fact]
+    public async Task Untagged_audio_is_still_not_eligible_but_says_it_is_untagged()
+    {
+        var series = _library.AddSeries("Tags");
+        var season = _library.AddSeason(series, 1);
+        _dir.File("U1.en.srt");
+        _dir.File("U2.en.srt");
+        _dir.File("U3.en.srt");
+        _library.AddEpisode(season, 1, _dir.File("U1.mkv"), "und");
+        _library.AddEpisode(season, 2, _dir.File("U2.mkv"), (string?)null);
+        _library.AddEpisode(season, 3, _dir.File("U3.mkv"), "ger");
+
+        var rows = (await Service().BrowseAsync(_user, season.Id, 0, 50, CancellationToken.None))!.Items;
+
+        Assert.All(rows, r => Assert.Equal("no_english_audio", r.Reason));
+        Assert.Equal(new bool?[] { true, true, false }, rows.Select(r => r.AudioUntagged));
+    }
+
+    [Fact]
+    public async Task A_hearing_impaired_subtitle_on_disk_is_flagged_also_when_synced()
+    {
+        var series = _library.AddSeries("HI");
+        var season = _library.AddSeason(series, 1);
+        _dir.File("H1.en.hi.srt");
+        _dir.File("H2.en.srt");
+        var synced = _library.AddEpisode(season, 1, _dir.File("H1.mkv"), "eng");
+        _library.AddEpisode(season, 2, _dir.File("H2.mkv"), "eng");
+        _state.Records[synced.Node.Id] = Records.For(synced.Node.Id, synced.VideoPath!, State.SyncStatus.Done);
+
+        var rows = (await Service().BrowseAsync(_user, season.Id, 0, 50, CancellationToken.None))!.Items;
+
+        Assert.Equal("already_synced", rows[0].Reason);
+        Assert.True(rows[0].SubtitleHi);
+        Assert.False(rows[1].SubtitleHi);
+    }
+
+    [Fact]
     public async Task A_season_counts_its_episodes_without_an_English_subtitle()
     {
         var series = _library.AddSeries("Counted");

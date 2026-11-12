@@ -38,6 +38,8 @@
         var n = i + 1;
         var facts = n % 6 === 0 ? { state: 'done' } : n % 7 === 0 ? { state: 'no_sidecar' } : n % 9 === 0 ? { state: 'no_english_audio' } :
             n === 11 ? { state: 'check', message: 'Matched only 6 lines; is this the subtitle for this video?' } : { state: 'ok' };
+        if (n === 9) { facts.untagged = true; }  // audio tagged "und" (D48)
+        if (n % 5 === 0) { facts.hi = true; }    // the English subtitle on disk is .en.hi.srt (D48)
         add({ id: 'mov-' + n, name: t, type: 'Movie', productionYear: 1995 + (n * 7) % 30, facts: facts }, 'lib-movies');
     });
 
@@ -140,6 +142,8 @@
         if (node.type === 'Episode' || node.type === 'Movie') {
             var ev = evaluate(node);
             r.status = ev.status; r.eligible = ev.eligible; r.reason = ev.reason; r.message = ev.message;
+            r.audioUntagged = ev.reason === 'no_english_audio' && !!node.facts.untagged;
+            r.subtitleHi = ev.reason !== 'no_sidecar' && !!node.facts.hi;
         }
         return r;
     }
@@ -423,12 +427,14 @@
             var results = params.get('bazarr') === 'none' ? [] : [
                 hit(97, false, 'opensubtitlescom', [base + '.1080p.BluRay.x264-GROUP', base + '.1080p.BluRay.x264-OTHER', base + '.720p.BluRay.x264-GROUP'], 'subsmaster', ['title', 'year', 'source', 'resolution', 'release_group'], []),
                 hit(91, true, 'yifysubtitles', [base + '.1080p.BluRay.H264.AAC-RARBG'], 'FUNKSW', ['title', 'year', 'source'], ['release_group', 'streaming_service']),
+                hit(88, false, 'opensubtitlescom', [base + '.1080p.BluRay.x264-GROUP'], 'danskesubs', ['title', 'year', 'source'], ['release_group'], 'da'),
                 hit(84, false, 'podnapisi', [base + '.WEB-DL.DDP5.1.H.264-NTb'], null, ['title', 'year'], ['source', 'release_group']),
+                hit(79, true, 'podnapisi', [base + '.WEB-DL.DDP5.1.H.264-NTb'], null, ['title', 'year'], ['source'], 'da'),
                 hit(66, false, 'embeddedsubtitles', [base], null, ['title'], ['source', 'resolution', 'video_codec', 'release_group'])
             ];
             return ok({ itemId: target.id, kind: target.type === 'Movie' ? 'movie' : 'episode',
                 resource: (target.type === 'Movie' ? 'D:\\Movies\\' : '/tv/Show/Season 01/') + base + '.mkv',
-                matchedBy: 'path', results: results, hidden: 3 });
+                matchedBy: 'path', results: results, hidden: 1 });
         }
         if (p === 'Bazarr/Download') {
             var dl = body && items[body.itemId];
@@ -438,6 +444,11 @@
             if (evaluate(dl).reason !== 'no_sidecar') { return err('has_subtitle', 409, 'This item already has an English subtitle. Re-time it instead.'); }
             if (params.get('bazarr') === 'dlfail') {
                 return err('download_failed', 502, 'Bazarr didn’t save a usable English subtitle within 120 seconds. Check Bazarr’s System > Logs: the provider may have throttled it.');
+            }
+            if (picked.language !== 'en') {
+                // Another language is kept as Bazarr saved it and never re-timed (D48).
+                var other = (dl.type === 'Movie' ? dl.name : 'S01E' + pad(dl.indexNumber || 1)) + '.' + picked.language + (picked.hearingImpaired ? '.hi' : '') + '.srt';
+                return ok({ queued: false, subtitle: other, message: 'Downloaded ' + other + ' from ' + picked.provider + '. Subtitle Fixer only re-times English subtitles, so this one stays as it is.' });
             }
             // The item now has a subtitle, so it re-times like any other.
             dl.facts = { state: 'ok' };
@@ -455,11 +466,12 @@
     var hitSeq = 0;
     var bazarrHits = {}; // result id -> { itemId, provider, hearingImpaired }
     var searchFor = null;
-    function hit(score, hi, provider, releases, uploader, matches, dontMatches) {
+    function hit(score, hi, provider, releases, uploader, matches, dontMatches, language) {
         var id = 'mock-' + (++hitSeq);
-        bazarrHits[id] = { itemId: searchFor, provider: provider, hearingImpaired: hi };
-        return { id: id, score: score, language: hi ? 'EN:HI' : 'EN', hearingImpaired: hi, provider: provider,
-            releases: releases, uploader: uploader, matches: matches, dontMatches: dontMatches };
+        var code = language || 'en';
+        bazarrHits[id] = { itemId: searchFor, provider: provider, hearingImpaired: hi, language: code };
+        return { id: id, score: score, language: code.toUpperCase() + (hi ? ':HI' : ''), hearingImpaired: hi, provider: provider,
+            releases: releases, uploader: uploader, matches: matches, dontMatches: dontMatches, languageCode: code, english: code === 'en' };
     }
 
     function pad(n) { return n < 10 ? '0' + n : String(n); }

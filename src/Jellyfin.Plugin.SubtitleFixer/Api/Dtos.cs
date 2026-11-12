@@ -107,6 +107,12 @@ public sealed record ItemDto
 
     /// <summary>Gets the message of the last attempt.</summary>
     public string? Message { get; init; }
+
+    /// <summary>Gets whether no audio track says its language (<c>und</c> or empty), for <c>no_english_audio</c> items (D48).</summary>
+    public bool? AudioUntagged { get; init; }
+
+    /// <summary>Gets whether the item's English subtitle on disk is hearing-impaired (<c>.en.hi.srt</c> or <c>.eng.hi.srt</c>; D48).</summary>
+    public bool? SubtitleHi { get; init; }
 }
 
 /// <summary><c>GET /Browse</c> and <c>GET /Search</c>.</summary>

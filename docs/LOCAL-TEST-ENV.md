@@ -20,6 +20,7 @@ Read a key in PowerShell without printing others:
 - **Bazarr:**
   - Bound to `127.0.0.1`, no login (`auth.type: null`).
   - Connected to Radarr (Sonarr off). Language profile 1 "English" (en, not HI, not forced), set as the movie default and assigned to the movie.
+  - **2026-11-12 (D48):** Danish enabled and added to profile 1 (now `en`, `da`; normal or HI, always), so Find subtitles shows Danish results: 22 Jump Street gets 8 `da` and 35 `en` from Bazarr. **Download Only Monitored** turned on for Radarr and Sonarr, so Bazarr's 6-hourly wanted search doesn't fetch Danish (or anything) on its own for the unmonitored test movie; "Sync Only Monitored" stays off, so unmonitored movies stay in Bazarr and can be searched. **Live Danish Get (2026-11-12):** with 22 Jump Street's `.en.srt` moved aside (owner allowed it), the page's Find subtitles showed 43 results (8 DA, 35 EN), "Show only DA" left 8, and Get on the 91% one saved `22 Jump Street (2014) Bluray-1080p.da.srt` (106 KB, valid Danish SRT) in about 16 s with "Subtitle Fixer only re-times English subtitles", nothing queued. A second Danish Get was refused with `409` and the file was untouched. Afterwards the `.en.srt` was put back (same hash) and the test `.da.srt` removed.
   - Providers that need no account: embeddedsubtitles, podnapisi, yifysubtitles. Analytics off.
   - Bazarr's own subtitle sync (`subsync.use_subsync`) is **off**, so downloads are not synced twice (BAZARR-PLAN.md, conflict 3).
   - The config before these changes is at `config.yaml.before-setup`.

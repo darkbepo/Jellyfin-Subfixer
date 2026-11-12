@@ -163,12 +163,17 @@ public sealed class BrowseService
         {
             records.TryGetValue(episode.Node.Id, out var record);
             var evaluation = EligibilityService.Evaluate(episode, record);
+
+            // The subtitle on disk, also for items that aren't eligible (synced, no English audio), for the HI badge.
+            var sidecar = evaluation.Sidecar ?? (evaluation.Video is { } v && evaluation.Reason != IneligibleReason.NoSidecar ? EligibilityService.FindSidecar(v.Path) : null);
             return Plain(episode.Node) with
             {
                 Status = EligibilityService.StatusCode(evaluation.Status),
                 Eligible = evaluation.IsEligible,
                 Reason = EligibilityService.ReasonCode(evaluation.Reason),
                 Message = evaluation.Message,
+                AudioUntagged = evaluation.Reason == IneligibleReason.NoEnglishAudio && EligibilityService.IsUntagged(episode.AudioLanguages),
+                SubtitleHi = sidecar?.LanguageTag.EndsWith(".hi", StringComparison.OrdinalIgnoreCase),
             };
         }).ToList();
     }

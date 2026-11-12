@@ -54,12 +54,14 @@
     // not eligible, show already synced (greyed out). Browser storage may be blocked; then the defaults apply.
     var VIEW_KEY = 'subtitle-fixer-view';
     var prefs = (function () {
-        var p = { layout: 'cards', hideIneligible: true, hideSynced: false };
+        var p = { layout: 'cards', hideIneligible: true, hideSynced: false, findLang: '', findHideHi: false };
         try {
             var saved = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}') || {};
             if (saved.layout === 'list' || saved.layout === 'cards') { p.layout = saved.layout; }
             if (typeof saved.hideIneligible === 'boolean') { p.hideIneligible = saved.hideIneligible; }
             if (typeof saved.hideSynced === 'boolean') { p.hideSynced = saved.hideSynced; }
+            if (typeof saved.findLang === 'string') { p.findLang = saved.findLang.slice(0, 40); }
+            if (typeof saved.findHideHi === 'boolean') { p.findHideHi = saved.findHideHi; }
         } catch (e) { /* defaults */ }
         return p;
     })();
@@ -510,7 +512,7 @@
                 var pending = inQueue && (inQueue.status === 'queued' || inQueue.status === 'running');
                 box.checked = selected.has(item.id);
                 box.disabled = dim || !item.eligible || !!pending;
-                if (!item.eligible) { box.title = 'Not eligible: ' + (REASONS[item.reason] || item.reason); }
+                if (!item.eligible) { box.title = 'Not eligible: ' + reasonText(item); }
                 if (pending) { box.title = 'Already in the queue'; }
             } else {
                 applySeasonBox(box, item);
@@ -608,7 +610,7 @@
             var pending = inQueue && (inQueue.status === 'queued' || inQueue.status === 'running');
             box.checked = selected.has(item.id);
             box.disabled = dim || !item.eligible || !!pending;
-            if (!item.eligible) { box.title = 'Not eligible: ' + (REASONS[item.reason] || item.reason); }
+            if (!item.eligible) { box.title = 'Not eligible: ' + reasonText(item); }
             if (pending) { box.title = 'Already in the queue'; }
             if (dim) { box.title = lockTip; }
             box.addEventListener('change', function () { toggle(item, box.checked); });
@@ -688,6 +690,18 @@
         }
     }
 
+    // Untagged audio (und or empty) may well be English, but the file doesn't say so (D48).
+    function reasonText(item) {
+        if (item.reason === 'no_english_audio' && item.audioUntagged) { return 'audio language not tagged'; }
+        return REASONS[item.reason] || item.reason;
+    }
+    function reasonTip(item) {
+        if (item.reason === 'no_english_audio' && item.audioUntagged) {
+            return 'The audio track doesn’t say which language it is. Tag it as English (for example with MKVToolNix) and rescan the item.';
+        }
+        return REASONS[item.reason];
+    }
+
     function badge(cls, text, title) {
         var b = el('span', 'badge ' + cls, text);
         if (title) { b.title = title; }
@@ -707,8 +721,9 @@
         if (job && job.status === 'done') { return out; }
         if (item.status === 'done') { out.push(badge('synced', 'Already synced', 'Re-timed before; it runs again only if the video file changes')); }
         else if (canFind(item)) { out.push(badge('', 'No English subtitle', 'Not eligible for re-timing: ' + REASONS.no_sidecar)); }
-        else if (!item.eligible) { out.push(badge('', 'Not eligible: ' + (REASONS[item.reason] || item.reason), REASONS[item.reason])); }
+        else if (!item.eligible) { out.push(badge('', 'Not eligible: ' + reasonText(item), reasonTip(item))); }
         else if (item.status === 'attempted') { out.push(badge('attempted', 'Previously attempted', item.message)); }
+        if (item.subtitleHi) { out.push(badge('hi', 'HI', 'The English subtitle is for the hearing impaired (.hi.srt): it includes sound descriptions')); }
         return out;
     }
 
@@ -730,19 +745,45 @@
         dlg.returnTo = item.id;
         if (!dlg.open) { dlg.showModal(); }
 
+        findState = { item: item, results: null };
+        $('find-lang').value = prefs.findLang;
+        $('find-hide-hi').checked = prefs.findHideHi;
         api('GET', 'Bazarr/Search?itemId=' + encodeURIComponent(item.id)).then(function (r) {
             if (seq !== findSeq || !dlg.open) { return; }
-            renderHits(r.results, item);
-            if (!r.results.length) {
-                setFindStatus('empty', 'No English subtitles found.');
-            } else {
-                setFindStatus('', plural(r.results.length, 'subtitle', 'subtitles') + ' found, best match first.');
-                dlg.classList.add('has-hits');
-            }
+            findState.results = r.results;
+            applyFindFilters();
         }, function (err) {
             if (seq !== findSeq || !dlg.open) { return; }
             setFindStatus('error', err.message);
         });
+    }
+
+    // Show only (language codes, "EN" or "DA, EN") and Hide hearing impaired, both remembered per viewer (D48).
+    var findState = { item: null, results: null };
+    function findLanguages() {
+        return prefs.findLang.toLowerCase().split(/[\s,;]+/).filter(Boolean);
+    }
+    function findKeeps(h) {
+        if (prefs.findHideHi && h.hearingImpaired) { return false; }
+        var langs = findLanguages();
+        var code = String(h.languageCode || '').toLowerCase();
+        return !langs.length || langs.some(function (l) { return code === l || code.indexOf(l + '-') === 0; });
+    }
+    function applyFindFilters() {
+        var dlg = $('find');
+        var all = findState.results;
+        if (!all) { return; }
+        var shownHits = all.filter(findKeeps);
+        renderHits(shownHits, findState.item);
+        dlg.classList.toggle('has-hits', shownHits.length > 0);
+        var left = all.length - shownHits.length;
+        if (!all.length) {
+            setFindStatus('empty', 'No subtitles found.');
+        } else if (!shownHits.length) {
+            setFindStatus('empty', plural(all.length, 'subtitle', 'subtitles') + ' found, but none match your filters.');
+        } else {
+            setFindStatus('', plural(shownHits.length, 'subtitle', 'subtitles') + ' found, best match first.' + (left ? ' ' + left + ' hidden by your filters.' : ''));
+        }
     }
 
     function setFindStatus(state, text) {
@@ -772,7 +813,8 @@
                 return;
             }
             if (seq !== findSeq || !dlg.open) { return; }
-            setFindStatus('', 'Subtitle downloaded.');
+            // Another language (kept, not re-timed), or English when the queue couldn't take it: the server says which.
+            setFindStatus('', r.message || 'Subtitle downloaded.');
             button.classList.remove('working');
             button.querySelector('.get-text').textContent = 'Downloaded';
         }, function (err) {
@@ -802,7 +844,7 @@
             li.appendChild(score);
 
             var lang = el('span', 'hit-lang');
-            lang.appendChild(el('span', 'lang', 'EN'));
+            lang.appendChild(el('span', 'lang', String(h.languageCode || 'en').toUpperCase()));
             if (h.hearingImpaired) { lang.appendChild(badge('hi', 'HI', 'Hearing impaired: includes sound descriptions')); }
             li.appendChild(lang);
 
@@ -1448,6 +1490,12 @@
         });
         $('banner-retry').addEventListener('click', function () { var a = retryAction; clearBanner(); if (a) { a(); } });
         $('find-close').addEventListener('click', closeFind);
+        var langTimer = null;
+        $('find-lang').addEventListener('input', function () {
+            clearTimeout(langTimer);
+            langTimer = setTimeout(function () { prefs.findLang = $('find-lang').value.slice(0, 40); savePrefs(); applyFindFilters(); }, 150);
+        });
+        $('find-hide-hi').addEventListener('change', function () { prefs.findHideHi = $('find-hide-hi').checked; savePrefs(); applyFindFilters(); });
         $('find').addEventListener('close', function () {
             findSeq++;
             var id = $('find').returnTo;

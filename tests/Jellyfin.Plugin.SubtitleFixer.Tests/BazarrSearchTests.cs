@@ -317,7 +317,7 @@ public sealed class BazarrSearchServiceTests : IDisposable
     public void Dispose() => _dir.Dispose();
 
     [Fact]
-    public async Task Movie_without_subtitle_gets_english_non_forced_results_best_first_with_our_own_ids()
+    public async Task Movie_without_subtitle_gets_non_forced_results_in_every_language_best_first_with_our_own_ids()
     {
         var movie = Movie("22 Jump Street.mkv");
         _bazarr.Movies.Add(new BazarrMovie(1, movie.VideoPath, null, "22 Jump Street"));
@@ -334,11 +334,17 @@ public sealed class BazarrSearchServiceTests : IDisposable
         Assert.Null(error);
         Assert.Equal("movie", result!.Kind);
         Assert.Equal(movie.VideoPath, result.Resource);
-        Assert.Equal(["yifysubtitles", "podnapisi"], result.Results.Select(r => r.Provider));
-        Assert.Equal("EN:HI", result.Results[0].Language);
-        Assert.True(result.Results[0].HearingImpaired);
-        Assert.Equal("EN", result.Results[1].Language);
-        Assert.Equal(2, result.Hidden);
+        // D48: every language Bazarr returns, forced ones aside; only English is marked for re-timing.
+        Assert.Equal(["embeddedsubtitles", "yifysubtitles", "podnapisi"], result.Results.Select(r => r.Provider));
+        Assert.Equal("DA", result.Results[0].Language);
+        Assert.Equal("da", result.Results[0].LanguageCode);
+        Assert.False(result.Results[0].English);
+        Assert.Equal("EN:HI", result.Results[1].Language);
+        Assert.True(result.Results[1].HearingImpaired);
+        Assert.True(result.Results[1].English);
+        Assert.Equal("EN", result.Results[2].Language);
+        Assert.Equal("en", result.Results[2].LanguageCode);
+        Assert.Equal(1, result.Hidden);
 
         var json = JsonSerializer.Serialize(result, Api.ApiJson.Options);
         Assert.DoesNotContain("opaque-", json, StringComparison.Ordinal);

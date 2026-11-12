@@ -47,13 +47,15 @@ public static class BazarrErrorCodes
 /// <summary>One row of the Find subtitles dialog. Never carries Bazarr's opaque handle.</summary>
 /// <param name="Id">Our short-lived handle for this result (phase 2 sends it back to download).</param>
 /// <param name="Score">Match score in percent.</param>
-/// <param name="Language"><c>EN</c>, or <c>EN:HI</c> for hearing-impaired.</param>
+/// <param name="Language">Upper-case code, <c>EN</c> or <c>DA</c>, with <c>:HI</c> for hearing-impaired.</param>
 /// <param name="HearingImpaired">Hearing-impaired subtitle.</param>
 /// <param name="Provider">Provider.</param>
 /// <param name="Releases">Release names.</param>
 /// <param name="Uploader">Uploader, or null.</param>
 /// <param name="Matches">Properties that match the file.</param>
 /// <param name="DontMatches">Properties that don't.</param>
+/// <param name="LanguageCode">Bazarr's lower-case language code (<c>en</c>, <c>da</c>), for the dialog's Show only box (D48).</param>
+/// <param name="English">Whether it's English, so a download goes into the queue to be re-timed (D48).</param>
 public sealed record BazarrResultDto(
     string Id,
     int Score,
@@ -63,15 +65,17 @@ public sealed record BazarrResultDto(
     IReadOnlyList<string> Releases,
     string? Uploader,
     IReadOnlyList<string> Matches,
-    IReadOnlyList<string> DontMatches);
+    IReadOnlyList<string> DontMatches,
+    string LanguageCode = "en",
+    bool English = true);
 
 /// <summary><c>GET /Bazarr/Search</c> response.</summary>
 /// <param name="ItemId">Jellyfin item.</param>
 /// <param name="Kind"><c>movie</c> or <c>episode</c>.</param>
 /// <param name="Resource">Video path Bazarr matched (the dialog's Resource line).</param>
 /// <param name="MatchedBy"><c>path</c> or <c>ids</c>.</param>
-/// <param name="Results">English, non-forced results, best score first.</param>
-/// <param name="Hidden">Results left out because they're another language or forced.</param>
+/// <param name="Results">Non-forced results in every language Bazarr returned, best score first (D48).</param>
+/// <param name="Hidden">Results left out because they're forced (foreign-parts-only) subtitles.</param>
 public sealed record BazarrSearchDto(Guid ItemId, string Kind, string? Resource, string MatchedBy, IReadOnlyList<BazarrResultDto> Results, int Hidden);
 
 /// <summary>A search error for the controller: HTTP status, code and message.</summary>
@@ -334,24 +338,42 @@ public sealed class BazarrSearchService
         }
 
         var all = search.Value!;
+        // Every language Bazarr returned (its language profile decides which), forced ones aside (D48). Only English
+        // ones are re-timed after a download.
         var shown = all
-            .Where(r => IsEnglish(r.Language) && !r.Forced)
+            .Where(r => !r.Forced && !string.IsNullOrWhiteSpace(r.Language))
             .OrderByDescending(r => r.Score)
             .ThenBy(r => r.HearingImpaired)
-            .Select(r => new BazarrResultDto(
-                _store.Add(userId, itemId, target, r),
-                r.Score,
-                r.HearingImpaired ? "EN:HI" : "EN",
-                r.HearingImpaired,
-                r.Provider,
-                r.Releases,
-                string.IsNullOrWhiteSpace(r.Uploader) ? null : r.Uploader,
-                r.Matches,
-                r.DontMatches))
+            .Select(r =>
+            {
+                var code = LanguageCodeOf(r.Language);
+                return new BazarrResultDto(
+                    _store.Add(userId, itemId, target, r),
+                    r.Score,
+                    code.ToUpperInvariant() + (r.HearingImpaired ? ":HI" : string.Empty),
+                    r.HearingImpaired,
+                    r.Provider,
+                    r.Releases,
+                    string.IsNullOrWhiteSpace(r.Uploader) ? null : r.Uploader,
+                    r.Matches,
+                    r.DontMatches,
+                    code,
+                    IsEnglish(r.Language));
+            })
             .ToList();
 
         _logger.LogInformation("Bazarr search for {ItemId}: {Shown} of {Total} results shown (matched by {MatchedBy})", itemId, shown.Count, all.Count, target.MatchedBy);
         return (new BazarrSearchDto(itemId, target.IsMovie ? "movie" : "episode", target.Path, target.MatchedBy, shown, all.Count - shown.Count), null);
+    }
+
+    /// <summary>The base language code, lower case: <c>pt-BR</c> stays <c>pt-br</c>, <c>en:hi</c> becomes <c>en</c>.</summary>
+    /// <param name="code">Bazarr's code.</param>
+    /// <returns>Code.</returns>
+    internal static string LanguageCodeOf(string code)
+    {
+        var c = code.Trim().ToLowerInvariant();
+        var colon = c.IndexOf(':', StringComparison.Ordinal);
+        return colon > 0 ? c[..colon] : c;
     }
 
     /// <summary>Whether a Bazarr language code is English (<c>en</c>, <c>eng</c>, or a regional <c>en-…</c>).</summary>

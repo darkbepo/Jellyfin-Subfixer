@@ -97,6 +97,15 @@ public static class EligibilityService
     }
 
     /// <summary>
+    /// Whether no audio track says its language: every tag is empty or <c>und</c> (undetermined). Such audio may well
+    /// be English; it still counts as no English audio until it's tagged (or, later, checked), but the page says why.
+    /// </summary>
+    /// <param name="languages">Audio stream languages.</param>
+    /// <returns>True when there is audio and none of it is tagged.</returns>
+    public static bool IsUntagged(IReadOnlyList<string?> languages) =>
+        languages.Count > 0 && languages.All(l => string.IsNullOrWhiteSpace(l) || string.Equals(l.Trim(), "und", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
     /// Finds the sidecar named exactly <c>&lt;videoBase&gt;.en.srt</c>, <c>.eng.srt</c>, <c>.en.hi.srt</c> or <c>.eng.hi.srt</c>.
     /// No other names are considered (D6).
     /// </summary>

@@ -115,21 +115,26 @@ public sealed class BazarrDownloadService
             return Fail(StatusCodes.Status410Gone, BazarrErrorCodes.ResultExpired, "That search result has expired. Search again.");
         }
 
-        if (!_worker.IsConfigured)
-        {
-            return Fail(StatusCodes.Status503ServiceUnavailable, ErrorCodes.SubSyncUnavailable, "SubSync is not configured, so the subtitle couldn't be re-timed. Ask an administrator.");
-        }
-
-        // Don't download a subtitle nobody can re-time while SubSync is being updated (D46).
-        if (_queue.Snapshot().Maintenance is { } maintenance)
-        {
-            return Fail(StatusCodes.Status503ServiceUnavailable, ErrorCodes.SubSyncUnavailable, maintenance);
-        }
-
+        // Only English subtitles are re-timed, so only they need SubSync and room in the queue (D48).
+        var english = BazarrSearchService.IsEnglish(stored.Result.Language);
         var maxQueued = config.MaxQueuedEpisodes;
-        if (_queue.Snapshot().Pending >= maxQueued)
+        if (english)
         {
-            return Fail(StatusCodes.Status409Conflict, ErrorCodes.QueueFull, $"The queue is full ({maxQueued}). Try again when it has room.");
+            if (!_worker.IsConfigured)
+            {
+                return Fail(StatusCodes.Status503ServiceUnavailable, ErrorCodes.SubSyncUnavailable, "SubSync is not configured, so the subtitle couldn't be re-timed. Ask an administrator.");
+            }
+
+            // Don't download a subtitle nobody can re-time while SubSync is being updated (D46).
+            if (_queue.Snapshot().Maintenance is { } maintenance)
+            {
+                return Fail(StatusCodes.Status503ServiceUnavailable, ErrorCodes.SubSyncUnavailable, maintenance);
+            }
+
+            if (_queue.Snapshot().Pending >= maxQueued)
+            {
+                return Fail(StatusCodes.Status409Conflict, ErrorCodes.QueueFull, $"The queue is full ({maxQueued}). Try again when it has room.");
+            }
         }
 
         if (!_items.TryAdd(itemId, 0))
@@ -274,6 +279,22 @@ public sealed class BazarrDownloadService
         }
 
         var before = copies.Select(c => c.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Another language: Bazarr would overwrite a subtitle already there in that language, and putting the old one
+        // back would undo the download. So refuse instead (D48).
+        if (!BazarrSearchService.IsEnglish(stored.Result.Language))
+        {
+            var language = BazarrSearchService.LanguageCodeOf(stored.Result.Language);
+            var baseName = Path.GetFileNameWithoutExtension(videoPath);
+            var existing = before.Select(Path.GetFileName).FirstOrDefault(n => n is not null
+                && !n.Equals(baseName + ".srt", StringComparison.OrdinalIgnoreCase)
+                && IsLanguageFile(n, baseName, language));
+            if (existing is not null)
+            {
+                return Fail(StatusCodes.Status409Conflict, BazarrErrorCodes.HasSubtitle, $"This item already has a {language.ToUpperInvariant()} subtitle ({existing}). Bazarr would replace it, so it wasn't downloaded.");
+            }
+        }
+
         var accepted = await _client.DownloadAsync(connection, stored.Target, stored.Result, cancellationToken).ConfigureAwait(false);
         if (!accepted.Ok)
         {
@@ -285,6 +306,11 @@ public sealed class BazarrDownloadService
                 _ => new BazarrError(StatusCodes.Status503ServiceUnavailable, BazarrErrorCodes.Unavailable, accepted.Message!),
             };
             return (null, error);
+        }
+
+        if (!BazarrSearchService.IsEnglish(stored.Result.Language))
+        {
+            return await FinishOtherLanguageAsync(videoPath, video, stored, before, copies).ConfigureAwait(false);
         }
 
         // From here on the caller's token is ignored: Bazarr has accepted the job and will write the file anyway, so
@@ -319,6 +345,98 @@ public sealed class BazarrDownloadService
             : (new BazarrDownloadDto(false, name, queued.Error.Code == ErrorCodes.SubSyncUnavailable
                 ? $"Downloaded {name} from {stored.Result.Provider}, but SubSync is being updated. Select it later to re-time it."
                 : $"Downloaded {name} from {stored.Result.Provider}, but the queue is full. Select it later to re-time it."), null);
+    }
+
+    /// <summary>
+    /// A subtitle in another language (D48): it is kept as Bazarr saved it and never re-timed or queued. Success is a
+    /// new <c>&lt;video&gt;.&lt;lang&gt;[.hi|.forced].srt</c> (or <c>&lt;video&gt;.srt</c>, Bazarr's "single language")
+    /// that parses as SRT. Every file that existed before is put back if Bazarr changed it.
+    /// </summary>
+    private async Task<(BazarrDownloadDto?, BazarrError?)> FinishOtherLanguageAsync(
+        string videoPath,
+        VideoFacts video,
+        StoredBazarrResult stored,
+        HashSet<string> before,
+        IReadOnlyList<SubtitleCopy> copies)
+    {
+        var language = BazarrSearchService.LanguageCodeOf(stored.Result.Language);
+        var found = await WaitForNewSubtitleAsync(videoPath, before, language, CancellationToken.None).ConfigureAwait(false);
+        await RestoreAsync(copies, _logger).ConfigureAwait(false);
+        if (found is null)
+        {
+            var strays = NewFiles(videoPath, before);
+            _logger.LogWarning("Bazarr download from {Provider} ({Language}) for {ItemId} produced no usable subtitle within {Seconds} s", stored.Result.Provider, language, video.Node.Id, _timing.WaitTimeout.TotalSeconds);
+            var hint = strays.Count > 0 ? $" Bazarr saved {string.Join(", ", strays)}, which isn't a readable .srt." : " Check Bazarr's System > Logs, or search again and pick another result.";
+            return Fail(StatusCodes.Status502BadGateway, BazarrErrorCodes.DownloadFailed, $"Bazarr didn't save a usable {language.ToUpperInvariant()} subtitle within {_timing.WaitTimeout.TotalSeconds:0} seconds." + hint);
+        }
+
+        var name = Path.GetFileName(found);
+        _logger.LogInformation("Bazarr downloaded {Subtitle} ({Language}) from {Provider} for {ItemId}; not re-timed (not English)", name, language, stored.Result.Provider, video.Node.Id);
+        return (new BazarrDownloadDto(false, name, $"Downloaded {name} from {stored.Result.Provider}. Subtitle Fixer only re-times English subtitles, so this one stays as it is."), null);
+    }
+
+    /// <summary>Waits for a new subtitle in the given language next to the video that parses as SRT and has stopped growing.</summary>
+    private async Task<string?> WaitForNewSubtitleAsync(string videoPath, HashSet<string> before, string language, CancellationToken cancellationToken)
+    {
+        var folder = Path.GetDirectoryName(videoPath);
+        var baseName = Path.GetFileNameWithoutExtension(videoPath);
+        if (string.IsNullOrEmpty(folder) || string.IsNullOrEmpty(baseName))
+        {
+            return null;
+        }
+
+        var deadline = DateTime.UtcNow + _timing.WaitTimeout;
+        var sizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        while (DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(_timing.PollInterval, cancellationToken).ConfigureAwait(false);
+            foreach (var file in Directory.EnumerateFiles(folder, "*.srt"))
+            {
+                if (before.Contains(file) || !IsLanguageFile(Path.GetFileName(file), baseName, language))
+                {
+                    continue;
+                }
+
+                long size;
+                try
+                {
+                    size = new FileInfo(file).Length;
+                }
+                catch (IOException)
+                {
+                    continue;
+                }
+
+                if (sizes.TryGetValue(file, out var last) && last == size && SubtitleVerifier.IsValidSrt(file, out _))
+                {
+                    return file;
+                }
+
+                sizes[file] = size;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary><c>&lt;base&gt;.srt</c>, or <c>&lt;base&gt;.&lt;lang&gt;[.hi|.cc|.sdh|.forced].srt</c>, ignoring case.</summary>
+    internal static bool IsLanguageFile(string name, string baseName, string language)
+    {
+        if (name.Equals(baseName + ".srt", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!name.StartsWith(baseName + ".", StringComparison.OrdinalIgnoreCase)
+            || !name.EndsWith(".srt", StringComparison.OrdinalIgnoreCase)
+            || name.Length <= baseName.Length + 5)
+        {
+            return false;
+        }
+
+        var middle = name[(baseName.Length + 1)..^4];
+        var tag = middle.Split('.')[0];
+        return tag.Equals(language, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Waits until an accepted sidecar exists, parses as SRT and has stopped growing.</summary>
