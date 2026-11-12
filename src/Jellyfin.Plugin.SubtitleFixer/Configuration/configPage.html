@@ -119,6 +119,11 @@
             #SubtitleFixerConfigPage .sf-btn[disabled] { opacity: 0.6; cursor: default; }
             #SubtitleFixerConfigPage .sf-btn-primary { background: var(--sf-accent); border-color: transparent; color: #fff; }
             #SubtitleFixerConfigPage .sf-btn-primary:hover { background: #1bb3e8; }
+            #SubtitleFixerConfigPage [hidden] { display: none !important; }
+            #SubtitleFixerConfigPage .sf-update { margin-top: 1em; padding-top: 0.9em; border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
+            #SubtitleFixerConfigPage .sf-update-line { margin: 0; }
+            #SubtitleFixerConfigPage .sf-update details { margin-top: 0.6em; }
+            #SubtitleFixerConfigPage .sf-update pre { white-space: pre-wrap; font: inherit; font-size: 0.85em; color: var(--sf-muted); margin: 0.4em 0 0; max-height: 14em; overflow: auto; }
             #SubtitleFixerConfigPage .sf-btn-ghost { background: transparent; border-style: dashed; color: var(--sf-muted); }
 
             #SubtitleFixerConfigPage .sf-pill {
@@ -211,6 +216,16 @@
                             <button type="button" class="sf-btn" id="TestSubSync"><span class="sf-icon" data-icon="play_circle_outline" aria-hidden="true"></span>Test SubSync</button>
                         </div>
                         <p class="sf-result" id="TestSubSyncResult" role="status" aria-live="polite"></p>
+                        <div class="sf-update" id="SubSyncUpdate" hidden>
+                            <p class="sf-update-line" id="SubSyncUpdateText"></p>
+                            <div class="sf-actions">
+                                <button type="button" class="sf-btn sf-btn-primary" id="SubSyncUpdateButton" hidden><span class="sf-icon" data-icon="cloud_download" aria-hidden="true"></span>Update SubSync</button>
+                                <button type="button" class="sf-btn sf-btn-ghost" id="SubSyncUpdateCheck"><span class="sf-icon" data-icon="autorenew" aria-hidden="true"></span>Check again</button>
+                                <a id="SubSyncUpdateLink" class="sf-hint" target="_blank" rel="noopener noreferrer" hidden>Release page</a>
+                            </div>
+                            <details id="SubSyncUpdateNotesBox" hidden><summary>What's new</summary><pre id="SubSyncUpdateNotes"></pre></details>
+                            <p class="sf-result" id="SubSyncUpdateResult" role="status" aria-live="polite"></p>
+                        </div>
                     </section>
 
                     <section class="sf-card" aria-labelledby="sfAccessTitle">
@@ -468,8 +483,84 @@
                         el('TestSubSyncResult').textContent = '';
                         el('TestBazarrResult').textContent = '';
                         loadLibraries(config.AllowedLibraryIds || []);
+                        loadUpdate(false);
                         Dashboard.hideLoadingMsg();
                     });
+                });
+
+                // SubSync updates (D46): the server asks GitHub at most every few hours, and installs on request with the
+                // queue closed. While an update runs, the page polls every 2 s.
+                var STEPS = {
+                    downloading: 'Downloading…',
+                    checking: 'Checking the download…',
+                    waiting: 'Waiting for SubSync to close…',
+                    installing: 'Installing…',
+                    setup: 'Letting SubSync fetch what the new version needs (can take a while)…'
+                };
+                var updatePoll = null;
+                function showUpdate(u) {
+                    var box = el('SubSyncUpdate');
+                    box.hidden = false;
+                    var running = u.state === 'running';
+                    var text;
+                    if (running) {
+                        text = 'Updating SubSync to ' + u.latest + '. Nothing can be queued until it has finished.';
+                    } else if (u.updateAvailable) {
+                        text = 'SubSync ' + u.installed + ' installed · ' + u.latest + ' available.';
+                    } else if (u.installed && u.latest) {
+                        text = 'SubSync ' + u.installed + ' is up to date (latest release: ' + u.latest + ').';
+                    } else if (u.installed) {
+                        text = 'SubSync ' + u.installed + ' installed. The latest release is not known yet.';
+                    } else {
+                        text = 'Set and save the SubSync folder to check for updates.';
+                    }
+                    el('SubSyncUpdateText').textContent = text;
+                    el('SubSyncUpdateButton').hidden = !u.updateAvailable || running;
+                    el('SubSyncUpdateCheck').hidden = running;
+                    var link = el('SubSyncUpdateLink');
+                    // The server only passes on a link to SubSync's own releases on GitHub.
+                    link.hidden = !u.releaseUrl;
+                    if (u.releaseUrl) { link.href = u.releaseUrl; }
+                    el('SubSyncUpdateNotes').textContent = u.notes || '';
+                    el('SubSyncUpdateNotesBox').hidden = !u.notes || !(u.updateAvailable || running);
+                    el('SubSyncUpdateResult').textContent = running ? (STEPS[u.step] || 'Updating…') : (u.message || '');
+                    if (running) {
+                        setPill('SubSyncStatus', 'busy', 'Updating');
+                        if (!updatePoll) { updatePoll = setInterval(function () { loadUpdate(false); }, 2000); }
+                    } else {
+                        if (updatePoll) {
+                            clearInterval(updatePoll);
+                            updatePoll = null;
+                            setPill('SubSyncStatus', u.state === 'done' ? 'ok' : 'bad', u.state === 'done' ? 'Updated' : 'Update failed');
+                        }
+                    }
+                }
+                function loadUpdate(refresh) {
+                    return ApiClient.ajax({
+                        type: 'GET',
+                        url: ApiClient.getUrl('SubtitleFixer/Admin/SubSyncUpdate', refresh ? { refresh: true } : {}),
+                        dataType: 'json'
+                    }).then(showUpdate, function () {
+                        el('SubSyncUpdate').hidden = false;
+                        el('SubSyncUpdateResult').textContent = 'The server did not answer the update check.';
+                    });
+                }
+                el('SubSyncUpdateCheck').addEventListener('click', function () {
+                    var btn = el('SubSyncUpdateCheck');
+                    btn.disabled = true;
+                    el('SubSyncUpdateResult').textContent = 'Checking GitHub…';
+                    loadUpdate(true).finally(function () { btn.disabled = false; });
+                });
+                el('SubSyncUpdateButton').addEventListener('click', function () {
+                    if (!window.confirm('Update SubSync? It downloads the new release from GitHub, replaces subsync-cli.exe (and SubSync.exe), and runs its setup. Nothing can be queued meanwhile.')) {
+                        return;
+                    }
+                    var btn = el('SubSyncUpdateButton');
+                    btn.disabled = true;
+                    // A refusal (queue busy, nothing newer) comes back as the status with the reason in its message.
+                    post('SubtitleFixer/Admin/SubSyncUpdate').then(showUpdate, function () {
+                        el('SubSyncUpdateResult').textContent = 'The server did not answer. The update did not start.';
+                    }).finally(function () { btn.disabled = false; });
                 });
 
                 // Libraries: one switch per TV or movie library (GET Admin/Libraries). All on saves an empty list,

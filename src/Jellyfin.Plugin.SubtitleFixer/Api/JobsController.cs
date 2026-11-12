@@ -68,6 +68,7 @@ public sealed record StatusTotalsDto(int Queued, int Running, int Done, int Chec
 /// <param name="EtaSeconds">Remaining time estimate, null until one episode finished.</param>
 /// <param name="AheadOfYours">Pending entries in front of the viewer's first pending one, or null.</param>
 /// <param name="Items">Entries.</param>
+/// <param name="Maintenance">While SubSync is being updated (D46): the message to show; nothing can be queued meanwhile.</param>
 public sealed record StatusDto(
     string State,
     bool SubsyncAvailable,
@@ -76,7 +77,8 @@ public sealed record StatusDto(
     StatusTotalsDto Totals,
     double? EtaSeconds,
     int? AheadOfYours,
-    IReadOnlyList<StatusItemDto> Items);
+    IReadOnlyList<StatusItemDto> Items,
+    string? Maintenance = null);
 
 /// <summary>One entry of <c>GET /FailedSyncs</c> (D44).</summary>
 /// <param name="Id">Log entry id.</param>
@@ -292,9 +294,11 @@ public sealed class JobsController : ControllerBase
 
         var items = result.Eligible.Select(c => new JobRequestItem(c.Episode.Node.Id, DisplayName(c.Episode.Node), result.SeriesName)).ToList();
         var queued = _queue.Enqueue(caller.User.Id, items, JobSource.Manual, null, config?.MaxQueuedEpisodes ?? 300);
-        if (queued.Error is { } full)
+        if (queued.Error is { } refused)
         {
-            return ApiResults.Error(StatusCodes.Status409Conflict, full.Code, full.Message);
+            // SubSync being updated (D46) is 503 like a missing SubSync; a full queue is 409.
+            var status = refused.Code == ErrorCodes.SubSyncUnavailable ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status409Conflict;
+            return ApiResults.Error(status, refused.Code, refused.Message);
         }
 
         return ApiResults.Json(new JobsAcceptedDto(queued.Queued, result.Selected - queued.Queued, queued.QueueLength), StatusCodes.Status202Accepted);
@@ -392,7 +396,7 @@ public sealed class JobsController : ControllerBase
         var current = snapshot.Current;
         return new StatusDto(
             snapshot.State.ToString().ToLowerInvariant(),
-            subsyncAvailable,
+            subsyncAvailable && snapshot.Maintenance is null,
             snapshot.StopReason,
             current is null ? null : Map(current),
             new StatusTotalsDto(
@@ -405,7 +409,8 @@ public sealed class JobsController : ControllerBase
                 Count(JobItemStatus.Skipped)),
             snapshot.EtaSeconds,
             ahead,
-            items);
+            items,
+            snapshot.Maintenance);
     }
 
     private static string DisplayName(LibraryNode episode)

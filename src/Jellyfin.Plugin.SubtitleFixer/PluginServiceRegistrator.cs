@@ -86,6 +86,18 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
             sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<ILogger<JobRunner>>()));
 
+        // SubSync updates from the settings page (D46).
+        serviceCollection.AddSingleton<ISubSyncReleaseSource, GitHubSubSyncReleases>();
+        serviceCollection.AddSingleton<SubSyncInstaller>();
+        serviceCollection.AddSingleton(sp => new SubSyncUpdateService(
+            sp.GetRequiredService<ISubSyncReleaseSource>(),
+            sp.GetRequiredService<SubSyncInstaller>(),
+            sp.GetRequiredService<JobQueue>(),
+            () => Plugin.Instance?.Configuration.SubSyncFolder,
+            SubSyncVersion.Shared.GetAsync,
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<SubSyncUpdateService>>()));
+
         serviceCollection.AddHostedService<StartupService>();
         serviceCollection.AddHostedService<JobProcessor>();
     }

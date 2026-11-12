@@ -123,6 +123,8 @@ On one real episode: `--pair`, `--overwrite`, `--suffix`, `--report` with spaces
 - **Not tested:** the 5-minute wait when the result file is held open by another program.
 - **Real-CLI tests:** `RealSubSyncTests` run the real CLI through `CliWorker` when `SUBFIXER_SUBSYNC_FOLDER` and `SUBFIXER_TEST_CLIP` are set. All 5 pass locally, and they're skipped in CI.
 
+- **Release layout (2026-11-12, from SubSync's own `CLAUDE.md`, "Releases"):** every release has one asset, `SubSync-vX.Y.Z-windows-x64.zip`, holding both exes, both READMEs and `LICENSE`; its SHA-256 matches the digest GitHub shows for the asset and is also in the release description (v1.3.0: `6eee6791…3e3fa7`). The zip's folder layout (exes at the top or in a folder) was not seen from here; the updater accepts both (D46). Not yet tried against the real release.
+
 ## S6 Running under the Jellyfin service account
 Launch the CLI from the plugin while Jellyfin runs as a Windows service (and as a tray app). Does it get the GPU (CUDA) or fall back to CPU? Does it have write access to the SubSync folder and media folders? Fallbacks: `ForceCpu`, run Jellyfin as a tray app, grant folder rights.
 **Findings:**

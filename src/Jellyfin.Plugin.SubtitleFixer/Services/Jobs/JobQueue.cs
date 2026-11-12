@@ -95,7 +95,8 @@ public sealed record JobItemSnapshot(
 /// <param name="State">State.</param>
 /// <param name="Items">Every entry in queue order: finished first (oldest first), then running, then queued.</param>
 /// <param name="StopReason">Why the queue last stopped by itself, until the next Start.</param>
-public sealed record QueueSnapshot(QueueState State, IReadOnlyList<JobItemSnapshot> Items, string? StopReason)
+/// <param name="Maintenance">While SubSync is being updated (D46): why nothing can be queued.</param>
+public sealed record QueueSnapshot(QueueState State, IReadOnlyList<JobItemSnapshot> Items, string? StopReason, string? Maintenance = null)
 {
     /// <summary>Gets the running entry, if any.</summary>
     public JobItemSnapshot? Current => Items.FirstOrDefault(i => i.Status == JobItemStatus.Running);
@@ -141,6 +142,7 @@ public sealed class JobQueue : IDisposable
     private readonly SemaphoreSlim _work = new(0);
     private readonly TimeProvider _time;
     private string? _stopReason;
+    private string? _maintenance;
     private QueueSnapshot _snapshot = new(QueueState.Idle, [], null);
 
     /// <summary>
@@ -188,6 +190,11 @@ public sealed class JobQueue : IDisposable
         lock (_lock)
         {
             Prune();
+            if (_maintenance is { } maintenance)
+            {
+                return new EnqueueResult(new SelectionError(ErrorCodes.SubSyncUnavailable, maintenance), 0, 0, _entries.Count(e => e.IsPending));
+            }
+
             var pendingIds = _entries.Where(e => e.IsPending).Select(e => e.ItemId).ToHashSet();
             var fresh = items.Where(i => pendingIds.Add(i.ItemId)).ToList();
             var alreadyQueued = items.Count - fresh.Count;
@@ -220,6 +227,37 @@ public sealed class JobQueue : IDisposable
             }
 
             return new EnqueueResult(null, fresh.Count, alreadyQueued, pending + fresh.Count);
+        }
+    }
+
+    /// <summary>
+    /// Closes the queue for SubSync maintenance (an update, D46): only when nothing is queued or running, and then
+    /// <see cref="Enqueue"/> refuses with <c>subsync_unavailable</c> until <see cref="EndMaintenance"/>.
+    /// </summary>
+    /// <param name="reason">Shown to users who try to queue meanwhile.</param>
+    /// <returns>False when the queue is busy (or already closed).</returns>
+    public bool TryBeginMaintenance(string reason)
+    {
+        lock (_lock)
+        {
+            if (_maintenance is not null || _entries.Any(e => e.IsPending))
+            {
+                return false;
+            }
+
+            _maintenance = reason;
+            Publish();
+            return true;
+        }
+    }
+
+    /// <summary>Opens the queue again after maintenance.</summary>
+    public void EndMaintenance()
+    {
+        lock (_lock)
+        {
+            _maintenance = null;
+            Publish();
         }
     }
 
@@ -469,7 +507,7 @@ public sealed class JobQueue : IDisposable
             .Concat(_entries.Where(e => e.Status == JobItemStatus.Queued))
             .Select(e => e.ToSnapshot())
             .ToList();
-        Volatile.Write(ref _snapshot, new QueueSnapshot(state, ordered, _stopReason));
+        Volatile.Write(ref _snapshot, new QueueSnapshot(state, ordered, _stopReason, _maintenance));
     }
 
     private sealed class Entry
