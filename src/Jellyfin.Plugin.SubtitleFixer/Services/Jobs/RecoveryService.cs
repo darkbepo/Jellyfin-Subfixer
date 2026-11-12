@@ -43,7 +43,7 @@ public sealed class RecoveryService
                     _logger.LogWarning("Restored {Subtitle} from its backup after an interrupted sync", entry.SubtitlePath);
                 }
 
-                await _state.DeleteAsync(entry.ItemId, cancellationToken).ConfigureAwait(false);
+                await _state.DeleteAsync(entry.ItemId, entry.Language, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

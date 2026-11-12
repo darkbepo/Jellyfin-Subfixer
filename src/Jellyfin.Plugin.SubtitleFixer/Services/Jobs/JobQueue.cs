@@ -50,11 +50,13 @@ public enum QueueState
     Stopping,
 }
 
-/// <summary>An episode to queue.</summary>
+/// <summary>An episode (or movie) and subtitle language to queue.</summary>
 /// <param name="ItemId">Episode id.</param>
 /// <param name="Name">Display name, e.g. "S01E04 Title".</param>
 /// <param name="SeriesName">Series name.</param>
-public sealed record JobRequestItem(Guid ItemId, string Name, string SeriesName);
+/// <param name="Language">Subtitle language (D50): English or Danish.</param>
+/// <param name="Again">Sync again (D51): also when this language is already synced.</param>
+public sealed record JobRequestItem(Guid ItemId, string Name, string SeriesName, string Language = Domain.SubtitleLanguage.English, bool Again = false);
 
 /// <summary>Immutable view of one queue entry, safe to hand to the API.</summary>
 /// <param name="JobId">Queue entry id.</param>
@@ -73,6 +75,8 @@ public sealed record JobRequestItem(Guid ItemId, string Name, string SeriesName)
 /// <param name="Stage">While running: the stage SubSync last reported (<c>SubSyncStage</c> codes).</param>
 /// <param name="ExpectedSeconds">While running: the estimated total time, for the progress bar (D40).</param>
 /// <param name="Percent">While running and SubSync says how far it has listened (1.3.0): the item's share of the bar, 0 to 95.</param>
+/// <param name="Language">Subtitle language (D50).</param>
+/// <param name="Again">Sync again (D51).</param>
 public sealed record JobItemSnapshot(
     Guid JobId,
     Guid ItemId,
@@ -89,7 +93,9 @@ public sealed record JobItemSnapshot(
     double? Seconds,
     string? Stage = null,
     double? ExpectedSeconds = null,
-    int? Percent = null);
+    int? Percent = null,
+    string Language = Domain.SubtitleLanguage.English,
+    bool Again = false);
 
 /// <summary>Immutable view of the whole queue.</summary>
 /// <param name="State">State.</param>
@@ -201,8 +207,9 @@ public sealed class JobQueue : IDisposable
                 return new EnqueueResult(new SelectionError(ErrorCodes.SubSyncUnavailable, maintenance), 0, 0, _entries.Count(e => e.IsPending));
             }
 
-            var pendingIds = _entries.Where(e => e.IsPending).Select(e => e.ItemId).ToHashSet();
-            var fresh = items.Where(i => pendingIds.Add(i.ItemId)).ToList();
+            // one entry per item and subtitle language (D50)
+            var pendingIds = _entries.Where(e => e.IsPending).Select(e => (e.ItemId, e.Language)).ToHashSet();
+            var fresh = items.Where(i => pendingIds.Add((i.ItemId, Domain.SubtitleLanguage.Normalize(i.Language)))).ToList();
             var alreadyQueued = items.Count - fresh.Count;
             var pending = _entries.Count(e => e.IsPending);
 
@@ -218,7 +225,11 @@ public sealed class JobQueue : IDisposable
             var now = Now();
             foreach (var item in fresh)
             {
-                _entries.Add(new Entry(Guid.NewGuid(), item.ItemId, item.Name, item.SeriesName, userId, source, note, now));
+                _entries.Add(new Entry(Guid.NewGuid(), item.ItemId, item.Name, item.SeriesName, userId, source, note, now)
+                {
+                    Language = Domain.SubtitleLanguage.Normalize(item.Language),
+                    Again = item.Again,
+                });
             }
 
             if (fresh.Count > 0)
@@ -613,6 +624,10 @@ public sealed class JobQueue : IDisposable
 
         public DateTime QueuedUtc { get; }
 
+        public string Language { get; init; } = Domain.SubtitleLanguage.English;
+
+        public bool Again { get; init; }
+
         public JobItemStatus Status { get; set; } = JobItemStatus.Queued;
 
         public string? Message { get; set; }
@@ -639,6 +654,8 @@ public sealed class JobQueue : IDisposable
             new(JobId, ItemId, Name, SeriesName, UserId, Source, Note, Status, Message, QueuedUtc, StartedUtc, FinishedUtc, Seconds,
                 Status == JobItemStatus.Running ? Stage : null,
                 Status == JobItemStatus.Running ? ExpectedSeconds : null,
-                Status == JobItemStatus.Running ? Percent : null);
+                Status == JobItemStatus.Running ? Percent : null,
+                Language,
+                Again);
     }
 }

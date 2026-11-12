@@ -30,7 +30,10 @@ public enum WorkerStatus
 /// <param name="ForceCpu">Passes <c>--cpu</c>.</param>
 /// <param name="Timeout">Kill the run after this long.</param>
 /// <param name="OnProgress">Called with each stage SubSync reports while it runs (<see cref="SubSyncStage"/> codes, and a percent from 1.3.0 on).</param>
-public sealed record WorkerOptions(bool TidyUpLines, bool ForceCpu, TimeSpan Timeout, Action<WorkerProgress>? OnProgress = null);
+/// <param name="SubtitleLanguage">The subtitle's language (D50): <c>en</c>, or <c>da</c> (SubSync 1.5.0 and later).</param>
+/// <param name="Reference">For a Danish subtitle: the English subtitle of the same video to time it by, or null.</param>
+public sealed record WorkerOptions(bool TidyUpLines, bool ForceCpu, TimeSpan Timeout, Action<WorkerProgress>? OnProgress = null,
+    string SubtitleLanguage = Domain.SubtitleLanguage.English, string? Reference = null);
 
 /// <summary>What SubSync is doing now.</summary>
 /// <param name="Stage">A <see cref="SubSyncStage"/> code.</param>
@@ -88,4 +91,9 @@ public interface ISubSyncWorker
     /// <returns>The result.</returns>
     Task<SessionStart> StartSessionAsync(WorkerOptions options, CancellationToken cancellationToken) =>
         Task.FromResult(SessionStart.NotAvailable("this worker runs one SubSync per item"));
+
+    /// <summary>Gets the installed SubSync version, or null when unknown (decides whether Danish can be synced, D50).</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The version, or null.</returns>
+    Task<Version?> GetVersionAsync(CancellationToken cancellationToken) => Task.FromResult<Version?>(null);
 }

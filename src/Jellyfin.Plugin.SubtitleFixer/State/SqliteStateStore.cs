@@ -11,7 +11,7 @@ namespace Jellyfin.Plugin.SubtitleFixer.State;
 public sealed class SqliteStateStore : IStateStore, IDisposable
 {
     /// <summary>Schema version this code writes.</summary>
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
 
     private const int MaxIdsPerQuery = 500;
 
@@ -70,6 +70,42 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
           speech_seconds   REAL NOT NULL,
           checked_utc      TEXT NOT NULL
         );
+        """,
+        // v5 (D50): records, journal entries and the failed-syncs log per item and subtitle language; existing rows are English
+        """
+        CREATE TABLE synced_items_v5 (
+          item_id            TEXT NOT NULL,
+          language           TEXT NOT NULL DEFAULT 'en',
+          video_path         TEXT NOT NULL,
+          video_size         INTEGER NOT NULL,
+          video_mtime_utc    TEXT NOT NULL,
+          subtitle_path      TEXT NOT NULL,
+          status             TEXT NOT NULL,
+          message            TEXT,
+          audio_language     TEXT,
+          subsync_version    TEXT,
+          seconds            REAL,
+          updated_utc        TEXT NOT NULL,
+          PRIMARY KEY (item_id, language)
+        );
+        INSERT INTO synced_items_v5 (item_id, language, video_path, video_size, video_mtime_utc, subtitle_path, status, message, audio_language, subsync_version, seconds, updated_utc)
+          SELECT item_id, 'en', video_path, video_size, video_mtime_utc, subtitle_path, status, message, audio_language, subsync_version, seconds, updated_utc FROM synced_items;
+        DROP TABLE synced_items;
+        ALTER TABLE synced_items_v5 RENAME TO synced_items;
+        CREATE INDEX ix_synced_status ON synced_items(status);
+        CREATE TABLE in_flight_v5 (
+          item_id        TEXT NOT NULL,
+          language       TEXT NOT NULL DEFAULT 'en',
+          subtitle_path  TEXT NOT NULL,
+          backup_path    TEXT NOT NULL,
+          started_utc    TEXT NOT NULL,
+          PRIMARY KEY (item_id, language)
+        );
+        INSERT INTO in_flight_v5 (item_id, language, subtitle_path, backup_path, started_utc)
+          SELECT item_id, 'en', subtitle_path, backup_path, started_utc FROM in_flight;
+        DROP TABLE in_flight;
+        ALTER TABLE in_flight_v5 RENAME TO in_flight;
+        ALTER TABLE failed_syncs ADD COLUMN language TEXT NOT NULL DEFAULT 'en';
         """,
     ];
 
@@ -144,8 +180,28 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
         }
     }
 
+    /// <summary>English records (as before D50).</summary>
+    /// <param name="itemIds">Item ids.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Records by item id.</returns>
+    public Task<IReadOnlyDictionary<Guid, SyncRecord>> GetAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken) =>
+        GetAsync(itemIds, Domain.SubtitleLanguage.English, cancellationToken);
+
+    /// <summary>Removes the English record of an item.</summary>
+    /// <param name="itemId">Item id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    public Task DeleteAsync(Guid itemId, CancellationToken cancellationToken) => DeleteAsync(itemId, Domain.SubtitleLanguage.English, cancellationToken);
+
+    /// <summary>Removes the English journal entry of an item.</summary>
+    /// <param name="itemId">Item id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    public Task RemoveInFlightAsync(Guid itemId, CancellationToken cancellationToken) =>
+        RemoveInFlightAsync(itemId, Domain.SubtitleLanguage.English, cancellationToken);
+
     /// <inheritdoc />
-    public async Task<IReadOnlyDictionary<Guid, SyncRecord>> GetAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken)
+    public async Task<IReadOnlyDictionary<Guid, SyncRecord>> GetAsync(IReadOnlyCollection<Guid> itemIds, string language, CancellationToken cancellationToken)
     {
         var result = new Dictionary<Guid, SyncRecord>();
         if (itemIds.Count == 0)
@@ -157,7 +213,8 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
         foreach (var chunk in itemIds.Distinct().Chunk(MaxIdsPerQuery))
         {
             await using var command = connection.CreateCommand();
-            var sql = new StringBuilder("SELECT item_id, video_path, video_size, video_mtime_utc, subtitle_path, status, message, audio_language, subsync_version, seconds, updated_utc FROM synced_items WHERE item_id IN (");
+            var sql = new StringBuilder("SELECT item_id, video_path, video_size, video_mtime_utc, subtitle_path, status, message, audio_language, subsync_version, seconds, updated_utc, language FROM synced_items WHERE language = $lang AND item_id IN (");
+            command.Parameters.AddWithValue("$lang", Domain.SubtitleLanguage.Normalize(language));
             for (var i = 0; i < chunk.Length; i++)
             {
                 var name = "$id" + i.ToString(CultureInfo.InvariantCulture);
@@ -189,15 +246,16 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
             await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
             await using var command = connection.CreateCommand();
             command.CommandText = """
-                INSERT INTO synced_items (item_id, video_path, video_size, video_mtime_utc, subtitle_path, status, message, audio_language, subsync_version, seconds, updated_utc)
-                VALUES ($id, $vp, $vs, $vm, $sp, $st, $msg, $al, $ver, $sec, $up)
-                ON CONFLICT(item_id) DO UPDATE SET
+                INSERT INTO synced_items (item_id, language, video_path, video_size, video_mtime_utc, subtitle_path, status, message, audio_language, subsync_version, seconds, updated_utc)
+                VALUES ($id, $lang, $vp, $vs, $vm, $sp, $st, $msg, $al, $ver, $sec, $up)
+                ON CONFLICT(item_id, language) DO UPDATE SET
                   video_path = excluded.video_path, video_size = excluded.video_size, video_mtime_utc = excluded.video_mtime_utc,
                   subtitle_path = excluded.subtitle_path, status = excluded.status, message = excluded.message,
                   audio_language = excluded.audio_language, subsync_version = excluded.subsync_version,
                   seconds = excluded.seconds, updated_utc = excluded.updated_utc;
                 """;
             command.Parameters.AddWithValue("$id", FormatId(record.ItemId));
+            command.Parameters.AddWithValue("$lang", Domain.SubtitleLanguage.Normalize(record.Language));
             command.Parameters.AddWithValue("$vp", record.Video.Path);
             command.Parameters.AddWithValue("$vs", record.Video.Size);
             command.Parameters.AddWithValue("$vm", FormatDate(record.Video.MtimeUtc));
@@ -272,15 +330,16 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
     }
 
     /// <inheritdoc />
-    public async Task DeleteAsync(Guid itemId, CancellationToken cancellationToken)
+    public async Task DeleteAsync(Guid itemId, string language, CancellationToken cancellationToken)
     {
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
             await using var command = connection.CreateCommand();
-            command.CommandText = "DELETE FROM synced_items WHERE item_id = $id;";
+            command.CommandText = "DELETE FROM synced_items WHERE item_id = $id AND language = $lang;";
             command.Parameters.AddWithValue("$id", FormatId(itemId));
+            command.Parameters.AddWithValue("$lang", Domain.SubtitleLanguage.Normalize(language));
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -299,10 +358,11 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
             await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
             await using var command = connection.CreateCommand();
             command.CommandText = """
-                INSERT INTO in_flight (item_id, subtitle_path, backup_path, started_utc) VALUES ($id, $sp, $bp, $st)
-                ON CONFLICT(item_id) DO UPDATE SET subtitle_path = excluded.subtitle_path, backup_path = excluded.backup_path, started_utc = excluded.started_utc;
+                INSERT INTO in_flight (item_id, language, subtitle_path, backup_path, started_utc) VALUES ($id, $lang, $sp, $bp, $st)
+                ON CONFLICT(item_id, language) DO UPDATE SET subtitle_path = excluded.subtitle_path, backup_path = excluded.backup_path, started_utc = excluded.started_utc;
                 """;
             command.Parameters.AddWithValue("$id", FormatId(entry.ItemId));
+            command.Parameters.AddWithValue("$lang", Domain.SubtitleLanguage.Normalize(entry.Language));
             command.Parameters.AddWithValue("$sp", entry.SubtitlePath);
             command.Parameters.AddWithValue("$bp", entry.BackupPath);
             command.Parameters.AddWithValue("$st", FormatDate(entry.StartedUtc));
@@ -315,15 +375,16 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
     }
 
     /// <inheritdoc />
-    public async Task RemoveInFlightAsync(Guid itemId, CancellationToken cancellationToken)
+    public async Task RemoveInFlightAsync(Guid itemId, string language, CancellationToken cancellationToken)
     {
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
             await using var command = connection.CreateCommand();
-            command.CommandText = "DELETE FROM in_flight WHERE item_id = $id;";
+            command.CommandText = "DELETE FROM in_flight WHERE item_id = $id AND language = $lang;";
             command.Parameters.AddWithValue("$id", FormatId(itemId));
+            command.Parameters.AddWithValue("$lang", Domain.SubtitleLanguage.Normalize(language));
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -338,11 +399,11 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
         var result = new List<InFlightBackup>();
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT item_id, subtitle_path, backup_path, started_utc FROM in_flight;";
+        command.CommandText = "SELECT item_id, subtitle_path, backup_path, started_utc, language FROM in_flight;";
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            result.Add(new InFlightBackup(Guid.ParseExact(reader.GetString(0), "N"), reader.GetString(1), reader.GetString(2), ParseDate(reader.GetString(3))));
+            result.Add(new InFlightBackup(Guid.ParseExact(reader.GetString(0), "N"), reader.GetString(1), reader.GetString(2), ParseDate(reader.GetString(3)), reader.GetString(4)));
         }
 
         return result;
@@ -390,8 +451,8 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
             {
                 insert.Transaction = transaction;
                 insert.CommandText = """
-                    INSERT INTO failed_syncs (item_id, name, series_name, user_id, status, message, source, note, finished_utc)
-                    VALUES ($item, $name, $series, $user, $st, $msg, $src, $note, $fin);
+                    INSERT INTO failed_syncs (item_id, name, series_name, user_id, status, message, source, note, finished_utc, language)
+                    VALUES ($item, $name, $series, $user, $st, $msg, $src, $note, $fin, $lang);
                     """;
                 insert.Parameters.AddWithValue("$item", FormatId(entry.ItemId));
                 insert.Parameters.AddWithValue("$name", entry.Name);
@@ -402,6 +463,7 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
                 insert.Parameters.AddWithValue("$src", entry.Source);
                 insert.Parameters.AddWithValue("$note", (object?)entry.Note ?? DBNull.Value);
                 insert.Parameters.AddWithValue("$fin", FormatDate(entry.FinishedUtc));
+                insert.Parameters.AddWithValue("$lang", Domain.SubtitleLanguage.Normalize(entry.Language));
                 await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
@@ -528,7 +590,7 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
     private static DateTime ParseDate(string value) =>
         DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
 
-    private const string FailedSyncColumns = "SELECT id, item_id, name, series_name, user_id, status, message, source, note, finished_utc FROM failed_syncs";
+    private const string FailedSyncColumns = "SELECT id, item_id, name, series_name, user_id, status, message, source, note, finished_utc, language FROM failed_syncs";
 
     private static FailedSync ReadFailedSync(SqliteDataReader reader) => new(
         reader.GetInt64(0),
@@ -540,7 +602,8 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
         reader.IsDBNull(6) ? null : reader.GetString(6),
         reader.GetString(7),
         reader.IsDBNull(8) ? null : reader.GetString(8),
-        ParseDate(reader.GetString(9)));
+        ParseDate(reader.GetString(9)),
+        reader.GetString(10));
 
     private static SyncRecord ReadRecord(SqliteDataReader reader)
     {
@@ -555,6 +618,7 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
             SubSyncVersion = reader.IsDBNull(8) ? null : reader.GetString(8),
             Seconds = reader.IsDBNull(9) ? null : reader.GetDouble(9),
             UpdatedUtc = ParseDate(reader.GetString(10)),
+            Language = reader.GetString(11),
         };
     }
 

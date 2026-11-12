@@ -83,7 +83,26 @@ public sealed class CliWorker : ISubSyncWorker
             args.Add("--cpu");
         }
 
+        // a Danish subtitle (SubSync 1.5.0, D50), timed by the English one when there is one
+        if (Domain.SubtitleLanguage.Normalize(options.SubtitleLanguage) == Domain.SubtitleLanguage.Danish)
+        {
+            args.Add("--sub-lang");
+            args.Add(Domain.SubtitleLanguage.Danish);
+            if (!string.IsNullOrEmpty(options.Reference))
+            {
+                args.Add("--reference");
+                args.Add(options.Reference);
+            }
+        }
+
         return args;
+    }
+
+    /// <inheritdoc />
+    public async Task<Version?> GetVersionAsync(CancellationToken cancellationToken)
+    {
+        var cli = CliPath();
+        return cli is null || !File.Exists(cli) ? null : await _version(cli, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

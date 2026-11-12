@@ -54,8 +54,9 @@ public sealed class BackupService
     /// <param name="itemId">Episode.</param>
     /// <param name="subtitlePath">Subtitle.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="language">The subtitle's language (D50): the journal is per item and language.</param>
     /// <returns>The journal entry.</returns>
-    public async Task<InFlightBackup> CreateAsync(Guid itemId, string subtitlePath, CancellationToken cancellationToken)
+    public async Task<InFlightBackup> CreateAsync(Guid itemId, string subtitlePath, CancellationToken cancellationToken, string language = Domain.SubtitleLanguage.English)
     {
         var backupPath = BackupPathFor(subtitlePath);
         if (File.Exists(backupPath) || Directory.Exists(backupPath))
@@ -64,7 +65,7 @@ public sealed class BackupService
             throw new BackupException($"A backup already exists at {backupPath}. Remove or restore it by hand, then try again.");
         }
 
-        var entry = new InFlightBackup(itemId, subtitlePath, backupPath, _time.GetUtcNow().UtcDateTime);
+        var entry = new InFlightBackup(itemId, subtitlePath, backupPath, _time.GetUtcNow().UtcDateTime, Domain.SubtitleLanguage.Normalize(language));
         try
         {
             await _state.AddInFlightAsync(entry, cancellationToken).ConfigureAwait(false);
@@ -88,7 +89,7 @@ public sealed class BackupService
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             TryDeleteFile(backupPath);
-            await _state.RemoveInFlightAsync(itemId, CancellationToken.None).ConfigureAwait(false);
+            await _state.RemoveInFlightAsync(itemId, entry.Language, CancellationToken.None).ConfigureAwait(false);
             throw new BackupException("Cannot create backup: " + ex.Message, ex);
         }
     }
@@ -102,7 +103,7 @@ public sealed class BackupService
         if (!File.Exists(entry.BackupPath))
         {
             _logger.LogWarning("Backup {Backup} is missing; nothing to restore for {Subtitle}", entry.BackupPath, entry.SubtitlePath);
-            await _state.RemoveInFlightAsync(entry.ItemId, CancellationToken.None).ConfigureAwait(false);
+            await _state.RemoveInFlightAsync(entry.ItemId, entry.Language, CancellationToken.None).ConfigureAwait(false);
             return false;
         }
 
@@ -128,7 +129,7 @@ public sealed class BackupService
 
         // Only now is the backup redundant.
         File.Delete(entry.BackupPath);
-        await _state.RemoveInFlightAsync(entry.ItemId, CancellationToken.None).ConfigureAwait(false);
+        await _state.RemoveInFlightAsync(entry.ItemId, entry.Language, CancellationToken.None).ConfigureAwait(false);
         return true;
     }
 
@@ -138,7 +139,7 @@ public sealed class BackupService
     public async Task DiscardAsync(InFlightBackup entry)
     {
         File.Delete(entry.BackupPath);
-        await _state.RemoveInFlightAsync(entry.ItemId, CancellationToken.None).ConfigureAwait(false);
+        await _state.RemoveInFlightAsync(entry.ItemId, entry.Language, CancellationToken.None).ConfigureAwait(false);
     }
 
     private static void TryDeleteFile(string path)
