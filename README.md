@@ -53,6 +53,8 @@ To install by hand instead, stop Jellyfin and unzip `SubtitleFixer_<version>.zip
 
 Changes apply as soon as you save; no restart.
 
+**Updating SubSync:** when a newer SubSync release is out, the SubSync card says so and offers **Update SubSync** (administrators only). It downloads the release from GitHub, checks it against GitHub's checksum, replaces `subsync-cli.exe` (and `SubSync.exe`), and runs SubSync's setup to fetch what the new version needs. It only runs when the queue is empty, nothing can be queued until it has finished, and if anything goes wrong the previous version is put back. Close the SubSync window first.
+
 ## Use
 Open the avatar menu (top right) and choose **Subtitle Fixer**. It opens as a window over Jellyfin. Esc or ✕ closes it, and Ctrl-click opens it as a full page.
 

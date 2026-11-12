@@ -80,3 +80,10 @@ Phase 2: `subsync-cli serve`, one process per queue run, replacing D5 (D45, owne
 - [x] Fallback to one `sync` per item for 1.2.0 or when `serve` can't start.
 - Tested 2026-11-12 on Linux: build clean, 443 tests (31 new for `serve`, all fault-injection tests unchanged and passing), repeated 9 times and 3 times on one CPU core with no failure; three deliberate code faults (crash counted per item, other item cancelled instead of requeued, clock started at send) each made a test fail. `ServeProcess` was run against a `/bin/sh` stand-in. Not run: the real `serve`, and `ServeProcess` on Windows.
 - [ ] Owner, on the real server with SubSync 1.3.0 (`M0-LIVE-CHECKS.md`, Phase 2): a whole season through one SubSync process, cancel mid-season leaves every subtitle intact, and a season's total time against Phase 1.
+
+## M8 SubSync updates from the settings page (D46, 2026-11-12)
+- [x] Check GitHub's latest stable SubSync release when the settings page opens (cached 6 h; Check again).
+- [x] Update SubSync: download, checksum against GitHub's, take both exes from the zip, check their version, swap with rollback, run `subsync-cli setup`; only with an empty queue, which stays closed until it has finished.
+- [x] `GET`/`POST /Admin/SubSyncUpdate` (admin only), settings page section, `maintenance` in `/Status`.
+- Tested 2026-11-12 on Linux: build clean, 484 tests (41 new); the settings page's update section in headless Chromium with a stand-in `ApiClient` (offered, running, done; a CSS bug that kept the button visible was found and fixed). Not run: the real GitHub API and release zip, and the swap on Windows.
+- [ ] Owner: the `M0-LIVE-CHECKS.md` "SubSync update" checks.

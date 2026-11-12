@@ -31,6 +31,7 @@ In-memory, single consumer. Dropped on restart (the user can requeue; already-do
 - `JobProcessor` (hosted): waits for startup recovery, then runs the queue (`RunQueueAsync`, `JobProcessor.Serve.cs`): one `serve` process per queue run with up to two items in it, or one `sync` per item as the fallback (D45), and applies the stop rules. `JobQueue.TryTake` takes the item sent ahead; `Requeue` puts an item back untried. A `failed` or `check` outcome is also written to the failed-syncs log (`failed_syncs`, D44); a failed write is logged and loses no subtitle.
 - `JobRunner`: one episode through `JOB-FLOW.md` with `BackupService`, `SubtitleVerifier`, `ISubSyncWorker`, `IRefreshService`, in steps the queue run can interleave: `PrepareAsync` (re-validate, back up), `RunPreparedAsync` (one `sync`) or a `serve` request, `FinishAsync` (verify, swap or restore, record), `RestoreAsync` (back to the queue untried).
 - `RecoveryService`: runs in `StartupService` right after the state store opens.
+- `SubSyncUpdateService` (D46): the cached GitHub check (`GitHubSubSyncReleases`) and the update run (`SubSyncInstaller` in `Worker/`: download, checksum, zip, version check, swap with rollback, setup), with the queue closed by `JobQueue.TryBeginMaintenance` meanwhile. `SubSyncUpdateController` serves `Admin/SubSyncUpdate`.
 - `/Status` hides other users' items in libraries the viewer can't access, using `VisibilityCache` (5-minute per-user cache) so 1-second polling stays cheap.
 
 ## State store

@@ -847,7 +847,7 @@
         } else if (!total) {
             summary = 'Nothing queued.';
         }
-        if (!s.subsyncAvailable) { summary = (summary ? summary + ' ' : '') + MESSAGES.subsync_unavailable; }
+        if (!s.subsyncAvailable) { summary = (summary ? summary + ' ' : '') + (s.maintenance || MESSAGES.subsync_unavailable); }
         $('queue-summary').textContent = summary;
         $('queue-summary').title = s.state !== 'idle' && cur && STAGES[cur.stage] ? 'SubSync is ' + STAGES[cur.stage] : '';
         renderChips(s.state === 'idle' ? t : null);

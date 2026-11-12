@@ -117,3 +117,11 @@ Install SubSync 1.3.0 over 1.2.0 (same folder), then on the settings page press 
 - Cancel mid-season (while an episode is listening, so the next one is already in SubSync): every subtitle of the season is byte-identical to before for the unfinished episodes (compare with copies), no `.bak` is left, and the queue shows the cancelled items. As a non-admin with another user's episode in SubSync, cancel your own: the other user's episode runs again afterwards.
 - Change Tidy up lines mid-season and save: the episode in progress finishes, then a new `serve` with `--keep-layout` appears.
 - Stop the Jellyfin service mid-season: no `subsync-cli.exe` or `python.exe` is left, and after a restart every subtitle is intact.
+
+### SubSync update from the settings page (D46)
+Needs a SubSync release newer than the installed one. To test before one exists, install the previous release (v1.2.0) into a copy of the SubSync folder and point the setting at that copy.
+**Record:**
+- The SubSync card says "SubSync 1.2.0 installed · 1.3.0 available", with What's new and the release link.
+- With the SubSync window open, Update ends with "SubSync is running from that folder…" and nothing changed.
+- With the window closed and the queue empty, Update runs through downloading, checking, installing and setup, and ends with "SubSync 1.3.0 is installed and ready". Meanwhile Start on the main page answers "SubSync is being updated". Afterwards Test SubSync shows `SubSync 1.3.0`, there are no `.old` files or `.subfixer-update` folder, and a sync works.
+- Whether the zip has the exes at its top level or in a folder (the updater accepts both; record which).

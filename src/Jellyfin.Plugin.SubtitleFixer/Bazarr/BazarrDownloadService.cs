@@ -120,6 +120,12 @@ public sealed class BazarrDownloadService
             return Fail(StatusCodes.Status503ServiceUnavailable, ErrorCodes.SubSyncUnavailable, "SubSync is not configured, so the subtitle couldn't be re-timed. Ask an administrator.");
         }
 
+        // Don't download a subtitle nobody can re-time while SubSync is being updated (D46).
+        if (_queue.Snapshot().Maintenance is { } maintenance)
+        {
+            return Fail(StatusCodes.Status503ServiceUnavailable, ErrorCodes.SubSyncUnavailable, maintenance);
+        }
+
         var maxQueued = config.MaxQueuedEpisodes;
         if (_queue.Snapshot().Pending >= maxQueued)
         {
@@ -310,7 +316,9 @@ public sealed class BazarrDownloadService
         _logger.LogInformation("Bazarr downloaded {Subtitle} from {Provider} for {ItemId}; queued: {Queued}", name, stored.Result.Provider, video.Node.Id, queued.Error is null);
         return queued.Error is null
             ? (new BazarrDownloadDto(true, name, $"Downloaded {name} from {stored.Result.Provider}. It's in the queue to be re-timed."), null)
-            : (new BazarrDownloadDto(false, name, $"Downloaded {name} from {stored.Result.Provider}, but the queue is full. Select it later to re-time it."), null);
+            : (new BazarrDownloadDto(false, name, queued.Error.Code == ErrorCodes.SubSyncUnavailable
+                ? $"Downloaded {name} from {stored.Result.Provider}, but SubSync is being updated. Select it later to re-time it."
+                : $"Downloaded {name} from {stored.Result.Provider}, but the queue is full. Select it later to re-time it."), null);
     }
 
     /// <summary>Waits until an accepted sidecar exists, parses as SRT and has stopped growing.</summary>
