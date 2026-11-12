@@ -48,6 +48,7 @@ public interface ILibraryFacade
     /// <param name="term">Search term.</param>
     /// <param name="startIndex">First item.</param>
     /// <param name="limit">Page size.</param>
+    /// <param name="libraryIds">Only search these libraries; null searches every library the user can see.</param>
     /// <returns>The page.</returns>
-    Paged<LibraryNode> Search(Guid userId, string term, int startIndex, int limit);
+    Paged<LibraryNode> Search(Guid userId, string term, int startIndex, int limit, IReadOnlyCollection<Guid>? libraryIds = null);
 }

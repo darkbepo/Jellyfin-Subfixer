@@ -25,6 +25,15 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets who may use the plugin.</summary>
     public AllowedUsers AllowedUsers { get; set; } = AllowedUsers.AllAuthenticated;
 
+    /// <summary>
+    /// Gets or sets the TV and movie libraries people may pick from, as library ids (<c>N</c> or <c>D</c> format).
+    /// Empty means every library. Applies to everyone, administrators included, and is enforced by
+    /// <see cref="Services.LibraryScopeFacade"/> on every library lookup.
+    /// </summary>
+#pragma warning disable CA1819 // XML-serialized settings need an array.
+    public string[] AllowedLibraryIds { get; set; } = [];
+#pragma warning restore CA1819
+
     /// <summary>Gets or sets the most eligible episodes one request may queue.</summary>
     public int MaxEpisodesPerRequest { get; set; } = 150;
 

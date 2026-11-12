@@ -40,8 +40,12 @@ public sealed class FakeLibrary : ILibraryFacade
     private readonly Dictionary<Guid, LibraryNode> _nodes = new();
     private readonly Dictionary<Guid, List<VideoFacts>> _seasonEpisodes = new();
     private readonly Dictionary<Guid, VideoFacts> _episodes = new();
+    private readonly Dictionary<Guid, Guid> _libraryOf = new();
 
     public HashSet<Guid> Hidden { get; } = new();
+
+    /// <summary>Puts a series or movie in a library (seasons and episodes follow their series).</summary>
+    public void PutIn(LibraryNode library, Guid seriesOrMovieId) => _libraryOf[seriesOrMovieId] = library.Id;
 
     public LibraryNode AddLibrary(string name)
     {
@@ -115,7 +119,21 @@ public sealed class FakeLibrary : ILibraryFacade
     public LibraryNode? GetNode(Guid userId, Guid itemId) =>
         !Hidden.Contains(itemId) && _nodes.TryGetValue(itemId, out var n) ? n : null;
 
-    public IReadOnlyList<LibraryNode> GetBreadcrumb(Guid userId, Guid itemId) => [];
+    public IReadOnlyList<LibraryNode> GetBreadcrumb(Guid userId, Guid itemId)
+    {
+        if (GetNode(userId, itemId) is not { } node)
+        {
+            return [];
+        }
+
+        var key = node.Kind is NodeKind.Movie or NodeKind.Library ? node.Id : node.SeriesId ?? node.Id;
+        if (node.Kind == NodeKind.Library)
+        {
+            return [node];
+        }
+
+        return _libraryOf.TryGetValue(key, out var lib) ? [_nodes[lib], node] : [node];
+    }
 
     public IReadOnlyList<VideoFacts> GetSeasonEpisodes(Guid userId, Guid seasonId) =>
         _seasonEpisodes.TryGetValue(seasonId, out var list) ? list.Where(e => !Hidden.Contains(e.Node.Id)).ToList() : [];
@@ -123,7 +141,17 @@ public sealed class FakeLibrary : ILibraryFacade
     public VideoFacts? GetVideo(Guid userId, Guid episodeId) =>
         !Hidden.Contains(episodeId) && _episodes.TryGetValue(episodeId, out var e) ? e : null;
 
-    public Paged<LibraryNode> Search(Guid userId, string term, int startIndex, int limit) => new([], 0);
+    public IReadOnlyCollection<Guid>? LastSearchLibraries { get; private set; }
+
+    public Paged<LibraryNode> Search(Guid userId, string term, int startIndex, int limit, IReadOnlyCollection<Guid>? libraryIds = null)
+    {
+        LastSearchLibraries = libraryIds;
+        var hits = _nodes.Values
+            .Where(n => n.Kind is NodeKind.Series or NodeKind.Episode or NodeKind.Movie && n.Name.Contains(term, StringComparison.OrdinalIgnoreCase))
+            .Where(n => libraryIds is null || GetBreadcrumb(userId, n.Id) is [{ Kind: NodeKind.Library } lib, ..] && libraryIds.Contains(lib.Id))
+            .ToList();
+        return new Paged<LibraryNode>(hits.Skip(startIndex).Take(limit).ToList(), hits.Count);
+    }
 }
 
 /// <summary>In-memory state store.</summary>
@@ -170,6 +198,33 @@ public sealed class FakeStateStore : IStateStore
     public Task<string?> GetMetaAsync(string key, CancellationToken cancellationToken) => Task.FromResult<string?>(null);
 
     public Task SetMetaAsync(string key, string value, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public List<FailedSync> Failed { get; } = new();
+
+    private long _failedSeq;
+
+    public Task AddFailedSyncAsync(FailedSync entry, int keep, CancellationToken cancellationToken)
+    {
+        Failed.Add(entry with { Id = ++_failedSeq });
+        if (Failed.Count > keep)
+        {
+            Failed.RemoveRange(0, Failed.Count - keep);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task<(IReadOnlyList<FailedSync> Items, int TotalCount)> GetFailedSyncsAsync(Guid? userId, int startIndex, int limit, CancellationToken cancellationToken)
+    {
+        var all = Failed.Where(f => userId is null || f.UserId == userId).OrderByDescending(f => f.Id).ToList();
+        return Task.FromResult<(IReadOnlyList<FailedSync>, int)>((all.Skip(startIndex).Take(limit).ToList(), all.Count));
+    }
+
+    public Task<FailedSync?> GetFailedSyncAsync(long id, CancellationToken cancellationToken) =>
+        Task.FromResult(Failed.FirstOrDefault(f => f.Id == id));
+
+    public Task<int> RemoveFailedSyncsAsync(Guid? userId, long? id, CancellationToken cancellationToken) =>
+        Task.FromResult(Failed.RemoveAll(f => (userId is null || f.UserId == userId) && (id is null || f.Id == id)));
 }
 
 public static class Records

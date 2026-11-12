@@ -27,7 +27,7 @@ Enforced on the server; the UI mirrors them. See `docs/API.md` for error codes.
 5. **One job at a time**; global queue.
 6. **Never re-sync** an episode with a matching `done` record.
 7. **Never lose a subtitle**: backup, run, verify, swap, delete backup; restore on any failure (`docs/JOB-FLOW.md`).
-8. **Permissions**: `AllowedUsers` = `AllAuthenticated` (default) or `AdminOnly`. Admins are always allowed; everyone else only once SubSync is configured, so a fresh install is admin-only until set up (D10). Users only see what they can access in Jellyfin. Bazarr search and download follow the same rule (D28).
+8. **Permissions**: `AllowedUsers` = `AllAuthenticated` (default) or `AdminOnly`. Admins are always allowed; everyone else only once SubSync is configured, so a fresh install is admin-only until set up (D10). Users only see what they can access in Jellyfin, within the libraries chosen in `AllowedLibraryIds` (D43). Bazarr search and download follow the same rule (D28).
 
 ## 4. Eligibility
 An episode is eligible only if all hold:
@@ -46,6 +46,7 @@ A `done` record stores video path, size and mtime (UTC). It is valid while all t
 |---|---|---|
 | SubSync folder | none | Validated with `subsync-cli check`; exit code 8 = tell admin to run `subsync-cli setup` (about 3.2 GB) |
 | `AllowedUsers` | `AllAuthenticated` | or `AdminOnly`. Non-admins wait until SubSync is configured (D10) |
+| `AllowedLibraryIds` | empty (every library) | TV and movie libraries people may pick from, for everyone including admins; enforced on every library read (D43) |
 | `MaxEpisodesPerRequest` | 150 | |
 | `MaxQueuedEpisodes` | 300 | |
 | `TidyUpLines` | on | Off passes `--keep-layout`. Tidy up re-cuts subtitles by sentence and speaker; words are never changed |

@@ -50,3 +50,16 @@ Acceptance: all settings take effect; non-admin and admin paths verified.
 - [x] First release published 2026-11-11: [v0.1.0.0](https://github.com/darkbepo/Jellyfin-Subfixer/releases/tag/v0.1.0.0) (zip, .md5, manifest.json; tag and release by darkbepo). The downloaded zip matches the manifest checksum, and Testflix's catalog lists it from the real repository URL.
 - [ ] Owner: install it from the repository URL on the real server.
 - [ ] Manual test pass (`TESTING.md` checklist) on a clean Jellyfin 12 server.
+
+## M6 Owner feedback (2026-11-12)
+- [x] Pop-up header: no "Signed in as …" line; the close button is an SVG icon, transparent until hovered (`UI.md`).
+- [x] Settings: choose the libraries people can pick from, enforced on the server for every library read (D43).
+- [x] Libraries and Queue are collapsible panels; after Start the explorer goes back to Libraries, folds, and the queue opens.
+- [x] Finished queue items clear after a minute; failed and check outcomes go to a failed-syncs log with Retry (D44).
+- [x] Simpler progress line ("<item> · 73% · about 4 min left", "2 of 5" by the bar), no misleading elapsed time; coloured chips when finished.
+- [x] Find subtitles shows only Score, Language, Release, Match and Get, and doesn't mention Bazarr or providers.
+- [x] Diagnostics stays admin-only (already the case: page and endpoints).
+- Tested 2026-11-12: build clean, 326 tests (new: library scope, queue expiry, failed-syncs log and its migration, log on failed and check only); mock mode in a headless browser at 1000 px and 390 px, in the pop-up from a stand-in menu, and the settings page's library switches with a stubbed `ApiClient`.
+- [ ] Owner: the `M0-LIVE-CHECKS.md` "Libraries setting, auto-clear and failed-syncs log" checks on the real server.
+Acceptance: the items above work against the real server; a user can't browse, search, queue or retry anything outside the chosen libraries through the API.
+

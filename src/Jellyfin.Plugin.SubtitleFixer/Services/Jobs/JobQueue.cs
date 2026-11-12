@@ -126,11 +126,13 @@ public sealed record RunningJob(JobItemSnapshot Snapshot, CancellationToken Canc
 
 /// <summary>
 /// The one global queue (SPEC.md hard rule 5, D19). In memory: dropped on restart (D11). One consumer takes entries
-/// in order; everything else only reads immutable snapshots. Finished entries stay visible until cleared or a day old.
+/// in order; everything else only reads immutable snapshots. Finished entries stay visible for
+/// <see cref="FinishedRetention"/>, then drop out (D44); failed and check ones are in the failed-syncs log by then.
 /// </summary>
 public sealed class JobQueue : IDisposable
 {
-    private static readonly TimeSpan FinishedRetention = TimeSpan.FromHours(24);
+    /// <summary>How long a finished entry stays in the queue list (D44).</summary>
+    public static readonly TimeSpan FinishedRetention = TimeSpan.FromMinutes(1);
 
     private readonly object _lock = new();
     private readonly List<Entry> _entries = new();
@@ -153,9 +155,24 @@ public sealed class JobQueue : IDisposable
     /// <returns>Wire name.</returns>
     public static string StatusCode(JobItemStatus status) => status.ToString().ToLowerInvariant();
 
-    /// <summary>Gets the current snapshot. Lock-free for readers.</summary>
+    /// <summary>Gets the current snapshot. Lock-free for readers unless a finished entry has just expired.</summary>
     /// <returns>Snapshot.</returns>
-    public QueueSnapshot Snapshot() => Volatile.Read(ref _snapshot);
+    public QueueSnapshot Snapshot()
+    {
+        var snapshot = Volatile.Read(ref _snapshot);
+        var cutoff = Now() - FinishedRetention;
+        if (!snapshot.Items.Any(i => i.FinishedUtc < cutoff))
+        {
+            return snapshot;
+        }
+
+        lock (_lock)
+        {
+            Prune();
+            Publish();
+            return Volatile.Read(ref _snapshot);
+        }
+    }
 
     /// <summary>Adds episodes to the end of the queue. Episodes already queued or running are skipped.</summary>
     /// <param name="userId">Who is queuing.</param>

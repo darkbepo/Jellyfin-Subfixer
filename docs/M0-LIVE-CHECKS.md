@@ -91,3 +91,11 @@ Then cancel a run halfway and check that episode's subtitle is unchanged. Stop t
 
 ### S7 SQLite
 The test page writes a row to `state.db` in the plugin's data folder (it shows the full path). Restart Jellyfin; the test page still shows that row.
+
+### Libraries setting, auto-clear and failed-syncs log (D43, D44)
+On the settings page, turn off one TV library (leave at least one on) and save.
+**Record:**
+- The page no longer lists that library, and searching for a series that's only in it finds nothing (this is the check for the per-library search in `M0-SPIKES.md` S3). A series in an allowed library is still found.
+- A season from the turned-off library can't be queued: `POST /SubtitleFixer/Jobs` with its id returns `404 not_found` or `400`.
+- Turn every library back on and save: the settings page shows all switches on and search finds everything again.
+- Start one episode. About a minute after it finishes, it leaves the queue list. If it ended failed or check, it's in the Failed syncs panel, and still there after restarting Jellyfin. Retry puts it back in the queue.

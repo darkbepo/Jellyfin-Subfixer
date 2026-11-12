@@ -8,6 +8,9 @@ Base path `/SubtitleFixer`. All data endpoints require an authenticated user (`[
 ## GET /Me
 `{ "userId":"...", "name":"...", "isAdmin":false, "allowed":true, "reason":null, "message":null }`. The page calls this first: `401` means show the sign-in link; `allowed:false` means show `message` (no `403`, so the page can explain). `reason` is `not_configured` (non-admins wait until SubSync is configured, D10) or `admins_only` (`AllowedUsers = AdminOnly`). The avatar-menu entry is shown only when `allowed` is true. Data endpoints return `403 forbidden` with the same message.
 
+## Libraries setting (D43)
+`AllowedLibraryIds` limits every endpoint that reads the library: Browse lists only the chosen libraries, Search only searches them, and an item anywhere else is `not_found` for Browse, Preview, Jobs, Retry and Bazarr, exactly as if the user had no access. Empty means every library. It applies to administrators too. Queue and log entries for items outside the chosen libraries show as "Episode in another library" to users who didn't queue them.
+
 ## GET /Browse?parentId=&startIndex=0&limit=50
 Empty `parentId` lists TV libraries. Library -> series, series -> seasons, season -> episodes.
 ```json
@@ -53,7 +56,7 @@ Same request; validates exactly like Preview, then appends the eligible episodes
                "mine":true, "source":"manual|bazarr", "note":null, "seconds":71.2, "startedUtc":null } ] }
 ```
 - One global queue shared by everyone, visible to every allowed user. A second Start appends to it; it never starts a second SubSync.
-- `items` order: finished (oldest first), then running, then queued. Finished items stay until the owner clears them (`POST /Jobs/Clear`) or for 24 hours. The queue itself is in memory and empties on restart (D11).
+- `items` order: finished (oldest first), then running, then queued. Finished items stay for one minute after they end, or until the owner clears them sooner (`POST /Jobs/Clear`); failed and check ones are in the failed-syncs log by then (D44). The queue itself is in memory and empties on restart (D11). `stopReason` stays after its items expire, until the next Start.
 - `mine` marks items the caller queued. For other users' items in a library the caller can't access, `itemId`, `seriesName` and `note` are null and `name` is "Episode in another library".
 - `skipped` means the episode was no longer eligible when its turn came (for example synced in the meantime); nothing was touched.
 - `source`/`note`: where the job came from; Bazarr downloads use `source:"bazarr"` and a note such as "downloaded from opensubtitlescom" (BAZARR-PLAN.md). Server code queues them with `JobQueue.Enqueue(userId, items, JobSource.Bazarr, note, MaxQueuedEpisodes)`.
@@ -68,7 +71,24 @@ Cancels the caller's own running and queued items; an administrator cancels all 
 ## POST /Jobs/Clear
 Removes the caller's finished items from the list (an administrator clears all). Returns the new Status.
 
+## GET /FailedSyncs?startIndex=0&limit=20
+The failed-syncs log (D44): every sync that ended `failed` or `check`, written when it ends and kept in `state.db` across restarts (the newest 500). Newest first, `limit` at most 100. Admins see everyone's entries; everyone else sees only their own (server-side filter).
+```json
+{ "totalCount": 2,
+  "items": [ { "id": 17, "itemId": "...", "name": "S01E23 Title", "seriesName": "Show", "status": "failed|check",
+               "message": "SubSync could not read the audio track.", "mine": true, "source": "manual|bazarr",
+               "note": null, "finishedUtc": "2026-11-12T10:00:00Z" } ] }
+```
+Another user's entry in a library the viewer can't access has `itemId`, `seriesName`, `message` and `note` null and `name` "Episode in another library". `503 state_unavailable` when the state database didn't start.
+
+## POST /FailedSyncs/{id}/Retry
+Queues the entry's item again for the caller, validated exactly like `POST /Jobs` with that one id (so it is refused if it is synced meanwhile, no longer eligible, or outside the allowed libraries), then removes the entry from the log. The caller's own entries, or any entry for an admin; anything else is `404 not_found`. Returns what `POST /Jobs` returns.
+
+## POST /FailedSyncs/Clear
+Empties the log. Admin only (`403 forbidden` otherwise). Returns `{ "totalCount":0, "items":[] }`.
+
 ## Admin
+- `GET /Admin/Libraries` -> `[ { "id":"...", "name":"TV Shows", "libraryType":"tvshows|movies", "allowed":true } ]`: every TV and movie library the admin can see, ignoring the `AllowedLibraryIds` setting, for the settings page (D43). `allowed` is the current setting (all true when none are chosen).
 - `POST /Admin/TestSubSync` -> `{ "ok":true, "version":"1.2.0", "mode":"GPU|CPU|unknown", "message":"..." }`
 - `POST /Admin/TestBazarr` with `{ "url":"...", "apiKey":"...", "pathMappings":"..." }` (unsaved form values; an empty `url` or `apiKey`, or a null `pathMappings`, uses the saved setting; the saved key is only sent to the saved address, so testing another address needs the key typed in) -> always `200 { "ok":true, "version":"1.5.3", "message":"...", "pathMappingErrors":["Line 2: ..."], "warnings":["..."] }`; `warnings` says when Bazarr's own sync is on or its setting can't be read (BAZARR-PLAN.md, owner decision 3). Calls Bazarr's `GET /api/system/status` server-side. Works whether or not `BazarrEnabled` is on. The response never contains the API key.
 

@@ -189,7 +189,7 @@ public sealed class JellyfinLibraryFacade : ILibraryFacade
     }
 
     /// <inheritdoc />
-    public Paged<LibraryNode> Search(Guid userId, string term, int startIndex, int limit)
+    public Paged<LibraryNode> Search(Guid userId, string term, int startIndex, int limit, IReadOnlyCollection<Guid>? libraryIds = null)
     {
         var user = _userManager.GetUserById(userId);
         if (user is null || string.IsNullOrWhiteSpace(term))
@@ -197,20 +197,39 @@ public sealed class JellyfinLibraryFacade : ILibraryFacade
             return new Paged<LibraryNode>([], 0);
         }
 
-        var result = _libraryManager.GetItemsResult(new InternalItemsQuery(user)
+        if (libraryIds is null)
         {
-            SearchTerm = term.Trim(),
-            IncludeItemTypes = [BaseItemKind.Series, BaseItemKind.Episode, BaseItemKind.Movie],
-            Recursive = true,
-            IsVirtualItem = false,
-            StartIndex = startIndex,
-            Limit = limit,
-            EnableTotalRecordCount = true,
-            DtoOptions = new DtoOptions(false),
-        });
+            var result = _libraryManager.GetItemsResult(SearchQuery(user, term, startIndex, limit));
+            return new Paged<LibraryNode>(result.Items.Select(ToNode).ToList(), result.TotalRecordCount);
+        }
 
-        return new Paged<LibraryNode>(result.Items.Select(ToNode).ToList(), result.TotalRecordCount);
+        // Only some libraries are allowed: search each one the same way browsing pages a library (folder.GetItems,
+        // recursive), then merge. Each library returns at most startIndex + limit, so this stays one page per library.
+        var items = new List<LibraryNode>();
+        var total = 0;
+        foreach (var folder in _userViewManager.GetUserViews(new UserViewQuery { User = user })
+            .OfType<Folder>()
+            .Where(f => IsSupportedLibrary(f) && libraryIds.Contains(f.Id)))
+        {
+            var page = folder.GetItems(SearchQuery(user, term, 0, startIndex + limit));
+            items.AddRange(page.Items.Select(ToNode));
+            total += page.TotalRecordCount;
+        }
+
+        return new Paged<LibraryNode>(items.Skip(startIndex).Take(limit).ToList(), total);
     }
+
+    private static InternalItemsQuery SearchQuery(User user, string term, int startIndex, int limit) => new(user)
+    {
+        SearchTerm = term.Trim(),
+        IncludeItemTypes = [BaseItemKind.Series, BaseItemKind.Episode, BaseItemKind.Movie],
+        Recursive = true,
+        IsVirtualItem = false,
+        StartIndex = startIndex,
+        Limit = limit,
+        EnableTotalRecordCount = true,
+        DtoOptions = new DtoOptions(false),
+    };
 
     private static bool IsSupportedLibrary(BaseItem item) =>
         item is IHasCollectionType { CollectionType: CollectionType.tvshows or CollectionType.movies };

@@ -4,6 +4,7 @@ using System.Text.Json;
 using Jellyfin.Plugin.SubtitleFixer.Domain;
 using Jellyfin.Plugin.SubtitleFixer.Services;
 using Jellyfin.Plugin.SubtitleFixer.Services.Jobs;
+using Jellyfin.Plugin.SubtitleFixer.State;
 using Jellyfin.Plugin.SubtitleFixer.Worker;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -75,6 +76,34 @@ public sealed record StatusDto(
     int? AheadOfYours,
     IReadOnlyList<StatusItemDto> Items);
 
+/// <summary>One entry of <c>GET /FailedSyncs</c> (D44).</summary>
+/// <param name="Id">Log entry id.</param>
+/// <param name="ItemId">Episode or movie id, or null when the viewer cannot access it.</param>
+/// <param name="Name">Name, or "Episode in another library".</param>
+/// <param name="SeriesName">Series name, or null when hidden or a movie.</param>
+/// <param name="Status">failed or check.</param>
+/// <param name="Message">Why.</param>
+/// <param name="Mine">Queued by the viewer.</param>
+/// <param name="Source">manual or bazarr.</param>
+/// <param name="Note">Note from the source.</param>
+/// <param name="FinishedUtc">When it ended.</param>
+public sealed record FailedSyncDto(
+    long Id,
+    Guid? ItemId,
+    string Name,
+    string? SeriesName,
+    string Status,
+    string? Message,
+    bool Mine,
+    string Source,
+    string? Note,
+    DateTime FinishedUtc);
+
+/// <summary><c>GET /FailedSyncs</c>.</summary>
+/// <param name="TotalCount">Entries the viewer may see.</param>
+/// <param name="Items">This page, newest first.</param>
+public sealed record FailedSyncsDto(int TotalCount, IReadOnlyList<FailedSyncDto> Items);
+
 /// <summary>The shared queue API (API.md: Jobs, Status; D19).</summary>
 [ApiController]
 [Authorize]
@@ -89,6 +118,8 @@ public sealed class JobsController : ControllerBase
     private readonly JobQueue _queue;
     private readonly ISubSyncWorker _worker;
     private readonly VisibilityCache _visibility;
+    private readonly IStateStore _state;
+    private readonly StartupStatus _startup;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="JobsController"/> class.
@@ -98,8 +129,12 @@ public sealed class JobsController : ControllerBase
     /// <param name="queue">Queue.</param>
     /// <param name="worker">Worker (availability only).</param>
     /// <param name="visibility">Visibility cache.</param>
-    public JobsController(AccessService access, SelectionValidator validator, JobQueue queue, ISubSyncWorker worker, VisibilityCache visibility)
+    /// <param name="state">State store (failed-syncs log).</param>
+    /// <param name="startup">Startup status.</param>
+    public JobsController(AccessService access, SelectionValidator validator, JobQueue queue, ISubSyncWorker worker, VisibilityCache visibility, IStateStore state, StartupStatus startup)
     {
+        _state = state;
+        _startup = startup;
         _access = access;
         _validator = validator;
         _queue = queue;
@@ -121,13 +156,128 @@ public sealed class JobsController : ControllerBase
             return denied;
         }
 
+        return await QueueAsync(caller, request?.ItemIds, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The failed-syncs log (D44): the caller's own entries, or everyone's for an admin. Newest first, paged.</summary>
+    /// <param name="startIndex">First entry.</param>
+    /// <param name="limit">Page size (at most 100).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The page.</returns>
+    [HttpGet("FailedSyncs")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public async Task<IActionResult> FailedSyncs([FromQuery] int startIndex = 0, [FromQuery] int limit = 20, CancellationToken cancellationToken = default)
+    {
+        if (Deny(out var caller) is { } denied)
+        {
+            return denied;
+        }
+
+        if (StateUnavailable() is { } unavailable)
+        {
+            return unavailable;
+        }
+
+        var (items, total) = await _state.GetFailedSyncsAsync(caller.IsAdmin ? null : caller.User.Id, Math.Max(0, startIndex), Math.Clamp(limit, 1, 100), cancellationToken).ConfigureAwait(false);
+        return ApiResults.Json(BuildFailedSyncs(items, total, caller.User.Id, id => _visibility.CanSee(caller.User.Id, id)));
+    }
+
+    /// <summary>Queues a logged item again (validated like Start), then removes it from the log. Own entries, or any for an admin.</summary>
+    /// <param name="id">Log entry id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>202 with counts, like Start.</returns>
+    [HttpPost("FailedSyncs/{id}/Retry")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public async Task<IActionResult> RetryFailedSync([FromRoute] long id, CancellationToken cancellationToken)
+    {
+        if (Deny(out var caller) is { } denied)
+        {
+            return denied;
+        }
+
+        if (StateUnavailable() is { } unavailable)
+        {
+            return unavailable;
+        }
+
+        var entry = await _state.GetFailedSyncAsync(id, cancellationToken).ConfigureAwait(false);
+        if (entry is null || (!caller.IsAdmin && entry.UserId != caller.User.Id))
+        {
+            return ApiResults.Error(StatusCodes.Status404NotFound, "not_found", "That log entry was not found.");
+        }
+
+        var result = await QueueAsync(caller, [entry.ItemId], cancellationToken).ConfigureAwait(false);
+        if (result.StatusCode == StatusCodes.Status202Accepted)
+        {
+            await _state.RemoveFailedSyncsAsync(null, entry.Id, cancellationToken).ConfigureAwait(false);
+        }
+
+        return result;
+    }
+
+    /// <summary>Empties the failed-syncs log. Admin only.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>An empty page.</returns>
+    [HttpPost("FailedSyncs/Clear")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public async Task<IActionResult> ClearFailedSyncs(CancellationToken cancellationToken)
+    {
+        if (Deny(out var caller) is { } denied)
+        {
+            return denied;
+        }
+
+        if (!caller.IsAdmin)
+        {
+            return ApiResults.Error(StatusCodes.Status403Forbidden, ErrorCodes.Forbidden, "Only an administrator can clear the failed-syncs log.");
+        }
+
+        if (StateUnavailable() is { } unavailable)
+        {
+            return unavailable;
+        }
+
+        await _state.RemoveFailedSyncsAsync(null, null, cancellationToken).ConfigureAwait(false);
+        return ApiResults.Json(new FailedSyncsDto(0, []));
+    }
+
+    /// <summary>Builds the log a viewer sees, hiding items in libraries they cannot access. Static and pure for tests.</summary>
+    /// <param name="items">Entries.</param>
+    /// <param name="total">Total count.</param>
+    /// <param name="viewer">Viewer.</param>
+    /// <param name="canSee">Whether the viewer can access an item.</param>
+    /// <returns>The page.</returns>
+    internal static FailedSyncsDto BuildFailedSyncs(IReadOnlyList<FailedSync> items, int total, Guid viewer, Func<Guid, bool> canSee) =>
+        new(total, items.Select(f =>
+        {
+            var mine = f.UserId == viewer;
+            var visible = mine || canSee(f.ItemId);
+            return new FailedSyncDto(
+                f.Id,
+                visible ? f.ItemId : null,
+                visible ? f.Name : HiddenName,
+                visible && f.SeriesName.Length > 0 ? f.SeriesName : null,
+                f.Status == SyncStatus.Check ? "check" : "failed",
+                visible ? f.Message : null,
+                mine,
+                f.Source,
+                visible ? f.Note : null,
+                f.FinishedUtc);
+        }).ToList());
+
+    private ContentResult? StateUnavailable() => _startup.StateReady
+        ? null
+        : ApiResults.Error(StatusCodes.Status503ServiceUnavailable, "state_unavailable", _startup.StateError ?? "The state database is not ready.");
+
+    private async Task<ContentResult> QueueAsync(Caller caller, IReadOnlyList<Guid>? itemIds, CancellationToken cancellationToken)
+    {
         if (!_worker.IsConfigured)
         {
             return ApiResults.Error(StatusCodes.Status503ServiceUnavailable, ErrorCodes.SubSyncUnavailable, "SubSync is not configured. Ask an administrator.");
         }
 
         var config = Plugin.Instance?.Configuration;
-        var result = await _validator.ValidateAsync(caller.User.Id, request?.ItemIds, config?.MaxEpisodesPerRequest ?? 150, cancellationToken).ConfigureAwait(false);
+        var result = await _validator.ValidateAsync(caller.User.Id, itemIds, config?.MaxEpisodesPerRequest ?? 150, cancellationToken).ConfigureAwait(false);
         if (result.Error is { } error)
         {
             return ApiResults.Error(StatusCodes.Status400BadRequest, error.Code, error.Message);

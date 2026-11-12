@@ -34,7 +34,12 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
 
         serviceCollection.AddSingleton<StartupStatus>();
         serviceCollection.AddSingleton<FileTransformationRegistrar>();
-        serviceCollection.AddSingleton<ILibraryFacade, JellyfinLibraryFacade>();
+        // Everything reads the library through the scope, so the "Libraries" setting applies everywhere (D43). Only the
+        // settings page's library list (Admin/Libraries) reads the unrestricted facade.
+        serviceCollection.AddSingleton<JellyfinLibraryFacade>();
+        serviceCollection.AddSingleton<ILibraryFacade>(sp => new LibraryScopeFacade(
+            sp.GetRequiredService<JellyfinLibraryFacade>(),
+            () => Plugin.Instance?.Configuration.AllowedLibraryIds));
         serviceCollection.AddSingleton<AccessService>();
         serviceCollection.AddSingleton<SelectionValidator>();
         serviceCollection.AddSingleton<BrowseService>();

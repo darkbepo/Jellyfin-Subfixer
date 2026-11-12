@@ -191,6 +191,18 @@
     queue.push(other);
     queue.push(job('hidden-2', 'S02E06 Private', 'Private Show', OTHER));
 
+    // Failed-syncs log (D44): failed and check outcomes, newest first. One seeded entry each for me and someone else.
+    var failedLog = [];
+    var failedSeq = 0;
+    function logFailure(j, ep) {
+        failedLog.unshift({ id: ++failedSeq, itemId: j.itemId, name: j.name, seriesName: j.seriesName, userId: j.userId, status: j.status,
+            message: j.message, source: j.source, note: j.note, finishedUtc: new Date().toISOString(), ep: ep });
+    }
+    logFailure({ itemId: 'ser-long-s1-e23', name: 'S01E23 ' + titles[(23) % titles.length], seriesName: 'The Long Show', userId: ME, status: 'failed',
+        message: 'SubSync could not read the audio track.', source: 'manual', note: null });
+    logFailure({ itemId: 'hidden-9', name: 'S01E02 Private', seriesName: 'Private Show', userId: OTHER, status: 'check',
+        message: 'Matched only 3 lines; is this the subtitle for this video?', source: 'manual', note: null });
+
     var outcomeSeq = 0;
     function tick() {
         var running = queue.filter(function (j) { return j.status === 'running'; })[0];
@@ -211,6 +223,7 @@
             }
             running.seconds = 70 + (outcomeSeq * 13) % 40;
             running.finishedUtc = new Date().toISOString();
+            if (running.status === 'failed' || running.status === 'check') { logFailure(running); }
         }
         var next = queue.filter(function (j) { return j.status === 'queued'; })[0];
         if (next) { next.status = 'running'; next.startedUtc = new Date().toISOString(); }
@@ -223,7 +236,14 @@
         return ran < 0.4 ? 'reading_audio' : ran < 2.2 ? 'listening' : 'matching';
     }
 
+    // Finished entries drop out of the list a minute after they end (D44).
+    function prune() {
+        var cutoff = Date.now() - 60000;
+        queue = queue.filter(function (j) { return !j.finishedUtc || new Date(j.finishedUtc).getTime() >= cutoff; });
+    }
+
     function status() {
+        prune();
         var visible = function (j) { return j.userId === ME || j.itemId.indexOf('hidden') !== 0; };
         var map = function (j) {
             var v = visible(j);
@@ -319,7 +339,7 @@
         if (p === 'Jobs/Cancel') {
             queue.forEach(function (j) {
                 if (!(isAdmin || j.userId === ME)) { return; }
-                if (j.status === 'queued') { j.status = 'cancelled'; j.message = 'Cancelled.'; }
+                if (j.status === 'queued') { j.status = 'cancelled'; j.message = 'Cancelled.'; j.finishedUtc = new Date().toISOString(); }
                 if (j.status === 'running') { j.cancelRequested = true; }
             });
             return ok(status());
@@ -327,6 +347,28 @@
         if (p === 'Jobs/Clear') {
             queue = queue.filter(function (j) { return j.status === 'queued' || j.status === 'running' || !(isAdmin || j.userId === ME); });
             return ok(status());
+        }
+        if (p === 'FailedSyncs') {
+            var mineOnly = failedLog.filter(function (f) { return isAdmin || f.userId === ME; });
+            return ok({ totalCount: mineOnly.length, items: mineOnly.slice(start, start + Math.min(100, limit)).map(function (f) {
+                var v = f.userId === ME || f.itemId.indexOf('hidden') !== 0;
+                return { id: f.id, itemId: v ? f.itemId : null, name: v ? f.name : 'Episode in another library', seriesName: v ? f.seriesName : null,
+                    status: f.status, message: v ? f.message : null, mine: f.userId === ME, source: f.source, note: v ? f.note : null, finishedUtc: f.finishedUtc };
+            }) });
+        }
+        if (p === 'FailedSyncs/Clear') {
+            if (!isAdmin) { return err('forbidden', 403, 'Only an administrator can clear the failed-syncs log.'); }
+            failedLog = [];
+            return ok({ totalCount: 0, items: [] });
+        }
+        var retry = /^FailedSyncs\/(\d+)\/Retry$/.exec(p);
+        if (retry) {
+            var entry = failedLog.filter(function (f) { return String(f.id) === retry[1] && (isAdmin || f.userId === ME); })[0];
+            if (!entry) { return err('not_found', 404, 'That log entry was not found.'); }
+            if (!items[entry.itemId]) { return err('not_found', 404, 'That item was not found or you cannot access it.'); }
+            var res2 = route('POST', 'Jobs', { itemIds: [entry.itemId] });
+            if (res2.status === 202) { failedLog = failedLog.filter(function (f) { return f !== entry; }); }
+            return res2;
         }
         if (p === 'Admin/Diagnostics' || p === 'Admin/Diagnostics/State') {
             if (!isAdmin) { return err('forbidden', 403, 'Administrators only.'); }

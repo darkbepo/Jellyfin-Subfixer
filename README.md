@@ -44,6 +44,7 @@ To install by hand instead, stop Jellyfin and unzip `SubtitleFixer_<version>.zip
 | Tidy up lines | on | Re-cuts subtitle lines by sentence and speaker. Words are never changed |
 | Force CPU | off | Skip the GPU. Use it only if CUDA fails |
 | Who can use it | Everyone signed in | Or administrators only |
+| Libraries | all | Which TV and movie libraries people can pick from. Applies to administrators too; with every library on, new libraries are included |
 | Per request | 150 | Most episodes or movies one Start may queue |
 | Queue size | 300 | Most items waiting in the shared queue |
 | Minimum time limit | 30 min | See "How long it takes" |

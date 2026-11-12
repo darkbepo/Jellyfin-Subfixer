@@ -131,6 +131,9 @@
             #SubtitleFixerConfigPage .sf-pill[data-state="warn"] { background: var(--sf-warn-soft); color: var(--sf-warn); }
             #SubtitleFixerConfigPage .sf-pill[data-state="busy"] .sf-icon { animation: sf-spin 1s linear infinite; }
             @keyframes sf-spin { to { transform: rotate(360deg); } }
+            #SubtitleFixerConfigPage .sf-libs .sf-option { padding-top: 0.55em; padding-bottom: 0.55em; }
+            #SubtitleFixerConfigPage .sf-libs-empty { margin: 0; color: var(--sf-muted); font-size: 0.9em; }
+            #SubtitleFixerConfigPage .sf-libs-error { color: var(--sf-bad); }
             #SubtitleFixerConfigPage .sf-result { font-size: 0.88em; color: var(--sf-muted); margin: 0.75em 0 0; }
             #SubtitleFixerConfigPage .sf-result:empty { display: none; }
 
@@ -229,6 +232,14 @@
                             </span>
                             <span class="sf-hint">Until the SubSync folder is set and found, only administrators can open Subtitle Fixer.</span>
                         </label>
+                        <div class="sf-field">
+                            <span class="sf-label" id="sfLibrariesLabel">Libraries people can pick from</span>
+                            <div class="sf-libs" id="AllowedLibraryIds" role="group" aria-labelledby="sfLibrariesLabel">
+                                <p class="sf-libs-empty">Loading libraries…</p>
+                            </div>
+                            <span class="sf-hint">Applies to everyone, administrators too. With every library on, libraries added later are included.</span>
+                            <p class="sf-result sf-libs-error" id="LibrariesResult" role="alert"></p>
+                        </div>
                         <div class="sf-grid">
                             <label class="sf-field">
                                 <span class="sf-label">Per request</span>
@@ -456,9 +467,71 @@
                         setPill('BazarrStatus', 'idle', 'Not tested');
                         el('TestSubSyncResult').textContent = '';
                         el('TestBazarrResult').textContent = '';
+                        loadLibraries(config.AllowedLibraryIds || []);
                         Dashboard.hideLoadingMsg();
                     });
                 });
+
+                // Libraries: one switch per TV or movie library (GET Admin/Libraries). All on saves an empty list,
+                // which means every library, including ones added later (D43).
+                var savedLibraryIds = [];
+                var librariesLoaded = false;
+                function normId(id) { return String(id || '').replace(/-/g, '').toLowerCase(); }
+                function loadLibraries(saved) {
+                    savedLibraryIds = saved.map(normId);
+                    librariesLoaded = false;
+                    var box = el('AllowedLibraryIds');
+                    ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('SubtitleFixer/Admin/Libraries'), dataType: 'json' }).then(function (libs) {
+                        box.replaceChildren();
+                        if (!libs.length) {
+                            var none = document.createElement('p');
+                            none.className = 'sf-libs-empty';
+                            none.textContent = 'No TV or movie libraries found.';
+                            box.appendChild(none);
+                        }
+                        libs.forEach(function (lib) {
+                            var row = document.createElement('label');
+                            row.className = 'sf-option';
+                            var text = document.createElement('span');
+                            text.className = 'sf-option-text';
+                            var name = document.createElement('strong');
+                            name.textContent = lib.name;
+                            var kind = document.createElement('span');
+                            kind.textContent = lib.libraryType === 'movies' ? 'Movies' : 'TV shows';
+                            text.appendChild(name);
+                            text.appendChild(kind);
+                            var sw = document.createElement('span');
+                            sw.className = 'sf-switch';
+                            var input = document.createElement('input');
+                            input.type = 'checkbox';
+                            input.value = normId(lib.id);
+                            input.checked = !!lib.allowed;
+                            sw.appendChild(input);
+                            sw.appendChild(document.createElement('i'));
+                            row.appendChild(text);
+                            row.appendChild(sw);
+                            box.appendChild(row);
+                        });
+                        librariesLoaded = true;
+                    }, function () {
+                        var err = document.createElement('p');
+                        err.className = 'sf-libs-empty sf-libs-error';
+                        err.textContent = 'Couldn’t load the libraries. Saving keeps the current choice.';
+                        box.replaceChildren(err);
+                    });
+                }
+
+                // Returns the ids to save, or null when no library is on.
+                function chosenLibraries() {
+                    if (!librariesLoaded) { return savedLibraryIds; }
+                    var boxes = Array.prototype.slice.call(el('AllowedLibraryIds').querySelectorAll('input[type="checkbox"]'));
+                    var on = boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
+                    if (!boxes.length || on.length === boxes.length) { return []; }
+                    if (!on.length) { return null; }
+                    // Keep allowed libraries this admin can't see (hidden by their own library access).
+                    var shown = boxes.map(function (b) { return b.value; });
+                    return on.concat(savedLibraryIds.filter(function (id) { return shown.indexOf(id) < 0; }));
+                }
 
                 el('BazarrEnabled').addEventListener('change', syncBazarrEnabled);
                 el('BazarrAddMapping').addEventListener('click', function () { addMapping('', '').querySelector('input').focus(); });
@@ -474,10 +547,19 @@
 
                 el('SubtitleFixerConfigForm').addEventListener('submit', function (e) {
                     e.preventDefault();
+                    var libraries = chosenLibraries();
+                    if (libraries === null) {
+                        el('LibrariesResult').textContent = 'Turn on at least one library, then save.';
+                        el('AllowedLibraryIds').scrollIntoView({ block: 'center' });
+                        return false;
+                    }
+                    el('LibrariesResult').textContent = '';
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                         config.SubSyncFolder = el('SubSyncFolder').value.trim();
                         config.AllowedUsers = el('AllowedUsers').value;
+                        config.AllowedLibraryIds = libraries;
+                        savedLibraryIds = libraries;
                         config.MaxEpisodesPerRequest = intOr(el('MaxEpisodesPerRequest').value, 150);
                         config.MaxQueuedEpisodes = intOr(el('MaxQueuedEpisodes').value, 300);
                         config.EpisodeTimeoutMinutes = intOr(el('EpisodeTimeoutMinutes').value, 30);

@@ -31,6 +31,7 @@ public sealed class SubtitleFixerController : ControllerBase
     private readonly IStateStore _state;
     private readonly StartupStatus _startup;
     private readonly SubSyncProbe _probe;
+    private readonly JellyfinLibraryFacade _allLibraries;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SubtitleFixerController"/> class.
@@ -41,14 +42,17 @@ public sealed class SubtitleFixerController : ControllerBase
     /// <param name="state">State store.</param>
     /// <param name="startup">Startup status.</param>
     /// <param name="probe">SubSync probe.</param>
+    /// <param name="allLibraries">The library without the "Libraries" setting applied (for the settings page).</param>
     public SubtitleFixerController(
         AccessService access,
         BrowseService browse,
         SelectionValidator validator,
         IStateStore state,
         StartupStatus startup,
-        SubSyncProbe probe)
+        SubSyncProbe probe,
+        JellyfinLibraryFacade allLibraries)
     {
+        _allLibraries = allLibraries;
         _access = access;
         _browse = browse;
         _validator = validator;
@@ -157,6 +161,28 @@ public sealed class SubtitleFixerController : ControllerBase
     {
         var r = await _probe.RunAsync(Plugin.Instance?.Configuration.SubSyncFolder, cancellationToken).ConfigureAwait(false);
         return Json(new TestSubSyncDto(r.Ok, r.Version, r.Mode, r.Message, r.CheckExitCode, r.CheckOutput));
+    }
+
+    /// <summary>
+    /// Every TV and movie library the admin can see, ignoring the "Libraries" setting, for the settings page to offer
+    /// (D43). Admin only.
+    /// </summary>
+    /// <returns>Libraries.</returns>
+    [HttpGet("Admin/Libraries")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [Produces(MediaTypeNames.Application.Json)]
+    public IActionResult AllLibraries()
+    {
+        var caller = _access.GetCaller(User);
+        if (caller is null)
+        {
+            return Error(StatusCodes.Status401Unauthorized, "unauthorized", "Sign in to Jellyfin with a user account.");
+        }
+
+        var allowed = LibraryScopeFacade.Parse(Plugin.Instance?.Configuration.AllowedLibraryIds);
+        return Json(_allLibraries.GetLibraries(caller.User.Id)
+            .Select(l => new LibraryOptionDto(l.Id, l.Name, l.LibraryType ?? "tvshows", allowed is null || allowed.Contains(l.Id)))
+            .ToList());
     }
 
     /// <summary>Startup and state health for the diagnostics page. Admin only.</summary>

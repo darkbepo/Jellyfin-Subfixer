@@ -285,6 +285,8 @@
         var trail = view.mode === 'search'
             ? [{ id: null, name: 'Libraries' }, { id: '#search', name: 'Search: “' + view.query + '”' }]
             : [{ id: null, name: 'Libraries' }].concat(view.parent ? view.parent.breadcrumb : []);
+        // At the top level the panel heading already says "Libraries"; a lone crumb would repeat it.
+        nav.hidden = trail.length < 2;
         trail.forEach(function (c, i) {
             if (i) { nav.appendChild(el('span', 'sep', '›')); }
             var b = el('button', null, c.name);
@@ -368,7 +370,7 @@
             var find = el('button', 'find-btn');
             find.type = 'button';
             find.tabIndex = -1;
-            find.title = 'Search Bazarr for an English subtitle';
+            find.title = 'Search for an English subtitle';
             find.setAttribute('aria-label', 'Find subtitles for ' + label);
             var fi = icon('find');
             fi.setAttribute('class', 'icon');
@@ -442,30 +444,24 @@
         var dlg = $('find');
         var seq = ++findSeq;
         $('find-item').textContent = videoLabel(item) + (item.type === 'Episode' && item.seriesName ? ' · ' + item.seriesName : '');
-        $('find-resource').textContent = '…';
-        $('find-matched').textContent = '';
         $('find-list').replaceChildren();
         dlg.classList.remove('has-hits');
-        setFindStatus('busy', 'Asking Bazarr’s providers. This can take a while…');
+        setFindStatus('busy', 'Searching for subtitles. This can take a while…');
         // Rows are redrawn while the dialog is open (queue polling), so remember the item, not the button.
         dlg.returnTo = item.id;
         if (!dlg.open) { dlg.showModal(); }
 
         api('GET', 'Bazarr/Search?itemId=' + encodeURIComponent(item.id)).then(function (r) {
             if (seq !== findSeq || !dlg.open) { return; }
-            $('find-resource').textContent = r.resource || 'unknown';
-            $('find-matched').textContent = r.matchedBy === 'ids' ? '(matched by id, check it’s the right file)' : '';
             renderHits(r.results, item);
-            var left = r.hidden ? ' ' + plural(r.hidden, 'result', 'results') + ' in other languages or forced-only left out.' : '';
             if (!r.results.length) {
-                setFindStatus('empty', 'No English subtitles found.' + left);
+                setFindStatus('empty', 'No English subtitles found.');
             } else {
-                setFindStatus('', plural(r.results.length, 'subtitle', 'subtitles') + ' found, best match first.' + left);
+                setFindStatus('', plural(r.results.length, 'subtitle', 'subtitles') + ' found, best match first.');
                 dlg.classList.add('has-hits');
             }
         }, function (err) {
             if (seq !== findSeq || !dlg.open) { return; }
-            $('find-resource').textContent = '—';
             setFindStatus('error', err.message);
         });
     }
@@ -476,7 +472,8 @@
         s.textContent = text;
     }
 
-    // Get: Bazarr downloads the result, then it joins the shared queue to be re-timed (BAZARR-PLAN.md phase 2).
+    // Get: the server has Bazarr download the result, then it joins the shared queue to be re-timed (BAZARR-PLAN.md
+    // phase 2). The page doesn't mention Bazarr or providers: people only need the subtitle (UI.md).
     // No confirmation: Find subtitles only shows where no English subtitle exists (D28).
     function getHit(item, hit, button) {
         var dlg = $('find');
@@ -485,18 +482,18 @@
         buttons.forEach(function (b) { b.disabled = true; });
         button.classList.add('working');
         button.querySelector('.get-text').textContent = 'Getting…';
-        setFindStatus('busy', 'Bazarr is downloading from ' + hit.provider + '. This usually takes a few seconds…');
+        setFindStatus('busy', 'Downloading the subtitle. This usually takes a few seconds…');
 
         api('POST', 'Bazarr/Download', { itemId: item.id, resultId: hit.id }).then(function (r) {
             if (r.queued) {
                 closeFind();
-                showHint(r.message);
+                showHint('Subtitle downloaded. It’s in the queue to be re-timed to the audio.');
                 spotlight = item.id;
                 pollNow();
                 return;
             }
             if (seq !== findSeq || !dlg.open) { return; }
-            setFindStatus('', r.message);
+            setFindStatus('', 'Subtitle downloaded.');
             button.classList.remove('working');
             button.querySelector('.get-text').textContent = 'Downloaded';
         }, function (err) {
@@ -530,8 +527,6 @@
             if (h.hearingImpaired) { lang.appendChild(badge('hi', 'HI', 'Hearing impaired: includes sound descriptions')); }
             li.appendChild(lang);
 
-            li.appendChild(el('span', 'hit-provider', h.provider));
-
             var rel = el('span', 'hit-release');
             var releases = h.releases && h.releases.length ? h.releases : ['—'];
             if (releases.length > 1) {
@@ -546,8 +541,6 @@
                 rel.title = releases[0];
             }
             li.appendChild(rel);
-
-            li.appendChild(el('span', 'hit-uploader', h.uploader || '-'));
 
             var miss = h.dontMatches || [];
             var matches = h.matches || [];
@@ -574,7 +567,7 @@
 
             var get = el('button', 'hit-get primary');
             get.type = 'button';
-            get.setAttribute('aria-label', 'Get the ' + h.score + '% subtitle from ' + h.provider);
+            get.setAttribute('aria-label', 'Get the ' + h.score + '% subtitle' + (h.releases && h.releases[0] ? ' for ' + h.releases[0] : ''));
             var gi = icon('download');
             gi.setAttribute('class', 'icon');
             get.appendChild(gi);
@@ -734,10 +727,16 @@
             selected.clear();
             selectionChanged();
             clearTimeout(previewTimer);
-            $('footer-text').textContent = plural(r.queued, 'episode', 'episodes') + ' added to the queue' +
+            $('footer-text').textContent = plural(r.queued, 'item', 'items') + ' added to the queue' +
                 (r.skipped ? ', ' + r.skipped + ' skipped' : '') + '.';
-            pollNow();
-            $('queue-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            // Back to the top of the explorer, folded away, so the queue is what's on screen (UI.md, after Start).
+            browse(null);
+            setPanel('libraries', false);
+            setPanel('queue', true);
+            pollNow().then(function () {
+                var calm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                if (!$('queue-panel').hidden) { $('queue-panel').scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' }); }
+            });
         }, function (err) {
             preview = { pending: false, result: null, error: err };
             renderFooter();
@@ -748,11 +747,32 @@
     // ---------- queue panel (polls /Status: 1 s while running, 5 s idle, paused while hidden) ----------
     var pollTimer = null;
     var showAllQueue = false;
+    var lastAttention = 0;
+
+    function renderChips(t) {
+        var box = $('queue-chips');
+        box.replaceChildren();
+        if (!t) { box.hidden = true; return; }
+        [
+            ['done', t.done, 'done', 'check'],
+            ['check', t.check, 'to check', 'partial'],
+            ['failed', t.failed, 'failed', 'partial'],
+            ['', t.cancelled, 'cancelled', null],
+            ['', t.skipped, 'skipped', null]
+        ].forEach(function (c) {
+            if (!c[1]) { return; }
+            var chip = el('span', 'chip ' + c[0]);
+            if (c[3]) { var ic = icon(c[3]); ic.setAttribute('class', 'icon'); chip.appendChild(ic); }
+            chip.appendChild(document.createTextNode(c[1] + ' ' + c[2]));
+            box.appendChild(chip);
+        });
+        box.hidden = !box.children.length;
+    }
 
     function pollNow() {
         clearTimeout(pollTimer);
-        if (document.hidden) { return; }
-        api('GET', 'Status').then(function (s) {
+        if (document.hidden) { return Promise.resolve(); }
+        return api('GET', 'Status').then(function (s) {
             var wasBusy = lastStatus && lastStatus.state !== 'idle';
             renderQueue(s);
             // The queue just finished: refresh the list so statuses come from the server again.
@@ -793,13 +813,13 @@
         bar.setAttribute('aria-valuenow', String(pct));
         bar.classList.toggle('working', s.state !== 'idle');
 
-        var summary;
-        if (s.state === 'idle') {
-            summary = total ? 'Finished: ' + t.done + ' done, ' + t.check + ' check, ' + t.failed + ' failed' +
-                (t.cancelled ? ', ' + t.cancelled + ' cancelled' : '') + (t.skipped ? ', ' + t.skipped + ' skipped' : '') + '.' : 'Nothing queued.';
-        } else {
-            var started = s.items.map(function (i) { return i.startedUtc; }).filter(Boolean).sort()[0];
-            var elapsed = started ? duration((Date.now() - new Date(started).getTime()) / 1000) : null;
+        // One short line while working: "<name> · 73% · about 1 min left", with "1 of 2" next to the bar.
+        // Finished counts show as coloured chips instead of a sentence (UI.md, queue panel).
+        var summary = '';
+        var count = $('queue-count');
+        count.hidden = s.state === 'idle' || !total;
+        count.textContent = Math.min(total, finished + 1) + ' of ' + total;
+        if (s.state !== 'idle') {
             var etaSeconds = s.etaSeconds;
             if (etaSeconds == null && cur && cur.expectedSeconds && cur.startedUtc) {
                 // Nothing finished yet to average: the running item's estimate, plus the same again per queued item.
@@ -807,15 +827,19 @@
                 etaSeconds = left + t.queued * cur.expectedSeconds;
             }
             var eta = duration(etaSeconds);
-            var stage = cur ? STAGES[cur.stage] || 'starting SubSync' : null;
-            summary = (s.state === 'stopping' ? 'Stopping… ' : '') + finished + ' of ' + total + ' finished.' +
-                (cur ? ' Now: ' + cur.name + (cur.mine ? ' (yours)' : '') + ', ' + stage +
-                    (currentPct != null ? ', about ' + currentPct + '%' : '') + '.' : '') +
-                (elapsed ? ' Elapsed ' + elapsed + '.' : '') + (eta ? ' About ' + eta + ' left.' : '') +
-                (s.aheadOfYours ? ' ' + plural(s.aheadOfYours, 'episode', 'episodes') + ' ahead of yours.' : '');
+            var bits = [];
+            if (s.state === 'stopping') { bits.push('Stopping…'); }
+            if (cur) { bits.push(cur.name); }
+            if (currentPct != null) { bits.push(currentPct + '%'); } else if (cur) { bits.push(STAGES[cur.stage] || 'starting'); }
+            if (eta) { bits.push('about ' + eta + ' left'); }
+            summary = bits.join(' · ');
+        } else if (!total) {
+            summary = 'Nothing queued.';
         }
-        if (!s.subsyncAvailable) { summary += ' ' + MESSAGES.subsync_unavailable; }
+        if (!s.subsyncAvailable) { summary = (summary ? summary + ' ' : '') + MESSAGES.subsync_unavailable; }
         $('queue-summary').textContent = summary;
+        $('queue-summary').title = s.state !== 'idle' && cur && STAGES[cur.stage] ? 'SubSync is ' + STAGES[cur.stage] : '';
+        renderChips(s.state === 'idle' ? t : null);
 
         var stop = $('queue-stop');
         stop.hidden = !s.stopReason;
@@ -832,7 +856,7 @@
             if (i.itemId) { li.dataset.item = i.itemId; }
             var main = el('div', 'main');
             main.appendChild(el('span', 'name', i.name));
-            var sub = [i.seriesName, i.message, i.note].filter(Boolean).join(' · ');
+            var sub = [i.seriesName, i.message].filter(Boolean).join(' · ');
             if (sub) { main.appendChild(el('span', 'sub', sub)); }
             li.appendChild(main);
             var badges = el('div', 'badges');
@@ -862,6 +886,11 @@
         cancel.textContent = me && me.isAdmin && !minePending ? 'Cancel all' : 'Cancel mine';
         $('clear-finished').disabled = finished === 0;
 
+        // A new failed or check outcome is in the failed-syncs log now: refresh it.
+        var attention = t.failed + t.check;
+        if (attention > lastAttention) { loadFailed(false); }
+        lastAttention = attention;
+
         // Re-render explorer rows whose queue status changed.
         var changed = false;
         queueByItem.forEach(function (v, k) { var p = previous.get(k); if (!p || p.status !== v.status) { changed = true; } });
@@ -880,6 +909,120 @@
             var hadFocus = old.contains(document.activeElement);
             list.replaceChild(fresh, old);
             if (hadFocus) { focusRow(fresh); }
+        });
+    }
+
+    // ---------- collapsible panels (UI.md): Libraries and Queue open, Failed syncs closed, until the viewer says otherwise ----------
+    var PANEL_KEY = 'subtitle-fixer-panels';
+    var panelDefaults = { libraries: true, queue: true, failed: false };
+    function savedPanels() {
+        try { return JSON.parse(localStorage.getItem(PANEL_KEY) || '{}') || {}; } catch (e) { return {}; }
+    }
+    function isOpen(name) { return $(name + '-toggle').getAttribute('aria-expanded') === 'true'; }
+    // remember: only the viewer's own clicks are remembered, not the fold after Start.
+    function setPanel(name, open, remember) {
+        $(name + '-toggle').setAttribute('aria-expanded', String(open));
+        $(name + '-body').hidden = !open;
+        var panel = $(name + '-panel');
+        panel.classList.toggle('collapsed', !open);
+        if (name === 'libraries') {
+            $('libraries-collapsed-note').hidden = open;
+        }
+        if (name === 'failed' && open) { loadFailed(false); }
+        if (remember) {
+            try {
+                var saved = savedPanels();
+                saved[name] = open;
+                localStorage.setItem(PANEL_KEY, JSON.stringify(saved));
+            } catch (e) { /* private window or blocked storage: just don't remember */ }
+        }
+    }
+    function initPanels() {
+        var saved = savedPanels();
+        Object.keys(panelDefaults).forEach(function (name) {
+            setPanel(name, typeof saved[name] === 'boolean' ? saved[name] : panelDefaults[name]);
+            $(name + '-toggle').addEventListener('click', function () { setPanel(name, !isOpen(name), true); });
+        });
+    }
+
+    // ---------- failed-syncs log (D44): failed and check outcomes, kept after the queue list drops them ----------
+    var FAILED_PAGE = 20;
+    var failedLog = { items: [], total: 0, loading: false };
+
+    function loadFailed(append) {
+        if (failedLog.loading) { return; }
+        failedLog.loading = true;
+        var start = append ? failedLog.items.length : 0;
+        api('GET', 'FailedSyncs?startIndex=' + start + '&limit=' + FAILED_PAGE).then(function (page) {
+            failedLog.items = append ? failedLog.items.concat(page.items) : page.items;
+            failedLog.total = page.totalCount;
+            renderFailed();
+        }, function (err) {
+            if (err.code === 'state_unavailable') { $('failed-panel').hidden = true; return; }
+            failedHint(err.message, true);
+        }).then(function () { failedLog.loading = false; });
+    }
+
+    function failedHint(text, isError) {
+        var h = $('failed-hint');
+        h.textContent = text || '';
+        h.hidden = !text;
+        h.classList.toggle('error', !!isError);
+    }
+
+    function when(utc) {
+        var d = new Date(utc);
+        var today = new Date();
+        var time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return d.toDateString() === today.toDateString() ? 'Today ' + time : d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + time;
+    }
+
+    function renderFailed() {
+        $('failed-panel').hidden = failedLog.total === 0;
+        $('failed-count').textContent = failedLog.total ? String(failedLog.total) : '';
+        $('failed-count').title = plural(failedLog.total, 'entry', 'entries');
+        var list = $('failed-list');
+        list.replaceChildren();
+        failedLog.items.forEach(function (f) {
+            var li = el('li', 'row');
+            var main = el('div', 'main');
+            main.appendChild(el('span', 'name', f.name));
+            main.appendChild(el('span', 'sub', [f.seriesName, f.message, when(f.finishedUtc)].filter(Boolean).join(' · ')));
+            li.appendChild(main);
+            var badges = el('div', 'badges');
+            if (f.mine && me && me.isAdmin) { badges.appendChild(badge('mine', 'Yours')); }
+            badges.appendChild(badge(f.status, f.status === 'check' ? 'Check' : 'Failed', f.message));
+            li.appendChild(badges);
+            if (f.itemId) {
+                var retry = el('button', 'retry');
+                retry.type = 'button';
+                retry.setAttribute('aria-label', 'Try ' + f.name + ' again');
+                var ri = icon('retry');
+                ri.setAttribute('class', 'icon');
+                retry.appendChild(ri);
+                retry.appendChild(document.createTextNode('Retry'));
+                retry.addEventListener('click', function () { retryFailed(f, retry); });
+                li.appendChild(retry);
+            }
+            list.appendChild(li);
+        });
+        $('failed-more').hidden = failedLog.items.length >= failedLog.total;
+        $('failed-more').textContent = 'Load more (' + (failedLog.total - failedLog.items.length) + ' left)';
+        $('failed-clear').hidden = !(me && me.isAdmin) || failedLog.total === 0;
+    }
+
+    function retryFailed(f, button) {
+        button.disabled = true;
+        failedHint('');
+        api('POST', 'FailedSyncs/' + encodeURIComponent(f.id) + '/Retry').then(function () {
+            failedHint(f.name + ' is back in the queue.');
+            loadFailed(false);
+            setPanel('queue', true);
+            pollNow();
+        }, function (err) {
+            button.disabled = false;
+            failedHint(err.message, true);
+            if (err.code === 'network') { failed(err); }
         });
     }
 
@@ -986,6 +1129,11 @@
         $('cancel').addEventListener('click', function () { api('POST', 'Jobs/Cancel').then(renderQueue, function (err) { failed(err); }); });
         $('clear-finished').addEventListener('click', function () { api('POST', 'Jobs/Clear').then(renderQueue, function (err) { failed(err); }); });
         $('queue-more').addEventListener('click', function () { showAllQueue = !showAllQueue; if (lastStatus) { renderQueue(lastStatus); } });
+        $('failed-more').addEventListener('click', function () { loadFailed(true); });
+        $('failed-clear').addEventListener('click', function () {
+            if (!window.confirm('Clear the whole failed-syncs log for everyone?')) { return; }
+            api('POST', 'FailedSyncs/Clear').then(function () { failedHint(''); loadFailed(false); }, function (err) { failedHint(err.message, true); });
+        });
         $('banner-retry').addEventListener('click', function () { var a = retryAction; clearBanner(); if (a) { a(); } });
         $('find-close').addEventListener('click', closeFind);
         $('find').addEventListener('close', function () {
@@ -998,7 +1146,11 @@
         $('find').addEventListener('click', function (e) { if (e.target === $('find')) { closeFind(); } });  // backdrop click
         document.addEventListener('visibilitychange', function () { if (!document.hidden) { pollNow(); } });
         document.addEventListener('keydown', function (e) {
-            if (e.key === '/' && document.activeElement !== $('q') && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { $('q').focus(); e.preventDefault(); }
+            if (e.key === '/' && document.activeElement !== $('q') && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) {
+                if (!isOpen('libraries')) { setPanel('libraries', true, true); }
+                $('q').focus();
+                e.preventDefault();
+            }
         });
     }
 
@@ -1006,14 +1158,13 @@
         if (!MOCK && !token()) { showGate('signin'); return; }
         api('GET', 'Me').then(function (m) {
             me = m;
-            $('who').textContent = 'Signed in as ' + m.name + (m.isAdmin ? ' (administrator)' : '');
-            $('who').hidden = false;
             if (!m.allowed) {
                 if (m.message) { $('gate-denied-text').textContent = m.message; }
                 showGate('denied');
                 return;
             }
             showGate('app');
+            initPanels();
             wire();
             if (m.isAdmin) { initAdmin(); }
             // Optional feature: any failure just leaves Find subtitles hidden.
@@ -1023,6 +1174,7 @@
             }, function () { bazarrEnabled = false; });
             browse(null);
             pollNow();
+            loadFailed(false);
             renderFooter();
         }, function (err) {
             if (err.status === 401) { showGate('signin'); return; }

@@ -22,6 +22,8 @@
         <symbol id="i-check" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm4.3 6.3L10.5 14l-2.8-2.8-1.4 1.4 4.2 4.2 7.2-7.1z"/></symbol>
         <symbol id="i-partial" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2 1 21h22zm-1 7h2v6h-2zm0 8h2v2h-2z"/></symbol>
         <symbol id="i-download" viewBox="0 0 24 24"><path fill="currentColor" d="M11 3h2v9.2l3.3-3.3 1.4 1.4L12 16l-5.7-5.7 1.4-1.4 3.3 3.3zM4 18h16v2H4z"/></symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24"><path fill="currentColor" d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z"/></symbol>
+        <symbol id="i-retry" viewBox="0 0 24 24"><path fill="currentColor" d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"/></symbol>
         <symbol id="i-close" viewBox="0 0 24 24"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4z"/></symbol>
     </svg>
 
@@ -31,7 +33,6 @@
             <p class="disclaimer">Only fixes English subtitles on English audio.</p>
         </div>
         <div class="top-right">
-            <span id="who" class="muted small" hidden></span>
             <a class="back" href="../web/"><svg class="icon" aria-hidden="true"><use href="#i-back"/></svg>Back to Jellyfin</a>
         </div>
     </header>
@@ -54,35 +55,71 @@
         </section>
 
         <div id="app" hidden>
-            <div class="searchbar">
-                <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
-                <label class="sr-only" for="q">Search series, episodes and movies</label>
-                <input id="q" type="search" placeholder="Search series, episodes and movies" autocomplete="off" spellcheck="false">
-            </div>
+            <section id="libraries-panel" class="panel" aria-labelledby="libraries-title">
+                <h2 class="panel-head">
+                    <button id="libraries-toggle" type="button" class="panel-toggle" aria-expanded="true" aria-controls="libraries-body">
+                        <svg class="icon chevron" aria-hidden="true"><use href="#i-chevron"/></svg><span id="libraries-title">Libraries</span>
+                    </button>
+                    <span id="libraries-collapsed-note" class="muted small" hidden>Hidden. Open to pick seasons, episodes or movies.</span>
+                </h2>
+                <div id="libraries-body">
+                    <div class="searchbar">
+                        <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+                        <label class="sr-only" for="q">Search series, episodes and movies</label>
+                        <input id="q" type="search" placeholder="Search series, episodes and movies" autocomplete="off" spellcheck="false">
+                    </div>
 
-            <nav id="crumbs" class="crumbs" aria-label="Breadcrumb"></nav>
+                    <nav id="crumbs" class="crumbs" aria-label="Breadcrumb"></nav>
 
-            <section class="explorer" aria-labelledby="list-title">
-                <h2 id="list-title" class="sr-only">Items</h2>
-                <p id="list-hint" class="hint" hidden></p>
-                <ul id="list" class="rows" aria-labelledby="list-title"></ul>
-                <p id="list-empty" class="muted empty" hidden></p>
-                <button id="more" type="button" class="more" hidden>Load more</button>
+                    <section class="explorer" aria-labelledby="list-title">
+                        <h2 id="list-title" class="sr-only">Items</h2>
+                        <p id="list-hint" class="hint" hidden></p>
+                        <ul id="list" class="rows" aria-labelledby="list-title"></ul>
+                        <p id="list-empty" class="muted empty" hidden></p>
+                        <button id="more" type="button" class="more" hidden>Load more</button>
+                    </section>
+                </div>
             </section>
 
             <section id="queue-panel" class="card queue" aria-labelledby="queue-title" hidden>
-                <div class="queue-head">
-                    <h2 id="queue-title">Queue</h2>
-                    <span class="muted small">Shared by everyone · one episode at a time</span>
+                <h2 class="panel-head">
+                    <button id="queue-toggle" type="button" class="panel-toggle" aria-expanded="true" aria-controls="queue-body">
+                        <svg class="icon chevron" aria-hidden="true"><use href="#i-chevron"/></svg><span id="queue-title">Queue</span>
+                    </button>
+                    <span id="queue-head-note" class="muted small">Shared by everyone, one at a time</span>
+                </h2>
+                <div id="queue-body">
+                    <div class="progress">
+                        <div id="bar" class="bar" role="progressbar" aria-label="Queue progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></div>
+                        <span id="queue-count" class="muted small" hidden></span>
+                    </div>
+                    <p id="queue-summary" role="status"></p>
+                    <div id="queue-chips" class="chips" hidden></div>
+                    <p id="queue-stop" class="error" hidden></p>
+                    <ul id="queue-list" class="rows compact"></ul>
+                    <button id="queue-more" type="button" class="linkish" hidden></button>
+                    <div class="actions">
+                        <button id="cancel" type="button" disabled>Cancel</button>
+                        <button id="clear-finished" type="button" disabled title="Finished items also clear by themselves after a minute">Clear finished</button>
+                    </div>
                 </div>
-                <div id="bar" class="bar" role="progressbar" aria-label="Queue progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></div>
-                <p id="queue-summary" role="status"></p>
-                <p id="queue-stop" class="error" hidden></p>
-                <ul id="queue-list" class="rows compact"></ul>
-                <button id="queue-more" type="button" class="linkish" hidden></button>
-                <div class="actions">
-                    <button id="cancel" type="button" disabled>Cancel</button>
-                    <button id="clear-finished" type="button" disabled>Clear finished</button>
+            </section>
+
+            <section id="failed-panel" class="card queue" aria-labelledby="failed-title" hidden>
+                <h2 class="panel-head">
+                    <button id="failed-toggle" type="button" class="panel-toggle" aria-expanded="false" aria-controls="failed-body">
+                        <svg class="icon chevron" aria-hidden="true"><use href="#i-chevron"/></svg><span id="failed-title">Failed syncs</span>
+                    </button>
+                    <span id="failed-count" class="badge failed"></span>
+                </h2>
+                <div id="failed-body" hidden>
+                    <p id="failed-intro" class="muted small">Syncs that failed or need a check. The subtitle was left as it was.</p>
+                    <p id="failed-hint" class="hint-inline" role="status" hidden></p>
+                    <ul id="failed-list" class="rows compact"></ul>
+                    <div class="actions">
+                        <button id="failed-more" type="button" hidden>Load more</button>
+                        <button id="failed-clear" type="button" hidden>Clear log</button>
+                    </div>
                 </div>
             </section>
 
@@ -119,13 +156,11 @@
             </div>
             <button id="find-close" type="button" class="iconbtn" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button>
         </div>
-        <p class="find-resource"><span class="muted">Resource</span> <code id="find-resource"></code> <span id="find-matched" class="muted small"></span></p>
         <p id="find-status" class="find-status" role="status" aria-live="polite"></p>
         <div class="hits-head" aria-hidden="true">
-            <span>Score</span><span>Language</span><span>Provider</span><span>Release</span><span>Uploader</span><span>Match</span><span></span>
+            <span>Score</span><span>Language</span><span>Release</span><span>Match</span><span></span>
         </div>
         <ul id="find-list" class="hits" aria-label="Subtitles found"></ul>
-        <p id="find-note" class="muted small find-note">Results come from your Bazarr's providers. Get downloads the subtitle, then it joins the queue to be re-timed to the audio.</p>
     </dialog>
 
     <script src="Page/app.js"></script>

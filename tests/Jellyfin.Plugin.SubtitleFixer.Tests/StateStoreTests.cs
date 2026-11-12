@@ -124,7 +124,7 @@ public sealed class StateStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Version_1_database_is_migrated_to_version_2_keeping_rows()
+    public async Task Version_1_database_is_migrated_to_the_current_version_keeping_rows()
     {
         await _store.InitializeAsync(CancellationToken.None);
         var id = Guid.NewGuid();
@@ -133,7 +133,7 @@ public sealed class StateStoreTests : IDisposable
         {
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE in_flight; UPDATE schema_version SET version = 1;";
+            command.CommandText = "DROP TABLE in_flight; DROP TABLE failed_syncs; UPDATE schema_version SET version = 1;";
             await command.ExecuteNonQueryAsync();
         }
 
@@ -142,6 +142,7 @@ public sealed class StateStoreTests : IDisposable
 
         Assert.Single(await upgraded.GetAsync([id], CancellationToken.None));
         Assert.Empty(await upgraded.GetInFlightAsync(CancellationToken.None));
+        Assert.Equal(0, (await upgraded.GetFailedSyncsAsync(null, 0, 10, CancellationToken.None)).TotalCount);
     }
 
     [Fact]

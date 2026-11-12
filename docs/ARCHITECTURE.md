@@ -13,7 +13,7 @@ Browser page (embedded JS)  <->  Plugin REST API  <->  Job queue (1 worker, in m
 |---|---|---|
 | `Api/` | Controllers, request validation, DTOs (`API.md`) | A |
 | `Domain/` | Rules with no Jellyfin types, unit-tested: `EligibilityService`, `SelectionValidator`, `ILibraryFacade` (the only seam to Jellyfin's library) | A |
-| `Services/` | Jellyfin-facing services: `JellyfinLibraryFacade`, `AccessService` (`AllowedUsers`), `StartupService`; later `JobQueue`, `JobRunner`, `BackupService`, `RecoveryService`, `RefreshService`, `StatusService` | A |
+| `Services/` | Jellyfin-facing services: `JellyfinLibraryFacade`, `LibraryScopeFacade` (wraps it and applies the `AllowedLibraryIds` setting; everything else gets the wrapped one, D43), `AccessService` (`AllowedUsers`), `StartupService`; later `JobQueue`, `JobRunner`, `BackupService`, `RecoveryService`, `RefreshService`, `StatusService` | A |
 | `Worker/` | `ISubSyncWorker`, `CliWorker` (spawns `subsync-cli.exe`), `WorkerResult` | A |
 | `State/` | SQLite state store, migrations | A |
 | `Web/` | Embedded `index.html`, `app.js`, `styles.css`, menu-injection script, mock data | B |
@@ -27,8 +27,8 @@ Tracks A and B are separate worktrees; they meet only at `API.md`. Changing a co
 
 ## Queue
 In-memory, single consumer. Dropped on restart (the user can requeue; already-done episodes are skipped by state). Status snapshots are immutable objects read by the API without locking the runner.
-- `Services/Jobs/JobQueue`: the one shared queue (D19, D25). `Enqueue` (caps, no duplicates), `TakeAsync` (consumer only), `Complete`, `Cancel` (own items, admins all), `Stop`, `ClearFinished`, `Snapshot`.
-- `JobProcessor` (hosted): waits for startup recovery, then takes one entry at a time and applies the stop rules.
+- `Services/Jobs/JobQueue`: the one shared queue (D19, D25). `Enqueue` (caps, no duplicates), `TakeAsync` (consumer only), `Complete`, `Cancel` (own items, admins all), `Stop`, `ClearFinished`, `Snapshot`. Finished entries expire one minute after they end (D44); `Snapshot` drops them as it reads.
+- `JobProcessor` (hosted): waits for startup recovery, then takes one entry at a time and applies the stop rules. A `failed` or `check` outcome is also written to the failed-syncs log (`failed_syncs`, D44); a failed write is logged and loses no subtitle.
 - `JobRunner`: one episode through `JOB-FLOW.md` with `BackupService`, `SubtitleVerifier`, `ISubSyncWorker`, `IRefreshService`.
 - `RecoveryService`: runs in `StartupService` right after the state store opens.
 - `/Status` hides other users' items in libraries the viewer can't access, using `VisibilityCache` (5-minute per-user cache) so 1-second polling stays cheap.
@@ -55,6 +55,11 @@ CREATE INDEX ix_synced_status ON synced_items(status);
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- small settings and the diagnostics row
 -- v2: backup journal for startup recovery (D23)
 CREATE TABLE in_flight (item_id TEXT PRIMARY KEY, subtitle_path TEXT NOT NULL, backup_path TEXT NOT NULL, started_utc TEXT NOT NULL);
+-- v3: failed-syncs log (D44): failed and check outcomes, newest 500 kept
+CREATE TABLE failed_syncs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, item_id TEXT NOT NULL, name TEXT NOT NULL, series_name TEXT NOT NULL,
+  user_id TEXT NOT NULL, status TEXT NOT NULL, message TEXT, source TEXT NOT NULL, note TEXT, finished_utc TEXT NOT NULL);
+CREATE INDEX ix_failed_user ON failed_syncs(user_id, id);
 ```
 Migrations are numbered steps in `SqliteStateStore`; a database with a newer version than the code knows is refused, not touched. The file is `state.db` in the plugin's data folder.
 `done` is valid while `video_path`, `video_size` and `video_mtime_utc` still match the file. Lookups are batched per page of IDs.

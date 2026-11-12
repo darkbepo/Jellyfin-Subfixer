@@ -1,3 +1,4 @@
+using Jellyfin.Plugin.SubtitleFixer.State;
 using Jellyfin.Plugin.SubtitleFixer.Worker;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -13,9 +14,13 @@ public sealed class JobProcessor : BackgroundService
     /// <summary>Consecutive crashes that stop the queue (D14).</summary>
     public const int MaxConsecutiveCrashes = 3;
 
+    /// <summary>Entries the failed-syncs log keeps (D44).</summary>
+    public const int FailedLogSize = 500;
+
     private readonly JobQueue _queue;
     private readonly JobRunner _runner;
     private readonly StartupStatus _startup;
+    private readonly IStateStore _state;
     private readonly ILogger<JobProcessor> _logger;
     private int _consecutiveCrashes;
 
@@ -25,12 +30,14 @@ public sealed class JobProcessor : BackgroundService
     /// <param name="queue">Queue.</param>
     /// <param name="runner">Runner.</param>
     /// <param name="startup">Startup status (recovery gate).</param>
+    /// <param name="state">State store (failed-syncs log).</param>
     /// <param name="logger">Logger.</param>
-    public JobProcessor(JobQueue queue, JobRunner runner, StartupStatus startup, ILogger<JobProcessor> logger)
+    public JobProcessor(JobQueue queue, JobRunner runner, StartupStatus startup, IStateStore state, ILogger<JobProcessor> logger)
     {
         _queue = queue;
         _runner = runner;
         _startup = startup;
+        _state = state;
         _logger = logger;
     }
 
@@ -55,6 +62,7 @@ public sealed class JobProcessor : BackgroundService
 
         _queue.Complete(job.Snapshot.JobId, outcome.Status, outcome.Message, outcome.Seconds);
         LogOutcome(job.Snapshot, outcome);
+        await AddToFailedLogAsync(job.Snapshot, outcome).ConfigureAwait(false);
 
         if (outcome.Worker == WorkerStatus.Unavailable)
         {
@@ -75,6 +83,42 @@ public sealed class JobProcessor : BackgroundService
         else if (outcome.Worker is not null)
         {
             _consecutiveCrashes = 0;
+        }
+    }
+
+    // Failed and check entries leave the queue list a minute after they end (D44); the log keeps them.
+    private async Task AddToFailedLogAsync(JobItemSnapshot item, RunOutcome outcome)
+    {
+        var status = outcome.Status switch
+        {
+            JobItemStatus.Failed => SyncStatus.Failed,
+            JobItemStatus.Check => SyncStatus.Check,
+            _ => (SyncStatus?)null,
+        };
+        if (status is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var entry = new FailedSync(
+                0,
+                item.ItemId,
+                item.Name,
+                item.SeriesName,
+                item.UserId,
+                status.Value,
+                outcome.Message,
+                item.Source == JobSource.Bazarr ? "bazarr" : "manual",
+                item.Note,
+                DateTime.UtcNow);
+            await _state.AddFailedSyncAsync(entry, FailedLogSize, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // The outcome is already in the queue and the Jellyfin log; losing the log entry loses no subtitle.
+            _logger.LogWarning(ex, "Subtitle Fixer could not add {Name} to the failed-syncs log", item.Name);
         }
     }
 

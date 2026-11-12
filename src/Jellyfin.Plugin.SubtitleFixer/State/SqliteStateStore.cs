@@ -11,7 +11,7 @@ namespace Jellyfin.Plugin.SubtitleFixer.State;
 public sealed class SqliteStateStore : IStateStore, IDisposable
 {
     /// <summary>Schema version this code writes.</summary>
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     private const int MaxIdsPerQuery = 500;
 
@@ -43,6 +43,21 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
           backup_path    TEXT NOT NULL,
           started_utc    TEXT NOT NULL
         );
+        """,
+        """
+        CREATE TABLE failed_syncs (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          item_id        TEXT NOT NULL,
+          name           TEXT NOT NULL,
+          series_name    TEXT NOT NULL,
+          user_id        TEXT NOT NULL,
+          status         TEXT NOT NULL,
+          message        TEXT,
+          source         TEXT NOT NULL,
+          note           TEXT,
+          finished_utc   TEXT NOT NULL
+        );
+        CREATE INDEX ix_failed_user ON failed_syncs(user_id, id);
         """,
     ];
 
@@ -296,6 +311,128 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
     }
 
     /// <inheritdoc />
+    public async Task AddFailedSyncAsync(FailedSync entry, int keep, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await using (var insert = connection.CreateCommand())
+            {
+                insert.Transaction = transaction;
+                insert.CommandText = """
+                    INSERT INTO failed_syncs (item_id, name, series_name, user_id, status, message, source, note, finished_utc)
+                    VALUES ($item, $name, $series, $user, $st, $msg, $src, $note, $fin);
+                    """;
+                insert.Parameters.AddWithValue("$item", FormatId(entry.ItemId));
+                insert.Parameters.AddWithValue("$name", entry.Name);
+                insert.Parameters.AddWithValue("$series", entry.SeriesName);
+                insert.Parameters.AddWithValue("$user", FormatId(entry.UserId));
+                insert.Parameters.AddWithValue("$st", FormatStatus(entry.Status));
+                insert.Parameters.AddWithValue("$msg", (object?)entry.Message ?? DBNull.Value);
+                insert.Parameters.AddWithValue("$src", entry.Source);
+                insert.Parameters.AddWithValue("$note", (object?)entry.Note ?? DBNull.Value);
+                insert.Parameters.AddWithValue("$fin", FormatDate(entry.FinishedUtc));
+                await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await using (var trim = connection.CreateCommand())
+            {
+                trim.Transaction = transaction;
+                trim.CommandText = "DELETE FROM failed_syncs WHERE id NOT IN (SELECT id FROM failed_syncs ORDER BY id DESC LIMIT $keep);";
+                trim.Parameters.AddWithValue("$keep", Math.Max(1, keep));
+                await trim.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<FailedSync> Items, int TotalCount)> GetFailedSyncsAsync(Guid? userId, int startIndex, int limit, CancellationToken cancellationToken)
+    {
+        var where = userId is null ? string.Empty : " WHERE user_id = $user";
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        int total;
+        await using (var count = connection.CreateCommand())
+        {
+            count.CommandText = "SELECT COUNT(*) FROM failed_syncs" + where + ";";
+            if (userId is { } u)
+            {
+                count.Parameters.AddWithValue("$user", FormatId(u));
+            }
+
+            total = Convert.ToInt32(await count.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+        }
+
+        var items = new List<FailedSync>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = FailedSyncColumns + where + " ORDER BY id DESC LIMIT $limit OFFSET $start;";
+        if (userId is { } user)
+        {
+            command.Parameters.AddWithValue("$user", FormatId(user));
+        }
+
+        command.Parameters.AddWithValue("$limit", Math.Max(0, limit));
+        command.Parameters.AddWithValue("$start", Math.Max(0, startIndex));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            items.Add(ReadFailedSync(reader));
+        }
+
+        return (items, total);
+    }
+
+    /// <inheritdoc />
+    public async Task<FailedSync?> GetFailedSyncAsync(long id, CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = FailedSyncColumns + " WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", id);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadFailedSync(reader) : null;
+    }
+
+    /// <inheritdoc />
+    public async Task<int> RemoveFailedSyncsAsync(Guid? userId, long? id, CancellationToken cancellationToken)
+    {
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var command = connection.CreateCommand();
+            var conditions = new List<string>(2);
+            if (userId is { } user)
+            {
+                conditions.Add("user_id = $user");
+                command.Parameters.AddWithValue("$user", FormatId(user));
+            }
+
+            if (id is { } one)
+            {
+                conditions.Add("id = $id");
+                command.Parameters.AddWithValue("$id", one);
+            }
+
+            command.CommandText = "DELETE FROM failed_syncs" + (conditions.Count == 0 ? string.Empty : " WHERE " + string.Join(" AND ", conditions)) + ";";
+            return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    /// <inheritdoc />
     public void Dispose()
     {
         _writeLock.Dispose();
@@ -323,6 +460,20 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
 
     private static DateTime ParseDate(string value) =>
         DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
+
+    private const string FailedSyncColumns = "SELECT id, item_id, name, series_name, user_id, status, message, source, note, finished_utc FROM failed_syncs";
+
+    private static FailedSync ReadFailedSync(SqliteDataReader reader) => new(
+        reader.GetInt64(0),
+        Guid.ParseExact(reader.GetString(1), "N"),
+        reader.GetString(2),
+        reader.GetString(3),
+        Guid.ParseExact(reader.GetString(4), "N"),
+        ParseStatus(reader.GetString(5)),
+        reader.IsDBNull(6) ? null : reader.GetString(6),
+        reader.GetString(7),
+        reader.IsDBNull(8) ? null : reader.GetString(8),
+        ParseDate(reader.GetString(9)));
 
     private static SyncRecord ReadRecord(SqliteDataReader reader)
     {

@@ -18,6 +18,13 @@ public static class ApiJson
 /// <param name="Message">Message for people.</param>
 public sealed record ErrorDto(string Error, string Message);
 
+/// <summary>One library in <c>GET /Admin/Libraries</c>.</summary>
+/// <param name="Id">Library id.</param>
+/// <param name="Name">Name.</param>
+/// <param name="LibraryType">tvshows or movies.</param>
+/// <param name="Allowed">Allowed by the current setting (every library when none are chosen).</param>
+public sealed record LibraryOptionDto(Guid Id, string Name, string LibraryType, bool Allowed);
+
 /// <summary><c>GET /Me</c>.</summary>
 /// <param name="UserId">User id.</param>
 /// <param name="Name">User name.</param>

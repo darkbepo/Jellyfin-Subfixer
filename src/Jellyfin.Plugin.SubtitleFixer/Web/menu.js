@@ -97,9 +97,14 @@
             '#' + OVERLAY_ID + ' .sf-panel{position:relative;width:min(1100px,94vw);height:min(900px,90vh);border-radius:12px;overflow:hidden;' +
             'background:#0f1113;box-shadow:0 20px 60px rgba(0,0,0,.6);border:1px solid #2a3036}' +
             '#' + OVERLAY_ID + ' iframe{display:block;width:100%;height:100%;border:0;background:#0f1113}' +
-            '#' + OVERLAY_ID + ' .sf-close{position:absolute;top:10px;right:10px;z-index:1;width:36px;height:36px;border-radius:50%;' +
-            'border:1px solid #2a3036;background:#1f2327;color:#e8eaed;font:20px/1 system-ui,sans-serif;cursor:pointer}' +
-            '#' + OVERLAY_ID + ' .sf-close:focus-visible{outline:2px solid #8ab8ff;outline-offset:2px}' +
+            // A plain icon button lined up with the page header, like the Find subtitles dialog's close: no fill until hovered.
+            '#' + OVERLAY_ID + ' .sf-close{position:absolute;top:12px;right:12px;z-index:1;display:grid;place-items:center;' +
+            'width:40px;height:40px;padding:0;margin:0;border:0;border-radius:50%;background:transparent;color:#9aa3ad;cursor:pointer;' +
+            'transition:background-color .15s,color .15s}' +
+            '#' + OVERLAY_ID + ' .sf-close:hover{background:rgba(255,255,255,.08);color:#e8eaed}' +
+            '#' + OVERLAY_ID + ' .sf-close:active{background:rgba(255,255,255,.14)}' +
+            '#' + OVERLAY_ID + ' .sf-close:focus-visible{outline:2px solid #8ab8ff;outline-offset:2px;color:#e8eaed}' +
+            '#' + OVERLAY_ID + ' .sf-close svg{display:block;width:22px;height:22px}' +
             '@media (max-width:640px){#' + OVERLAY_ID + ' .sf-panel{width:100vw;height:100vh;height:100dvh;border-radius:0;border:0}}' +
             '@keyframes sfFade{from{opacity:0}to{opacity:1}}' +
             '@media (prefers-reduced-motion:reduce){#' + OVERLAY_ID + '{animation:none}}';
@@ -122,7 +127,17 @@
         close.className = 'sf-close';
         close.setAttribute('aria-label', 'Close Subtitle Fixer');
         close.title = 'Close (Esc)';
-        close.textContent = '×';
+        // SVG, not the "×" character: the glyph's size and centring change with the font.
+        var ns = 'http://www.w3.org/2000/svg';
+        var svg = document.createElementNS(ns, 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('aria-hidden', 'true');
+        svg.setAttribute('focusable', 'false');
+        var path = document.createElementNS(ns, 'path');
+        path.setAttribute('fill', 'currentColor');
+        path.setAttribute('d', 'm6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4z');
+        svg.appendChild(path);
+        close.appendChild(svg);
         close.addEventListener('click', closeOverlay);
         var frame = document.createElement('iframe');
         frame.title = 'Subtitle Fixer';

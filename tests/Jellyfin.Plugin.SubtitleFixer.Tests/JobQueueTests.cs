@@ -2,6 +2,7 @@ using Jellyfin.Plugin.SubtitleFixer.Api;
 using Jellyfin.Plugin.SubtitleFixer.Domain;
 using Jellyfin.Plugin.SubtitleFixer.Services;
 using Jellyfin.Plugin.SubtitleFixer.Services.Jobs;
+using Jellyfin.Plugin.SubtitleFixer.State;
 using Jellyfin.Plugin.SubtitleFixer.Worker;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -229,7 +230,7 @@ public sealed class JobProcessorTests : IDisposable
     {
         var backup = new BackupService(_state, TimeProvider.System, NullLogger<BackupService>.Instance);
         var runner = new JobRunner(_library, _state, backup, _worker, new FakeRefresh(), () => new WorkerOptions(true, false, TimeSpan.FromMinutes(1)), TimeProvider.System, NullLogger<JobRunner>.Instance);
-        _processor = new JobProcessor(_queue, runner, new StartupStatus(), NullLogger<JobProcessor>.Instance);
+        _processor = new JobProcessor(_queue, runner, new StartupStatus(), _state, NullLogger<JobProcessor>.Instance);
 
         var season = _library.AddSeason(_library.AddSeries("Show"), 1);
         for (var n = 1; n <= 6; n++)
@@ -298,5 +299,25 @@ public sealed class JobProcessorTests : IDisposable
         }
 
         Assert.Null(_queue.Snapshot().StopReason);
+    }
+
+    [Fact]
+    public async Task Failed_and_check_outcomes_go_to_the_failed_syncs_log_and_done_does_not()
+    {
+        var user = Guid.NewGuid();
+        _queue.Enqueue(user, _items.Take(3).ToList(), JobSource.Manual, null, 300);
+        var outcomes = new Queue<WorkerStatus>([WorkerStatus.Synced, WorkerStatus.NoMatch, WorkerStatus.Crashed]);
+        _worker.Behavior = (_, _, _) => Task.FromResult(FakeWorker.Result(outcomes.Dequeue(), "why"));
+
+        await RunNext();
+        await RunNext();
+        await RunNext();
+
+        Assert.Equal(2, _state.Failed.Count);
+        Assert.Equal([SyncStatus.Check, SyncStatus.Failed], _state.Failed.Select(f => f.Status));
+        Assert.All(_state.Failed, f => Assert.Equal(user, f.UserId));
+        Assert.Equal([_items[1].ItemId, _items[2].ItemId], _state.Failed.Select(f => f.ItemId));
+        Assert.All(_state.Failed, f => Assert.Equal("manual", f.Source));
+        Assert.All(_state.Failed, f => Assert.False(string.IsNullOrEmpty(f.Message)));
     }
 }

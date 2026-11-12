@@ -434,5 +434,14 @@ public sealed class JobRunnerFaultTests : IDisposable
         public Task<string?> GetMetaAsync(string key, CancellationToken cancellationToken) => _inner.GetMetaAsync(key, cancellationToken);
 
         public Task SetMetaAsync(string key, string value, CancellationToken cancellationToken) => _inner.SetMetaAsync(key, value, cancellationToken);
+
+        public Task AddFailedSyncAsync(FailedSync entry, int keep, CancellationToken cancellationToken) => _inner.AddFailedSyncAsync(entry, keep, cancellationToken);
+
+        public Task<(IReadOnlyList<FailedSync> Items, int TotalCount)> GetFailedSyncsAsync(Guid? userId, int startIndex, int limit, CancellationToken cancellationToken) =>
+            _inner.GetFailedSyncsAsync(userId, startIndex, limit, cancellationToken);
+
+        public Task<FailedSync?> GetFailedSyncAsync(long id, CancellationToken cancellationToken) => _inner.GetFailedSyncAsync(id, cancellationToken);
+
+        public Task<int> RemoveFailedSyncsAsync(Guid? userId, long? id, CancellationToken cancellationToken) => _inner.RemoveFailedSyncsAsync(userId, id, cancellationToken);
     }
 }
