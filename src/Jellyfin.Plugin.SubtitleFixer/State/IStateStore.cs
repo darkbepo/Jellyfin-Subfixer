@@ -92,4 +92,15 @@ public interface IStateStore
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>How many were removed.</returns>
     Task<int> RemoveFailedSyncsAsync(Guid? userId, long? id, CancellationToken cancellationToken);
+
+    /// <summary>Gets every stored audio-language check (D49).</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Checks.</returns>
+    Task<IReadOnlyList<AudioCheck>> GetAudioChecksAsync(CancellationToken cancellationToken);
+
+    /// <summary>Inserts or replaces an item's audio-language check (D49).</summary>
+    /// <param name="check">Check.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    Task UpsertAudioCheckAsync(AudioCheck check, CancellationToken cancellationToken);
 }

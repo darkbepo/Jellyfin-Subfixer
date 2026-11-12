@@ -106,6 +106,31 @@ public static class EligibilityService
         languages.Count > 0 && languages.All(l => string.IsNullOrWhiteSpace(l) || string.Equals(l.Trim(), "und", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
+    /// English audio: a track tagged <c>en</c> or <c>eng</c>, or, when no track is tagged at all, a stored check that
+    /// heard English in this same video (D49). A check never overrides a tag: tagged non-English audio stays that.
+    /// </summary>
+    /// <param name="facts">Item facts.</param>
+    /// <param name="video">Current fingerprint of its video.</param>
+    /// <returns>True when English.</returns>
+    public static bool HasEnglishAudio(VideoFacts facts, VideoFingerprint? video)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+        if (facts.AudioLanguages.Any(IsEnglish))
+        {
+            return true;
+        }
+
+        return IsUntagged(facts.AudioLanguages) && facts.AudioCheck is { IsEnglish: true } check && check.Video.Matches(video);
+    }
+
+    /// <summary>Whether a stored check is about this same video (not a replaced one).</summary>
+    /// <param name="facts">Item facts.</param>
+    /// <param name="video">Current fingerprint.</param>
+    /// <returns>The check when still valid, else null.</returns>
+    public static AudioCheck? CurrentCheck(VideoFacts facts, VideoFingerprint? video) =>
+        facts?.AudioCheck is { } check && check.Video.Matches(video) ? check : null;
+
+    /// <summary>
     /// Finds the sidecar named exactly <c>&lt;videoBase&gt;.en.srt</c>, <c>.eng.srt</c>, <c>.en.hi.srt</c> or <c>.eng.hi.srt</c>.
     /// No other names are considered (D6).
     /// </summary>
@@ -154,7 +179,7 @@ public static class EligibilityService
             return new Eligibility(IneligibleReason.AlreadySynced, status, null, null, video);
         }
 
-        if (!episode.AudioLanguages.Any(IsEnglish))
+        if (!HasEnglishAudio(episode, video))
         {
             return new Eligibility(IneligibleReason.NoEnglishAudio, status, message, null, video);
         }

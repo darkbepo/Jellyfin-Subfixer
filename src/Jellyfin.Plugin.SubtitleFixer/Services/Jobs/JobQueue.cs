@@ -143,6 +143,12 @@ public sealed class JobQueue : IDisposable
     private readonly TimeProvider _time;
     private string? _stopReason;
     private string? _maintenance;
+
+    // One SubSync process at a time (hard rule 2): a queue run (from taking its first item until its SubSync has
+    // closed) and an audio check (D49) never overlap. Items added during a check wait for it.
+    private bool _runActive;
+    private bool _checking;
+    private TaskCompletionSource _checkDone = Done();
     private QueueSnapshot _snapshot = new(QueueState.Idle, [], null);
 
     /// <summary>
@@ -240,7 +246,7 @@ public sealed class JobQueue : IDisposable
     {
         lock (_lock)
         {
-            if (_maintenance is not null || _entries.Any(e => e.IsPending))
+            if (_maintenance is not null || _checking || _entries.Any(e => e.IsPending))
             {
                 return false;
             }
@@ -261,7 +267,52 @@ public sealed class JobQueue : IDisposable
         }
     }
 
-    /// <summary>Waits for the next queued entry and marks it running.</summary>
+    /// <summary>
+    /// Starts an audio check (D49): only when no queue run is active, nothing is running and SubSync isn't being
+    /// updated. Until <see cref="EndCheck"/>, the queue doesn't start a run (items can still be added; they wait).
+    /// </summary>
+    /// <returns>False when SubSync is busy.</returns>
+    public bool TryBeginCheck()
+    {
+        lock (_lock)
+        {
+            if (_checking || _runActive || _maintenance is not null || _entries.Any(e => e.Status == JobItemStatus.Running))
+            {
+                return false;
+            }
+
+            _checking = true;
+            _checkDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            return true;
+        }
+    }
+
+    /// <summary>Ends an audio check; a queue run waiting for it starts.</summary>
+    public void EndCheck()
+    {
+        TaskCompletionSource done;
+        lock (_lock)
+        {
+            _checking = false;
+            done = _checkDone;
+        }
+
+        done.TrySetResult();
+    }
+
+    /// <summary>Marks the queue run started by <see cref="TakeAsync"/> as finished: its SubSync has closed.</summary>
+    public void EndRun()
+    {
+        lock (_lock)
+        {
+            _runActive = false;
+        }
+    }
+
+    /// <summary>
+    /// Waits for the next queued entry and marks it running. It also starts a queue run (<see cref="EndRun"/> ends
+    /// it), and waits while an audio check is running.
+    /// </summary>
     /// <param name="cancellationToken">Stops waiting (shutdown).</param>
     /// <returns>The entry.</returns>
     public async Task<RunningJob> TakeAsync(CancellationToken cancellationToken)
@@ -269,22 +320,44 @@ public sealed class JobQueue : IDisposable
         while (true)
         {
             await _work.WaitAsync(cancellationToken).ConfigureAwait(false);
-            lock (_lock)
+            while (true)
             {
-                // Cancelled entries leave stale permits; skip them.
-                var next = _entries.FirstOrDefault(e => e.Status == JobItemStatus.Queued);
-                if (next is null)
+                Task? check = null;
+                lock (_lock)
                 {
-                    continue;
+                    if (_checking)
+                    {
+                        check = _checkDone.Task;
+                    }
+                    else
+                    {
+                        // Cancelled entries leave stale permits; skip them.
+                        var next = _entries.FirstOrDefault(e => e.Status == JobItemStatus.Queued);
+                        if (next is null)
+                        {
+                            break;
+                        }
+
+                        next.Status = JobItemStatus.Running;
+                        next.StartedUtc = Now();
+                        next.Cancel = new CancellationTokenSource();
+                        _runActive = true;
+                        Publish();
+                        return new RunningJob(next.ToSnapshot(), next.Cancel.Token);
+                    }
                 }
 
-                next.Status = JobItemStatus.Running;
-                next.StartedUtc = Now();
-                next.Cancel = new CancellationTokenSource();
-                Publish();
-                return new RunningJob(next.ToSnapshot(), next.Cancel.Token);
+                // The permit is kept; look again once the check is over.
+                await check!.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
         }
+    }
+
+    private static TaskCompletionSource Done()
+    {
+        var t = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        t.SetResult();
+        return t;
     }
 
     /// <summary>

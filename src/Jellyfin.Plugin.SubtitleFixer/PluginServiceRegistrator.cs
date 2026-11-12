@@ -36,10 +36,13 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<FileTransformationRegistrar>();
         // Everything reads the library through the scope, so the "Libraries" setting applies everywhere (D43). Only the
         // settings page's library list (Admin/Libraries) reads the unrestricted facade.
+        // Stored audio checks are attached on top, so untagged audio that was checked as English counts as English
+        // everywhere (D49).
         serviceCollection.AddSingleton<JellyfinLibraryFacade>();
-        serviceCollection.AddSingleton<ILibraryFacade>(sp => new LibraryScopeFacade(
-            sp.GetRequiredService<JellyfinLibraryFacade>(),
-            () => Plugin.Instance?.Configuration.AllowedLibraryIds));
+        serviceCollection.AddSingleton<AudioCheckCache>();
+        serviceCollection.AddSingleton<ILibraryFacade>(sp => new AudioCheckFacade(
+            new LibraryScopeFacade(sp.GetRequiredService<JellyfinLibraryFacade>(), () => Plugin.Instance?.Configuration.AllowedLibraryIds),
+            sp.GetRequiredService<AudioCheckCache>()));
         serviceCollection.AddSingleton<AccessService>();
         serviceCollection.AddSingleton<SelectionValidator>();
         serviceCollection.AddSingleton<BrowseService>();
@@ -97,6 +100,19 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
             SubSyncVersion.Shared.GetAsync,
             sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<ILogger<SubSyncUpdateService>>()));
+
+        // The Check button (D49).
+        serviceCollection.AddSingleton(sp => new AudioCheckService(
+            sp.GetRequiredService<ILibraryFacade>(),
+            sp.GetRequiredService<IStateStore>(),
+            sp.GetRequiredService<AudioCheckCache>(),
+            sp.GetRequiredService<JobQueue>(),
+            () => Plugin.Instance?.Configuration.SubSyncFolder,
+            SubSyncVersion.Shared.GetAsync,
+            AudioCheckService.DefaultRun,
+            () => Plugin.Instance?.Configuration,
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<AudioCheckService>>()));
 
         serviceCollection.AddHostedService<StartupService>();
         serviceCollection.AddHostedService<JobProcessor>();

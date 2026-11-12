@@ -11,7 +11,7 @@ namespace Jellyfin.Plugin.SubtitleFixer.State;
 public sealed class SqliteStateStore : IStateStore, IDisposable
 {
     /// <summary>Schema version this code writes.</summary>
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
 
     private const int MaxIdsPerQuery = 500;
 
@@ -58,6 +58,18 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
           finished_utc   TEXT NOT NULL
         );
         CREATE INDEX ix_failed_user ON failed_syncs(user_id, id);
+        """,
+        """
+        CREATE TABLE audio_checks (
+          item_id          TEXT PRIMARY KEY,
+          video_path       TEXT NOT NULL,
+          video_size       INTEGER NOT NULL,
+          video_mtime_utc  TEXT NOT NULL,
+          language         TEXT,
+          probability      REAL,
+          speech_seconds   REAL NOT NULL,
+          checked_utc      TEXT NOT NULL
+        );
         """,
     ];
 
@@ -196,6 +208,61 @@ public sealed class SqliteStateStore : IStateStore, IDisposable
             command.Parameters.AddWithValue("$ver", (object?)record.SubSyncVersion ?? DBNull.Value);
             command.Parameters.AddWithValue("$sec", (object?)record.Seconds ?? DBNull.Value);
             command.Parameters.AddWithValue("$up", FormatDate(record.UpdatedUtc));
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<AudioCheck>> GetAudioChecksAsync(CancellationToken cancellationToken)
+    {
+        var result = new List<AudioCheck>();
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT item_id, video_path, video_size, video_mtime_utc, language, probability, speech_seconds, checked_utc FROM audio_checks;";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add(new AudioCheck(
+                Guid.ParseExact(reader.GetString(0), "N"),
+                new VideoFingerprint(reader.GetString(1), reader.GetInt64(2), ParseDate(reader.GetString(3))),
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetDouble(5),
+                reader.GetDouble(6),
+                ParseDate(reader.GetString(7))));
+        }
+
+        return result;
+    }
+
+    /// <inheritdoc />
+    public async Task UpsertAudioCheckAsync(AudioCheck check, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(check);
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO audio_checks (item_id, video_path, video_size, video_mtime_utc, language, probability, speech_seconds, checked_utc)
+                VALUES ($id, $vp, $vs, $vm, $lang, $prob, $sp, $at)
+                ON CONFLICT(item_id) DO UPDATE SET
+                  video_path = excluded.video_path, video_size = excluded.video_size, video_mtime_utc = excluded.video_mtime_utc,
+                  language = excluded.language, probability = excluded.probability, speech_seconds = excluded.speech_seconds,
+                  checked_utc = excluded.checked_utc;
+                """;
+            command.Parameters.AddWithValue("$id", FormatId(check.ItemId));
+            command.Parameters.AddWithValue("$vp", check.Video.Path);
+            command.Parameters.AddWithValue("$vs", check.Video.Size);
+            command.Parameters.AddWithValue("$vm", FormatDate(check.Video.MtimeUtc));
+            command.Parameters.AddWithValue("$lang", (object?)check.Language ?? DBNull.Value);
+            command.Parameters.AddWithValue("$prob", (object?)check.Probability ?? DBNull.Value);
+            command.Parameters.AddWithValue("$sp", check.SpeechSeconds);
+            command.Parameters.AddWithValue("$at", FormatDate(check.CheckedUtc));
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         finally

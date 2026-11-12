@@ -265,6 +265,12 @@ button:disabled { opacity: 0.45; cursor: default; }
 /* ---------- Find subtitles (Bazarr) ---------- */
 .find-btn { min-height: 32px; padding: 4px 12px; color: var(--accent); border-color: #2c4a6e; background: rgba(79, 156, 249, 0.08); white-space: nowrap; }
 .find-btn:hover:not(:disabled) { background: rgba(79, 156, 249, 0.16); border-color: var(--accent); }
+/* Check audio (D49): same weight as Find subtitles, amber like "needs a look" */
+.check-btn { min-height: 32px; padding: 4px 12px; color: var(--warn); border-color: #6b5520; background: rgba(229, 165, 10, 0.08); white-space: nowrap; }
+.check-btn:hover:not(:disabled) { background: rgba(229, 165, 10, 0.16); border-color: var(--warn); }
+.check-btn.working { cursor: progress; }
+.row.card .check-btn { min-height: 26px; padding: 2px 8px; font-size: 0.8rem; }
+.badge.checked { color: var(--ok); border-color: #2f6b52; }
 
 .find {
     width: min(980px, calc(100vw - 32px)); max-height: calc(100vh - 48px);

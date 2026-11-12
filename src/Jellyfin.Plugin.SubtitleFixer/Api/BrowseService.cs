@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.SubtitleFixer.Domain;
+using Jellyfin.Plugin.SubtitleFixer.Services;
 using Jellyfin.Plugin.SubtitleFixer.State;
 
 namespace Jellyfin.Plugin.SubtitleFixer.Api;
@@ -166,6 +167,7 @@ public sealed class BrowseService
 
             // The subtitle on disk, also for items that aren't eligible (synced, no English audio), for the HI badge.
             var sidecar = evaluation.Sidecar ?? (evaluation.Video is { } v && evaluation.Reason != IneligibleReason.NoSidecar ? EligibilityService.FindSidecar(v.Path) : null);
+            var check = EligibilityService.IsUntagged(episode.AudioLanguages) ? EligibilityService.CurrentCheck(episode, evaluation.Video) : null;
             return Plain(episode.Node) with
             {
                 Status = EligibilityService.StatusCode(evaluation.Status),
@@ -174,6 +176,7 @@ public sealed class BrowseService
                 Message = evaluation.Message,
                 AudioUntagged = evaluation.Reason == IneligibleReason.NoEnglishAudio && EligibilityService.IsUntagged(episode.AudioLanguages),
                 SubtitleHi = sidecar?.LanguageTag.EndsWith(".hi", StringComparison.OrdinalIgnoreCase),
+                AudioCheck = check is null ? null : new AudioCheckInfoDto(check.Language, check.Probability, check.IsEnglish, check.CheckedUtc, AudioCheckService.Describe(check)),
             };
         }).ToList();
     }

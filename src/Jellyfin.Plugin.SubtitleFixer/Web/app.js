@@ -313,6 +313,8 @@
         }
         if (!isVideo(item) || item.eligible || selected.has(item.id) || queueByItem.has(item.id)) { return null; }
         if (item.status === 'done') { return 'synced'; }
+        // Untagged audio nobody has checked yet stays in view: Check audio can make it fixable (D49).
+        if (item.audioUntagged && !item.audioCheck) { return null; }
         return canFind(item) ? null : 'ineligible';
     }
 
@@ -576,6 +578,8 @@
             li.appendChild(find);
         }
 
+        if (canCheck(item)) { li.appendChild(checkButton(item, false)); }
+
         if (isVideo(item) && !li.classList.contains('openable')) {
             li.addEventListener('click', function (e) {
                 if (e.target.closest('button,input,a')) { return; }
@@ -653,6 +657,7 @@
             find.addEventListener('click', function (e) { e.stopPropagation(); openFind(item); });
             badges.appendChild(find);
         }
+        if (canCheck(item)) { badges.appendChild(checkButton(item, true)); }
         if (badges.children.length) { li.appendChild(badges); }
         return li;
     }
@@ -690,16 +695,70 @@
         }
     }
 
-    // Untagged audio (und or empty) may well be English, but the file doesn't say so (D48).
+    // Untagged audio (und or empty) may well be English, but the file doesn't say so (D48). Check audio asks SubSync
+    // which language is spoken and remembers it (D49).
     function reasonText(item) {
-        if (item.reason === 'no_english_audio' && item.audioUntagged) { return 'audio language not tagged'; }
+        if (item.reason === 'no_english_audio' && item.audioUntagged) {
+            var c = item.audioCheck;
+            if (!c) { return 'audio language not tagged'; }
+            return c.language ? 'audio sounds like ' + String(c.language).toUpperCase() : 'no speech found in the audio';
+        }
         return REASONS[item.reason] || item.reason;
     }
     function reasonTip(item) {
         if (item.reason === 'no_english_audio' && item.audioUntagged) {
-            return 'The audio track doesn’t say which language it is. Tag it as English (for example with MKVToolNix) and rescan the item.';
+            return item.audioCheck ? item.audioCheck.message
+                : 'The audio track doesn’t say which language it is. Press Check audio to find out, or tag it as English (for example with MKVToolNix) and rescan the item.';
         }
         return REASONS[item.reason];
+    }
+
+    function canCheck(item) {
+        if (!isVideo(item) || !item.audioUntagged || (item.audioCheck && item.audioCheck.english)) { return false; }
+        var job = queueByItem.get(item.id);
+        return !(job && (job.status === 'queued' || job.status === 'running'));
+    }
+
+    function checkButton(item, compact) {
+        var b = el('button', 'check-btn');
+        b.type = 'button';
+        b.tabIndex = -1;
+        var again = !!item.audioCheck;
+        b.title = 'Ask SubSync which language is spoken (about a minute; nothing is changed)';
+        b.setAttribute('aria-label', (again ? 'Check the audio again for ' : 'Check the audio of ') + videoLabel(item));
+        b.appendChild(el('span', 'check-text', compact ? (again ? 'Again' : 'Check') : (again ? 'Check again' : 'Check audio')));
+        b.addEventListener('click', function (e) { e.stopPropagation(); checkAudio(item, b); });
+        // Rows are redrawn while a check runs (queue polling): keep showing it as running.
+        if (checking === item.id) {
+            b.disabled = true;
+            b.classList.add('working');
+            b.querySelector('.check-text').textContent = 'Checking…';
+        } else if (checking) {
+            b.disabled = true;
+            b.title = 'Another check is running';
+        }
+        return b;
+    }
+
+    var checking = null;  // item id being checked; one at a time (the server allows one)
+    function checkAudio(item, button) {
+        if (checking) { return; }
+        checking = item.id;
+        button.disabled = true;
+        button.classList.add('working');
+        button.querySelector('.check-text').textContent = 'Checking…';
+        Array.prototype.forEach.call($('list').querySelectorAll('.check-btn'), function (other) { if (other !== button) { other.disabled = true; } });
+        api('POST', 'AudioCheck', { itemId: item.id }).then(function (r) {
+            checking = null;
+            showHint(videoLabel(item) + ': ' + r.message);
+            // The server decides what the check changes; reload this folder and come back to the item.
+            var hint = r.message;
+            loadPage(view.parentId, false, item.id).then(function () { showHint(videoLabel(item) + ': ' + hint); });
+        }, function (err) {
+            checking = null;
+            rerenderRows();
+            failed(err, null);
+        });
     }
 
     function badge(cls, text, title) {
@@ -724,6 +783,7 @@
         else if (!item.eligible) { out.push(badge('', 'Not eligible: ' + reasonText(item), reasonTip(item))); }
         else if (item.status === 'attempted') { out.push(badge('attempted', 'Previously attempted', item.message)); }
         if (item.subtitleHi) { out.push(badge('hi', 'HI', 'The English subtitle is for the hearing impaired (.hi.srt): it includes sound descriptions')); }
+        if (item.audioCheck && item.audioCheck.english) { out.push(badge('checked', 'Audio checked: English', item.audioCheck.message)); }
         return out;
     }
 

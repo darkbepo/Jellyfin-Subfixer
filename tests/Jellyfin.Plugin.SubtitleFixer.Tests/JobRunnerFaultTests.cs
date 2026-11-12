@@ -486,5 +486,9 @@ public sealed class JobRunnerFaultTests : IDisposable
         public Task<FailedSync?> GetFailedSyncAsync(long id, CancellationToken cancellationToken) => _inner.GetFailedSyncAsync(id, cancellationToken);
 
         public Task<int> RemoveFailedSyncsAsync(Guid? userId, long? id, CancellationToken cancellationToken) => _inner.RemoveFailedSyncsAsync(userId, id, cancellationToken);
+
+        public Task<IReadOnlyList<AudioCheck>> GetAudioChecksAsync(CancellationToken cancellationToken) => _inner.GetAudioChecksAsync(cancellationToken);
+
+        public Task UpsertAudioCheckAsync(AudioCheck check, CancellationToken cancellationToken) => _inner.UpsertAudioCheckAsync(check, cancellationToken);
     }
 }

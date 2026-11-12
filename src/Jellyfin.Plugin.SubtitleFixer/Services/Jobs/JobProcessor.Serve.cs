@@ -72,6 +72,7 @@ public sealed partial class JobProcessor
         finally
         {
             await CloseSessionAsync().ConfigureAwait(false);
+            _queue.EndRun();  // SubSync has closed: an audio check may run now (D49)
             _syncOnly = false;
             if (_runProcesses > 0)
             {

@@ -113,7 +113,18 @@ public sealed record ItemDto
 
     /// <summary>Gets whether the item's English subtitle on disk is hearing-impaired (<c>.en.hi.srt</c> or <c>.eng.hi.srt</c>; D48).</summary>
     public bool? SubtitleHi { get; init; }
+
+    /// <summary>Gets the stored audio check of untagged audio, when it is about the current video (D49).</summary>
+    public AudioCheckInfoDto? AudioCheck { get; init; }
 }
+
+/// <summary>A stored audio check on a Browse or Search row (D49).</summary>
+/// <param name="Language">Language heard, or null for no speech.</param>
+/// <param name="Probability">0 to 1, or null.</param>
+/// <param name="English">Whether it counts as English audio.</param>
+/// <param name="CheckedUtc">When.</param>
+/// <param name="Message">What it means, for people.</param>
+public sealed record AudioCheckInfoDto(string? Language, double? Probability, bool English, DateTime CheckedUtc, string Message);
 
 /// <summary><c>GET /Browse</c> and <c>GET /Search</c>.</summary>
 /// <param name="Parent">Parent, null for the library list and search.</param>

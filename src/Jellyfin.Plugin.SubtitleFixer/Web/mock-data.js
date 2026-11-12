@@ -38,7 +38,7 @@
         var n = i + 1;
         var facts = n % 6 === 0 ? { state: 'done' } : n % 7 === 0 ? { state: 'no_sidecar' } : n % 9 === 0 ? { state: 'no_english_audio' } :
             n === 11 ? { state: 'check', message: 'Matched only 6 lines; is this the subtitle for this video?' } : { state: 'ok' };
-        if (n === 9) { facts.untagged = true; }  // audio tagged "und" (D48)
+        if (n === 9 || n === 18) { facts = { state: 'no_english_audio', untagged: true }; }  // audio tagged "und" (D48); Check: 9 English, 18 Danish (D49)
         if (n % 5 === 0) { facts.hi = true; }    // the English subtitle on disk is .en.hi.srt (D48)
         add({ id: 'mov-' + n, name: t, type: 'Movie', productionYear: 1995 + (n * 7) % 30, facts: facts }, 'lib-movies');
     });
@@ -142,7 +142,8 @@
         if (node.type === 'Episode' || node.type === 'Movie') {
             var ev = evaluate(node);
             r.status = ev.status; r.eligible = ev.eligible; r.reason = ev.reason; r.message = ev.message;
-            r.audioUntagged = ev.reason === 'no_english_audio' && !!node.facts.untagged;
+            r.audioUntagged = !!node.facts.untagged && ev.reason === 'no_english_audio';
+            r.audioCheck = node.facts.checked || null;
             r.subtitleHi = ev.reason !== 'no_sidecar' && !!node.facts.hi;
         }
         return r;
@@ -415,6 +416,17 @@
         if (p === 'Admin/TestSubSync') {
             if (!isAdmin) { return err('forbidden', 403, 'Administrators only.'); }
             return ok({ ok: true, version: '1.2.0-mock', mode: 'GPU', message: 'SubSync is ready.', checkExitCode: 0, checkOutput: 'mock check output' });
+        }
+        if (p === 'AudioCheck' && method === 'POST') {
+            // Check audio (D49): mov-9 is English, anything else untagged sounds Danish.
+            var c = body && items[body.itemId];
+            if (!c || !c.facts || !c.facts.untagged) { return err('audio_tagged', 409, 'Only untagged audio can be checked.'); }
+            var english = c.id === 'mov-9';
+            var heard = english
+                ? { language: 'en', probability: 0.985, english: true, checkedUtc: new Date().toISOString(), message: 'Sounds like English (99% sure). It can be re-timed now.' }
+                : { language: 'da', probability: 0.91, english: false, checkedUtc: new Date().toISOString(), message: 'Sounds like Danish (DA, 91% sure), not English.' };
+            c.facts = { state: english ? 'ok' : 'no_english_audio', untagged: true, hi: c.facts.hi, checked: heard };
+            return ok({ itemId: c.id, language: heard.language, probability: heard.probability, english: heard.english, speechSeconds: 90, checkedUtc: heard.checkedUtc, message: heard.message });
         }
         if (p === 'Bazarr/Info') { return ok({ enabled: params.get('bazarr') !== 'off' }); }
         if (p === 'Bazarr/Search') {

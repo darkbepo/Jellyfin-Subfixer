@@ -55,7 +55,8 @@ public sealed record LibraryNode(
 /// <param name="VideoPath">Path of the video file, or null when Jellyfin has none.</param>
 /// <param name="AudioLanguages">Languages of the episode's audio streams, as Jellyfin reports them.</param>
 /// <param name="Runtime">Length of the video as Jellyfin knows it, or null; scales the SubSync time limit (D34).</param>
-public sealed record VideoFacts(LibraryNode Node, string? VideoPath, IReadOnlyList<string?> AudioLanguages, TimeSpan? Runtime = null);
+/// <param name="AudioCheck">The stored language check, for audio that isn't tagged (D49); null when never checked.</param>
+public sealed record VideoFacts(LibraryNode Node, string? VideoPath, IReadOnlyList<string?> AudioLanguages, TimeSpan? Runtime = null, State.AudioCheck? AudioCheck = null);
 
 /// <summary>A page of results.</summary>
 /// <typeparam name="T">Item type.</typeparam>

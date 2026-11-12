@@ -61,7 +61,12 @@ CREATE TABLE failed_syncs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, item_id TEXT NOT NULL, name TEXT NOT NULL, series_name TEXT NOT NULL,
   user_id TEXT NOT NULL, status TEXT NOT NULL, message TEXT, source TEXT NOT NULL, note TEXT, finished_utc TEXT NOT NULL);
 CREATE INDEX ix_failed_user ON failed_syncs(user_id, id);
+-- v4: audio-language checks (D49): what SubSync's detect heard in untagged audio, valid while the video is unchanged
+CREATE TABLE audio_checks (
+  item_id TEXT PRIMARY KEY, video_path TEXT NOT NULL, video_size INTEGER NOT NULL, video_mtime_utc TEXT NOT NULL,
+  language TEXT, probability REAL, speech_seconds REAL NOT NULL, checked_utc TEXT NOT NULL);
 ```
+`audio_checks` is loaded into memory at startup (`AudioCheckCache`) and `AudioCheckFacade` attaches a check to the video facts, so every rule sees a checked-English item the same way.
 Migrations are numbered steps in `SqliteStateStore`; a database with a newer version than the code knows is refused, not touched. The file is `state.db` in the plugin's data folder.
 `done` is valid while `video_path`, `video_size` and `video_mtime_utc` still match the file. Lookups are batched per page of IDs.
 

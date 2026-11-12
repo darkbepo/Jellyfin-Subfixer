@@ -133,7 +133,7 @@ public sealed class StateStoreTests : IDisposable
         {
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE in_flight; DROP TABLE failed_syncs; UPDATE schema_version SET version = 1;";
+            command.CommandText = "DROP TABLE in_flight; DROP TABLE failed_syncs; DROP TABLE audio_checks; UPDATE schema_version SET version = 1;";
             await command.ExecuteNonQueryAsync();
         }
 
@@ -143,6 +143,30 @@ public sealed class StateStoreTests : IDisposable
         Assert.Single(await upgraded.GetAsync([id], CancellationToken.None));
         Assert.Empty(await upgraded.GetInFlightAsync(CancellationToken.None));
         Assert.Equal(0, (await upgraded.GetFailedSyncsAsync(null, 0, 10, CancellationToken.None)).TotalCount);
+        Assert.Empty(await upgraded.GetAudioChecksAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Audio_checks_round_trip_and_are_replaced_per_item()
+    {
+        await _store.InitializeAsync(CancellationToken.None);
+        var id = Guid.NewGuid();
+        var mtime = new DateTime(2026, 11, 12, 10, 0, 0, DateTimeKind.Utc);
+        var video = new VideoFingerprint(@"C:\Film ü\Film.mp4", 1234, mtime);
+        await _store.UpsertAudioCheckAsync(new AudioCheck(id, video, "da", 0.81, 60, mtime), CancellationToken.None);
+        await _store.UpsertAudioCheckAsync(new AudioCheck(id, video, "en", 0.985, 90, mtime.AddMinutes(1)), CancellationToken.None);
+        await _store.UpsertAudioCheckAsync(new AudioCheck(Guid.NewGuid(), video, null, null, 0, mtime), CancellationToken.None);
+
+        var all = await _store.GetAudioChecksAsync(CancellationToken.None);
+
+        Assert.Equal(2, all.Count);
+        var check = all.Single(c => c.ItemId == id);
+        Assert.Equal("en", check.Language);
+        Assert.Equal(0.985, check.Probability);
+        Assert.Equal(90, check.SpeechSeconds);
+        Assert.True(check.Video.Matches(video));
+        Assert.Equal(mtime.AddMinutes(1), check.CheckedUtc);
+        Assert.Contains(all, c => c.Language is null && c.Probability is null);
     }
 
     [Fact]

@@ -20,6 +20,7 @@ public sealed class StartupService : IHostedService
     private readonly RecoveryService _recovery;
     private readonly FileTransformationRegistrar _registrar;
     private readonly StartupStatus _status;
+    private readonly AudioCheckCache _checks;
     private readonly ILogger<StartupService> _logger;
     private readonly CancellationTokenSource _stopping = new();
     private Task? _work;
@@ -31,13 +32,15 @@ public sealed class StartupService : IHostedService
     /// <param name="recovery">Startup recovery.</param>
     /// <param name="registrar">File Transformation registrar.</param>
     /// <param name="status">Startup status.</param>
+    /// <param name="checks">Stored audio checks, loaded here (D49).</param>
     /// <param name="logger">Logger.</param>
-    public StartupService(IStateStore state, RecoveryService recovery, FileTransformationRegistrar registrar, StartupStatus status, ILogger<StartupService> logger)
+    public StartupService(IStateStore state, RecoveryService recovery, FileTransformationRegistrar registrar, StartupStatus status, AudioCheckCache checks, ILogger<StartupService> logger)
     {
         _state = state;
         _recovery = recovery;
         _registrar = registrar;
         _status = status;
+        _checks = checks;
         _logger = logger;
     }
 
@@ -66,6 +69,7 @@ public sealed class StartupService : IHostedService
         {
             await _state.InitializeAsync(cancellationToken).ConfigureAwait(false);
             _status.StateReady = true;
+            _checks.Load(await _state.GetAudioChecksAsync(cancellationToken).ConfigureAwait(false));
 
             // A SubSync run that outlived a crash must be gone before its backup is restored, or it could
             // overwrite the restored subtitle afterwards.

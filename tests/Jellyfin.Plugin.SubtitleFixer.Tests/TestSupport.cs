@@ -235,6 +235,17 @@ public sealed class FakeStateStore : IStateStore
         return Task.CompletedTask;
     }
 
+    public Dictionary<Guid, AudioCheck> AudioChecks { get; } = new();
+
+    public Task<IReadOnlyList<AudioCheck>> GetAudioChecksAsync(CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<AudioCheck>>(AudioChecks.Values.ToList());
+
+    public Task UpsertAudioCheckAsync(AudioCheck check, CancellationToken cancellationToken)
+    {
+        AudioChecks[check.ItemId] = check;
+        return Task.CompletedTask;
+    }
+
     public Dictionary<Guid, InFlightBackup> InFlight { get; } = new();
 
     public Task AddInFlightAsync(InFlightBackup entry, CancellationToken cancellationToken)

@@ -32,7 +32,7 @@ Enforced on the server; the UI mirrors them. See `docs/API.md` for error codes.
 ## 4. Eligibility
 An episode is eligible only if all hold:
 - Item type is Episode and its video file exists.
-- At least one audio stream has language `eng` or `en`.
+- At least one audio stream has language `eng` or `en`. When no stream is tagged (`und` or empty), a **Check audio** result counts instead: SubSync's `detect` heard English with at least 50% confidence in this same video (D49). A check never overrides a language tag.
 - It has an external sidecar named exactly `<videoBase>.en.srt`, `.eng.srt`, `.en.hi.srt` or `.eng.hi.srt` (video name without extension; `.hi` = hearing-impaired). Any other name is treated as not English and ignored. No naming heuristics. One subtitle per episode: the first that exists in that order is processed (D6, D27).
 - No `done` record whose fingerprint still matches.
 
