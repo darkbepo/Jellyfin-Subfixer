@@ -28,7 +28,7 @@ Read a key in PowerShell without printing others:
 ## Not done
 - No TV: add a TV library to Testflix (copied episodes), install Sonarr (`winget install TeamSonarr.Sonarr`), and connect it in Bazarr to test episodes.
 - Restarting the Bazarr service from a normal (non-admin) shell is refused; use Bazarr's own restart (`POST /api/system?action=restart`) or an admin shell.
-- **SubSync 1.2.0** is installed at `C:\SubSync` (release zip, checksum verified, `setup` done, CPU only because this PC has no NVIDIA GPU). The plugin's SubSync folder setting points there.
+- **SubSync 1.3.1** is installed at `C:\SubSync` (first 1.2.0 from the release zip, then updated from the plugin's settings page; CPU only because this PC has no NVIDIA GPU). The plugin's SubSync folder setting points there.
 - **TV library "Serier"** (`C:\notporn2`, added 2026-11-11): *Schitt's Creek* season 1, 10 episodes with English audio and `.en.srt` files whose names differ from the videos only in letter case.
   - S01E01 and S01E02 have been re-timed by the plugin.
   - Untouched originals of all `.srt` files in both libraries were kept outside the repo before testing.
@@ -36,7 +36,8 @@ Read a key in PowerShell without printing others:
 - **Real-CLI tests:** set `SUBFIXER_SUBSYNC_FOLDER=C:\SubSync` and `SUBFIXER_TEST_CLIP` to a short English clip with a `.en.srt` next to it, then run `dotnet test --filter RealSubSyncTests`. They take about 6 minutes on this CPU.
 
 ## Subtitle Fixer on Testflix
-- **Installed 2026-11-11:** `C:\ProgramData\Jellyfin\Server\plugins\Subtitle Fixer_0.1.0.0\` (DLL plus `meta.json`), installed from a local test repository. That is the folder name Jellyfin's own installer uses (`<name>_<version>`); the earlier hand-made `SubtitleFixer_0.1.0.0` folder was uninstalled. Its state database is `C:\ProgramData\Jellyfin\Server\plugins\Jellyfin.Plugin.SubtitleFixer\state.db`.
+- **Installed 2026-11-12:** 0.4.0.0 in `C:\ProgramData\Jellyfin\Server\plugins\Subtitle Fixer_0.4.0.0\` (DLL plus `meta.json`), unzipped by hand; the state database migrated to version 3 on first start. Until then the server still ran 0.1.1.0 from the old `Subtitle Fixer_0.1.0.0` folder, which was removed so only one copy of the plugin is present. SubSync was then updated from the settings page, to 1.3.0 and later the same day to 1.3.1 (1.3.0's `serve` hangs on Windows, M0-SPIKES S5).
+- **First install 2026-11-11:** `Subtitle Fixer_0.1.0.0\`, installed from a local test repository. That is the folder name Jellyfin's own installer uses (`<name>_<version>`); the earlier hand-made `SubtitleFixer_0.1.0.0` folder was uninstalled. Its state database is `C:\ProgramData\Jellyfin\Server\plugins\Jellyfin.Plugin.SubtitleFixer\state.db`.
 - **Other plugins:** Testflix also runs File Transformation 3.0.3.0, which the menu entry needs, plus JavaScript Injector, Jellyfin Enhanced and KefinTweaks. The `/CustomTabs/Config` 404s in the browser console on Jellyfin pages come from one of those, not from us.
 - **Reinstall after a change:**
   1. Build the zip with `build\package.ps1`.

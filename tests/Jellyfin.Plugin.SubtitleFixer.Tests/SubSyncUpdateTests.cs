@@ -395,7 +395,7 @@ public sealed class SubSyncUpdateServiceTests : IDisposable
             installer,
             _queue,
             () => _dir.Path,
-            (cli, _) => Task.FromResult(File.Exists(cli) ? SubSyncVersion.Parse(File.ReadAllText(cli)) : null),
+            (cli, _) => Task.FromResult(ReadVersion(cli)),
             _clock,
             NullLogger<SubSyncUpdateService>.Instance);
     }
@@ -404,6 +404,23 @@ public sealed class SubSyncUpdateServiceTests : IDisposable
     {
         _queue.Dispose();
         _dir.Dispose();
+    }
+
+    // Like the real probe: an exe that is missing or mid-swap (the installer moves it aside while updating) reads as unknown.
+    private static Version? ReadVersion(string cli)
+    {
+        try
+        {
+            return SubSyncVersion.Parse(File.ReadAllText(cli));
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     [Fact]
