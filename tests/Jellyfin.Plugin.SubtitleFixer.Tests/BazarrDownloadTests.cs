@@ -307,40 +307,150 @@ public sealed class BazarrDownloadTests : IDisposable
         Assert.StartsWith("S02E05", Assert.Single(_queue.Snapshot().Items).Name, StringComparison.Ordinal);
     }
 
-    // ---------- D48: subtitles in other languages are kept as Bazarr saves them, never queued ----------
-    private string Danish(bool hi = false) =>
-        _store.Add(_user, _movie.Node.Id, new BazarrTarget(true, 7, null, null, _movie.VideoPath, "path"), FakeBazarr.Result("podnapisi", 80, hi: hi, language: "da"));
+    // ---------- D50: Danish subtitles are re-timed like English ones; other languages (D48) are kept as Bazarr saves them ----------
+    private string Danish(bool hi = false) => Other("da", hi);
+
+    private string Other(string language, bool hi = false) =>
+        _store.Add(_user, _movie.Node.Id, new BazarrTarget(true, 7, null, null, _movie.VideoPath, "path"), FakeBazarr.Result("podnapisi", 80, hi: hi, language: language));
 
     [Theory]
     [InlineData(false, "Film.da.srt")]
     [InlineData(true, "Film.da.hi.srt")]
-    public async Task A_danish_download_is_kept_and_not_queued_and_the_done_record_stays(bool hi, string file)
+    public async Task A_danish_download_is_queued_to_be_retimed_and_only_the_danish_record_is_cleared(bool hi, string file)
     {
+        _state.DanishRecords[_movie.Node.Id] = Records.For(_movie.Node.Id, _movie.VideoPath!, SyncStatus.Done) with { Language = "da" };
         _bazarr.OnDownload = (_, _) => Write(file, Srt);
 
         var (result, error) = await Service().DownloadAsync(_user, _movie.Node.Id, Danish(hi), CancellationToken.None);
 
         Assert.Null(error);
+        Assert.True(result!.Queued);
+        Assert.Equal(file, result.Subtitle);
+        var job = Assert.Single(_queue.Snapshot().Items);
+        Assert.Equal("da", job.Language);
+        Assert.Equal(JobSource.Bazarr, job.Source);
+        Assert.False(_state.DanishRecords.ContainsKey(_movie.Node.Id));
+        Assert.True(_state.Records.ContainsKey(_movie.Node.Id)); // the English one is untouched
+    }
+
+    [Theory]
+    [InlineData(false, "Film.de.srt")]
+    [InlineData(true, "Film.de.hi.srt")]
+    public async Task A_german_download_is_kept_and_not_queued_and_the_done_record_stays(bool hi, string file)
+    {
+        _bazarr.OnDownload = (_, _) => Write(file, Srt);
+
+        var (result, error) = await Service().DownloadAsync(_user, _movie.Node.Id, Other("de", hi), CancellationToken.None);
+
+        Assert.Null(error);
         Assert.False(result!.Queued);
         Assert.Equal(file, result.Subtitle);
-        Assert.Contains("only re-times English", result.Message, StringComparison.Ordinal);
+        Assert.Contains("only re-times English and Danish", result.Message, StringComparison.Ordinal);
         Assert.Equal(Srt, File.ReadAllText(Path.Combine(_dir.Path, file)));
         Assert.Empty(_queue.Snapshot().Items);
         Assert.True(_state.Records.ContainsKey(_movie.Node.Id));
     }
 
     [Fact]
-    public async Task A_danish_download_needs_neither_subsync_nor_room_in_the_queue()
+    public async Task A_german_download_needs_neither_subsync_nor_room_in_the_queue()
     {
         _worker.IsConfigured = false;
         _config.MaxQueuedEpisodes = 1;
         _queue.Enqueue(Guid.NewGuid(), [new JobRequestItem(Guid.NewGuid(), "Other", string.Empty)], JobSource.Manual, null, 300);
-        _bazarr.OnDownload = (_, _) => Write("Film.da.srt", Srt);
+        _bazarr.OnDownload = (_, _) => Write("Film.de.srt", Srt);
 
-        var (result, error) = await Service().DownloadAsync(_user, _movie.Node.Id, Danish(), CancellationToken.None);
+        var (result, error) = await Service().DownloadAsync(_user, _movie.Node.Id, Other("de"), CancellationToken.None);
 
         Assert.Null(error);
-        Assert.Equal("Film.da.srt", result!.Subtitle);
+        Assert.Equal("Film.de.srt", result!.Subtitle);
+    }
+
+    [Fact]
+    public async Task A_danish_download_needs_subsync_like_an_english_one()
+    {
+        _worker.IsConfigured = false;
+
+        var (_, error) = await Service().DownloadAsync(_user, _movie.Node.Id, Danish(), CancellationToken.None);
+
+        Assert.Equal("subsync_unavailable", error!.Code);
+        Assert.Empty(_bazarr.Downloads);
+    }
+
+    [Fact]
+    public async Task A_danish_download_on_audio_that_isnt_english_is_kept_but_not_queued()
+    {
+        var film = _library.AddMovie("Dansk Film", 2020, _dir.File("Dansk.mkv"), "dan");
+        var id = _store.Add(_user, film.Node.Id, new BazarrTarget(true, 8, null, null, film.VideoPath, "path"), FakeBazarr.Result("podnapisi", 80, language: "da"));
+        _bazarr.OnDownload = (_, _) => Write("Dansk.da.srt", Srt);
+
+        var (result, error) = await Service().DownloadAsync(_user, film.Node.Id, id, CancellationToken.None);
+
+        Assert.Null(error);
+        Assert.False(result!.Queued);
+        Assert.Contains("only re-times subtitles on English audio", result.Message, StringComparison.Ordinal);
+        Assert.Empty(_queue.Snapshot().Items);
+    }
+
+    // ---------- D52: Download new replaces the English or Danish subtitle that is there ----------
+    [Fact]
+    public async Task Download_new_replaces_the_subtitle_keeps_the_old_one_as_old_and_queues_it()
+    {
+        var mine = _dir.File("Film.en.srt", "the old english");
+        _bazarr.OnDownload = (_, _) => Write("Film.en.srt", Srt);
+
+        var (result, error) = await Service().DownloadAsync(_user, _movie.Node.Id, _resultId, CancellationToken.None, replace: true);
+
+        Assert.Null(error);
+        Assert.True(result!.Queued);
+        Assert.Equal(Srt, File.ReadAllText(mine));
+        Assert.Equal("the old english", File.ReadAllText(mine + ".old"));
+        Assert.Contains("Film.en.srt.old", result.Subtitle, StringComparison.Ordinal);
+        Assert.False(_state.Records.ContainsKey(_movie.Node.Id));
+        Assert.Equal("en", Assert.Single(_queue.Snapshot().Items).Language);
+    }
+
+    [Fact]
+    public async Task Download_new_moves_an_older_subtitle_that_would_be_synced_first_aside()
+    {
+        var mine = _dir.File("Film.en.srt", "the old english");
+        var hit = FakeBazarr.Result("yifysubtitles", 91, hi: true);
+        var id = _store.Add(_user, _movie.Node.Id, new BazarrTarget(true, 7, null, null, _movie.VideoPath, "path"), hit);
+        _bazarr.OnDownload = (_, _) => Write("Film.en.hi.srt", Srt);
+
+        var (result, error) = await Service().DownloadAsync(_user, _movie.Node.Id, id, CancellationToken.None, replace: true);
+
+        Assert.Null(error);
+        Assert.True(result!.Queued);
+        Assert.False(File.Exists(mine));
+        Assert.Equal("the old english", File.ReadAllText(mine + ".old"));
+        Assert.Equal("Film.en.hi.srt", EligibilityService.FindSidecar(_movie.VideoPath!)!.Path.Split(Path.DirectorySeparatorChar)[^1]);
+    }
+
+    [Fact]
+    public async Task Download_new_that_saves_nothing_usable_puts_the_old_subtitle_back()
+    {
+        var mine = _dir.File("Film.en.srt", "the old english");
+        _bazarr.OnDownload = (_, _) => Write("Film.en.srt", string.Empty);
+
+        var (_, error) = await Service().DownloadAsync(_user, _movie.Node.Id, _resultId, CancellationToken.None, replace: true);
+
+        Assert.Equal("download_failed", error!.Code);
+        Assert.Equal("the old english", File.ReadAllText(mine));
+        Assert.False(File.Exists(mine + ".old"));
+        Assert.Empty(_queue.Snapshot().Items);
+    }
+
+    [Fact]
+    public async Task Without_download_new_an_existing_english_subtitle_is_refused()
+    {
+        var mine = _dir.File("Film.en.srt", "the old english");
+
+        var (_, error) = await Service().DownloadAsync(_user, _movie.Node.Id, _resultId, CancellationToken.None);
+
+        Assert.Equal("has_subtitle", error!.Code);
+        Assert.Contains("Download new", error.Message, StringComparison.Ordinal);
+        Assert.Empty(_bazarr.Downloads);
+        Assert.Equal("the old english", File.ReadAllText(mine));
     }
 
     [Fact]
@@ -369,7 +479,7 @@ public sealed class BazarrDownloadTests : IDisposable
         var (_, error) = await Service().DownloadAsync(_user, _movie.Node.Id, Danish(), CancellationToken.None);
 
         Assert.Equal("download_failed", error!.Code);
-        Assert.Contains("DA", error.Message, StringComparison.Ordinal);
+        Assert.Contains("Danish", error.Message, StringComparison.Ordinal);
         Assert.Equal("the owner's own subtitle", File.ReadAllText(plain));
         Assert.Empty(_queue.Snapshot().Items);
     }

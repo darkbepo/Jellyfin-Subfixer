@@ -132,23 +132,21 @@ public sealed class BrowseService
     private async Task<ItemDto> SeasonAsync(Guid userId, LibraryNode season, CancellationToken cancellationToken)
     {
         var episodes = _library.GetSeasonEpisodes(userId, season.Id);
-        var records = await _state.GetAsync(episodes.Select(e => e.Node.Id).ToArray(), cancellationToken).ConfigureAwait(false);
+        var views = await ViewsAsync(episodes, cancellationToken).ConfigureAwait(false);
         int eligible = 0, synced = 0, noSubtitle = 0;
-        foreach (var episode in episodes)
+        foreach (var view in views)
         {
-            records.TryGetValue(episode.Node.Id, out var record);
-            var evaluation = EligibilityService.Evaluate(episode, record);
-            if (evaluation.IsEligible)
+            if (view.Eligible)
             {
                 eligible++;
             }
 
-            if (evaluation.Status == EpisodeStatus.Done)
+            if (view.Status == EpisodeStatus.Done)
             {
                 synced++;
             }
 
-            if (EligibilityService.ReasonCode(evaluation.Reason) == "no_sidecar")
+            if (view.English.Reason == IneligibleReason.NoSidecar)
             {
                 noSubtitle++;
             }
@@ -159,25 +157,92 @@ public sealed class BrowseService
 
     private async Task<IReadOnlyList<ItemDto>> EpisodesAsync(IReadOnlyList<VideoFacts> episodes, CancellationToken cancellationToken)
     {
-        var records = await _state.GetAsync(episodes.Select(e => e.Node.Id).ToArray(), cancellationToken).ConfigureAwait(false);
-        return episodes.Select(episode =>
+        var views = await ViewsAsync(episodes, cancellationToken).ConfigureAwait(false);
+        return views.Select(view =>
         {
-            records.TryGetValue(episode.Node.Id, out var record);
-            var evaluation = EligibilityService.Evaluate(episode, record);
-
-            // The subtitle on disk, also for items that aren't eligible (synced, no English audio), for the HI badge.
-            var sidecar = evaluation.Sidecar ?? (evaluation.Video is { } v && evaluation.Reason != IneligibleReason.NoSidecar ? EligibilityService.FindSidecar(v.Path) : null);
-            var check = EligibilityService.IsUntagged(episode.AudioLanguages) ? EligibilityService.CurrentCheck(episode, evaluation.Video) : null;
+            var episode = view.Facts;
+            var english = view.English;
+            var check = EligibilityService.IsUntagged(episode.AudioLanguages) ? EligibilityService.CurrentCheck(episode, english.Video) : null;
             return Plain(episode.Node) with
             {
-                Status = EligibilityService.StatusCode(evaluation.Status),
-                Eligible = evaluation.IsEligible,
-                Reason = EligibilityService.ReasonCode(evaluation.Reason),
-                Message = evaluation.Message,
-                AudioUntagged = evaluation.Reason == IneligibleReason.NoEnglishAudio && EligibilityService.IsUntagged(episode.AudioLanguages),
-                SubtitleHi = sidecar?.LanguageTag.EndsWith(".hi", StringComparison.OrdinalIgnoreCase),
+                Status = EligibilityService.StatusCode(view.Status),
+                Eligible = view.Eligible,
+                Reason = view.Eligible ? null : EligibilityService.ReasonCode(english.Reason),
+                Message = english.Message ?? view.Languages.Select(l => l.Evaluation.Message).FirstOrDefault(m => m is not null),
+                AudioUntagged = english.Reason == IneligibleReason.NoEnglishAudio && EligibilityService.IsUntagged(episode.AudioLanguages),
+                SubtitleHi = view.Languages[0].Sidecar?.IsHearingImpaired,
                 AudioCheck = check is null ? null : new AudioCheckInfoDto(check.Language, check.Probability, check.IsEnglish, check.CheckedUtc, AudioCheckService.Describe(check)),
+                Subtitles = view.Languages.Select(l => new SubtitleStateDto(
+                    l.Language,
+                    l.Sidecar is not null,
+                    l.Sidecar?.IsHearingImpaired ?? false,
+                    EligibilityService.StatusCode(l.Evaluation.Status),
+                    l.Evaluation.IsEligible,
+                    EligibilityService.ReasonCode(l.Evaluation.Reason),
+                    l.Evaluation.Message,
+                    l.Evaluation.Status == EpisodeStatus.Done ? l.Record?.SubSyncVersion : null,
+                    l.Evaluation.Status == EpisodeStatus.Done && IsOutdated(l.Record?.SubSyncVersion))).ToList(),
             };
         }).ToList();
+    }
+
+    /// <summary>Results of SubSync before 1.4.1 can have lines shown for a few hundredths of a second (D51).</summary>
+    /// <param name="version">Version stored with the record.</param>
+    /// <returns>True when older than 1.4.1.</returns>
+    internal static bool IsOutdated(string? version) =>
+        Version.TryParse(version, out var v) && v < new Version(1, 4, 1);
+
+    private async Task<IReadOnlyList<EpisodeView>> ViewsAsync(IReadOnlyList<VideoFacts> episodes, CancellationToken cancellationToken)
+    {
+        var ids = episodes.Select(e => e.Node.Id).ToArray();
+        var recordsOf = new Dictionary<string, IReadOnlyDictionary<Guid, SyncRecord>>();
+        foreach (var language in SubtitleLanguage.All)
+        {
+            recordsOf[language] = await _state.GetAsync(ids, language, cancellationToken).ConfigureAwait(false);
+        }
+
+        return episodes.Select(episode => EpisodeView.Of(episode, recordsOf)).ToList();
+    }
+
+    /// <summary>One language of an episode: its evaluation, record and the subtitle on disk.</summary>
+    private sealed record LanguageView(string Language, Eligibility Evaluation, SyncRecord? Record, Sidecar? Sidecar);
+
+    /// <summary>Every language of an episode, and what they mean for the episode as a whole (D50).</summary>
+    private sealed record EpisodeView(VideoFacts Facts, IReadOnlyList<LanguageView> Languages)
+    {
+        public Eligibility English => Languages[0].Evaluation;
+
+        public bool Eligible => Languages.Any(l => l.Evaluation.IsEligible);
+
+        // done when every subtitle the episode has is synced; attempted when one was tried and not synced
+        public EpisodeStatus Status
+        {
+            get
+            {
+                var present = Languages.Where(l => l.Sidecar is not null || l.Evaluation.Status != EpisodeStatus.None).ToList();
+                if (present.Count == 0)
+                {
+                    return English.Status;
+                }
+
+                if (present.All(l => l.Evaluation.Status == EpisodeStatus.Done))
+                {
+                    return EpisodeStatus.Done;
+                }
+
+                return present.Any(l => l.Evaluation.Status == EpisodeStatus.Attempted) ? EpisodeStatus.Attempted : EpisodeStatus.None;
+            }
+        }
+
+        public static EpisodeView Of(VideoFacts episode, IReadOnlyDictionary<string, IReadOnlyDictionary<Guid, SyncRecord>> recordsOf) =>
+            new(episode, SubtitleLanguage.All.Select(language =>
+            {
+                recordsOf[language].TryGetValue(episode.Node.Id, out var record);
+                var evaluation = EligibilityService.Evaluate(episode, record, language);
+
+                // the subtitle on disk, also when it isn't eligible (synced, no English audio), for the chips and HI badge
+                var sidecar = evaluation.Sidecar ?? (evaluation.Video is { } v && evaluation.Reason != IneligibleReason.NoSidecar ? EligibilityService.FindSidecar(v.Path, language) : null);
+                return new LanguageView(language, evaluation, record, sidecar);
+            }).ToList());
     }
 }

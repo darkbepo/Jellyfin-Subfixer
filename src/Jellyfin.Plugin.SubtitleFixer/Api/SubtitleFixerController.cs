@@ -140,7 +140,7 @@ public sealed class SubtitleFixerController : ControllerBase
         }
 
         var max = Plugin.Instance?.Configuration.MaxEpisodesPerRequest ?? 150;
-        var result = await _validator.ValidateAsync(caller.User.Id, request?.ItemIds, max, cancellationToken).ConfigureAwait(false);
+        var result = await _validator.ValidateAsync(caller.User.Id, request?.ItemIds, max, cancellationToken, request?.Languages, request?.Again ?? false).ConfigureAwait(false);
         if (result.Error is { } error)
         {
             return Error(StatusCodes.Status400BadRequest, error.Code, error.Message);

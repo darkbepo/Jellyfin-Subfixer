@@ -116,7 +116,26 @@ public sealed record ItemDto
 
     /// <summary>Gets the stored audio check of untagged audio, when it is about the current video (D49).</summary>
     public AudioCheckInfoDto? AudioCheck { get; init; }
+
+    /// <summary>
+    /// Gets each subtitle language's state, English first (episodes and movies; D50). The fields above describe the
+    /// item as a whole: <see cref="Eligible"/> when any language can be synced, <see cref="Status"/> <c>done</c> when every
+    /// subtitle it has is synced.
+    /// </summary>
+    public IReadOnlyList<SubtitleStateDto>? Subtitles { get; init; }
 }
+
+/// <summary>One subtitle language of an episode or movie (D50, D52).</summary>
+/// <param name="Language"><c>en</c> or <c>da</c>.</param>
+/// <param name="Present">Whether a subtitle of this language is next to the video (<c>.en.srt</c>, <c>.da.srt</c>, …).</param>
+/// <param name="Hi">Whether that subtitle is hearing-impaired (<c>.hi</c>).</param>
+/// <param name="Status">none, done or attempted.</param>
+/// <param name="Eligible">Whether it can be synced now.</param>
+/// <param name="Reason">Why not: no_video_file, already_synced, no_english_audio, no_sidecar.</param>
+/// <param name="Message">Message of the last attempt.</param>
+/// <param name="SyncedWith">SubSync version of the last sync, when synced.</param>
+/// <param name="Outdated">Synced with a SubSync older than 1.4.1, whose results can have lines that flash by too fast to read; Sync again fixes them (D51).</param>
+public sealed record SubtitleStateDto(string Language, bool Present, bool Hi, string Status, bool Eligible, string? Reason, string? Message, string? SyncedWith, bool Outdated);
 
 /// <summary>A stored audio check on a Browse or Search row (D49).</summary>
 /// <param name="Language">Language heard, or null for no speech.</param>
@@ -137,6 +156,12 @@ public sealed class SelectionRequest
 {
     /// <summary>Gets or sets the selected season and episode ids.</summary>
     public IReadOnlyList<Guid>? ItemIds { get; set; }
+
+    /// <summary>Gets or sets the subtitle languages to sync (<c>en</c>, <c>da</c>; D50). Null or empty: every language.</summary>
+    public IReadOnlyList<string>? Languages { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether to sync again (D51): one episode or movie, also when already synced.</summary>
+    public bool Again { get; set; }
 }
 
 /// <summary>Skipped counts.</summary>

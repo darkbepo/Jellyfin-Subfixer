@@ -276,7 +276,8 @@ public sealed class BazarrSearchService
     /// <param name="itemId">Episode or movie.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The results, or an error.</returns>
-    public async Task<(BazarrSearchDto? Result, BazarrError? Error)> SearchAsync(Guid userId, Guid itemId, CancellationToken cancellationToken)
+    public async Task<(BazarrSearchDto? Result, BazarrError? Error)> SearchAsync(Guid userId, Guid itemId, CancellationToken cancellationToken,
+        string? language = null, bool replace = false)
     {
         if (Connection(out var mapper) is not { } connection)
         {
@@ -290,13 +291,16 @@ public sealed class BazarrSearchService
             return (null, new BazarrError(StatusCodes.Status404NotFound, BazarrErrorCodes.ItemNotFound, "That item was not found or you cannot access it."));
         }
 
-        // Record-free evaluation: the rule is about the files, not about earlier syncs.
-        var check = EligibilityService.Evaluate(video, null);
+        // Record-free evaluation: the rule is about the files, not about earlier syncs. A search for one language (the
+        // page's EN / DA chips, D52) is refused only when that language is already there and it isn't Download new.
+        var lang = SubtitleLanguage.Parse(language);
+        var check = EligibilityService.Evaluate(video, null, lang ?? SubtitleLanguage.English);
         var refusal = check.Reason switch
         {
-            IneligibleReason.None => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.HasSubtitle, "This item already has an English subtitle. Re-time it instead."),
+            IneligibleReason.None when !replace => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.HasSubtitle,
+                $"This item already has a{(lang == SubtitleLanguage.Danish ? " Danish" : "n English")} subtitle. Sync it again, or choose Download new."),
             IneligibleReason.NoVideoFile => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.NoVideoFile, "Jellyfin has no video file for this item."),
-            IneligibleReason.NoEnglishAudio => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.NoEnglishAudio, "This item has no English audio, so an English subtitle can't be re-timed to it."),
+            IneligibleReason.NoEnglishAudio => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.NoEnglishAudio, "This item has no English audio, so a subtitle can't be re-timed to it."),
             _ => null,
         };
         if (refusal is not null)

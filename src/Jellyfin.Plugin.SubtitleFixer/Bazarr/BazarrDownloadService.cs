@@ -89,8 +89,12 @@ public sealed class BazarrDownloadService
     /// <param name="itemId">Episode or movie.</param>
     /// <param name="resultId">Our handle from <c>GET /Bazarr/Search</c>.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="replace">
+    /// Download new (D52): replace the subtitle of that language that is already there. The new one is re-timed; the
+    /// previous one is kept next to it as <c>&lt;name&gt;.old</c>.
+    /// </param>
     /// <returns>The outcome, or an error.</returns>
-    public async Task<(BazarrDownloadDto? Result, BazarrError? Error)> DownloadAsync(Guid userId, Guid itemId, string? resultId, CancellationToken cancellationToken)
+    public async Task<(BazarrDownloadDto? Result, BazarrError? Error)> DownloadAsync(Guid userId, Guid itemId, string? resultId, CancellationToken cancellationToken, bool replace = false)
     {
         var config = _config();
         if (config is not { BazarrEnabled: true } || !BazarrConnection.TryCreate(config.BazarrUrl, config.BazarrApiKey, out var connection, out _))
@@ -115,10 +119,24 @@ public sealed class BazarrDownloadService
             return Fail(StatusCodes.Status410Gone, BazarrErrorCodes.ResultExpired, "That search result has expired. Search again.");
         }
 
-        // Only English subtitles are re-timed, so only they need SubSync and room in the queue (D48).
-        var english = BazarrSearchService.IsEnglish(stored.Result.Language);
+        // English and Danish subtitles are re-timed (Danish only on English audio), so only they need SubSync and room
+        // in the queue (D48, D50).
+        var language = SubtitleLanguage.Parse(BazarrSearchService.LanguageCodeOf(stored.Result.Language));
+        var fingerprint = VideoFingerprint.FromFile(video.VideoPath!);
+        var english = language == SubtitleLanguage.English;
+        if (english && !EligibilityService.HasEnglishAudio(video, fingerprint))
+        {
+            return Fail(StatusCodes.Status409Conflict, BazarrErrorCodes.NoEnglishAudio, "This item has no English audio, so an English subtitle can't be re-timed to it.");
+        }
+
+        var retime = language is not null && EligibilityService.HasEnglishAudio(video, fingerprint);
+        if (retime && !replace && EligibilityService.FindSidecar(video.VideoPath!, language!) is { } present)
+        {
+            return Fail(StatusCodes.Status409Conflict, BazarrErrorCodes.HasSubtitle, $"This item already has a {SubtitleLanguage.Name(language!)} subtitle ({Path.GetFileName(present.Path)}). Choose Download new to replace it.");
+        }
+
         var maxQueued = config.MaxQueuedEpisodes;
-        if (english)
+        if (retime)
         {
             if (!_worker.IsConfigured)
             {
@@ -151,7 +169,7 @@ public sealed class BazarrDownloadService
 
             try
             {
-                return await DownloadLockedAsync(connection!, video, stored, maxQueued, userId, cancellationToken).ConfigureAwait(false);
+                return await DownloadLockedAsync(connection!, video, stored, maxQueued, userId, cancellationToken, retime ? language : null, replace).ConfigureAwait(false);
             }
             finally
             {
@@ -238,11 +256,10 @@ public sealed class BazarrDownloadService
     private static (BazarrDownloadDto?, BazarrError?) Fail(int status, string code, string message, int? retryAfter = null) =>
         (null, new BazarrError(status, code, message, retryAfter));
 
+    // Which language and whether one is already there is decided once the result is known (DownloadAsync).
     private static BazarrError? Refusal(VideoFacts video) => EligibilityService.Evaluate(video, null).Reason switch
     {
-        IneligibleReason.None => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.HasSubtitle, "This item already has an English subtitle. Re-time it instead."),
         IneligibleReason.NoVideoFile => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.NoVideoFile, "Jellyfin has no video file for this item."),
-        IneligibleReason.NoEnglishAudio => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.NoEnglishAudio, "This item has no English audio, so an English subtitle can't be re-timed to it."),
         _ => null,
     };
 
@@ -263,7 +280,9 @@ public sealed class BazarrDownloadService
         StoredBazarrResult stored,
         int maxQueued,
         Guid userId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? retimeLanguage,
+        bool replace)
     {
         var videoPath = video.VideoPath!;
         var copies = await SnapshotAsync(videoPath, cancellationToken).ConfigureAwait(false);
@@ -272,17 +291,17 @@ public sealed class BazarrDownloadService
             return Fail(StatusCodes.Status409Conflict, BazarrErrorCodes.DownloadFailed, $"A subtitle file next to the video is larger than {MaxSnapshotBytes / (1024 * 1024)} MB, so it can't be backed up safely.");
         }
 
-        // A subtitle may have appeared since the checks above; never let Bazarr overwrite it.
-        if (EligibilityService.FindSidecar(videoPath) is not null)
+        // A subtitle may have appeared since the checks above; never let Bazarr overwrite it unless asked to (D52).
+        if (retimeLanguage is not null && !replace && EligibilityService.FindSidecar(videoPath, retimeLanguage) is { } present)
         {
-            return Fail(StatusCodes.Status409Conflict, BazarrErrorCodes.HasSubtitle, "This item already has an English subtitle. Re-time it instead.");
+            return Fail(StatusCodes.Status409Conflict, BazarrErrorCodes.HasSubtitle, $"This item already has a {SubtitleLanguage.Name(retimeLanguage)} subtitle ({Path.GetFileName(present.Path)}). Choose Download new to replace it.");
         }
 
         var before = copies.Select(c => c.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // Another language: Bazarr would overwrite a subtitle already there in that language, and putting the old one
-        // back would undo the download. So refuse instead (D48).
-        if (!BazarrSearchService.IsEnglish(stored.Result.Language))
+        // back would undo the download. So refuse instead (D48); Download new only replaces English and Danish ones.
+        if (retimeLanguage is null)
         {
             var language = BazarrSearchService.LanguageCodeOf(stored.Result.Language);
             var baseName = Path.GetFileNameWithoutExtension(videoPath);
@@ -308,37 +327,50 @@ public sealed class BazarrDownloadService
             return (null, error);
         }
 
-        if (!BazarrSearchService.IsEnglish(stored.Result.Language))
+        if (retimeLanguage is null)
         {
             return await FinishOtherLanguageAsync(videoPath, video, stored, before, copies).ConfigureAwait(false);
         }
 
+        var lang = retimeLanguage;
+
         // From here on the caller's token is ignored: Bazarr has accepted the job and will write the file anyway, so
         // closing the dialog must not undo a download that is about to land unqueued. The wait is bounded (D33).
-        var sidecar = await WaitForSidecarAsync(videoPath, CancellationToken.None).ConfigureAwait(false);
+        var sidecar = await WaitForSidecarAsync(videoPath, lang, copies, CancellationToken.None).ConfigureAwait(false);
 
         if (sidecar is null)
         {
             var strays = NewFiles(videoPath, before);
-            RemoveNewAccepted(videoPath, before);
+            RemoveNewAccepted(videoPath, lang, before);
             await RestoreAsync(copies, _logger).ConfigureAwait(false);
+            var names = string.Join(" or ", SubtitleLanguage.Tags(lang).Take(2).Select(t => "." + t + ".srt"));
             var hint = strays.Count > 0
-                ? $" Bazarr saved {string.Join(", ", strays)}, a name Subtitle Fixer doesn't re-time; it needs <video>.en.srt or .en.hi.srt (check Bazarr's 'single language' and hearing-impaired extension settings)."
+                ? $" Bazarr saved {string.Join(", ", strays)}, a name Subtitle Fixer doesn't re-time; it needs <video>{names} (check Bazarr's 'single language' and hearing-impaired extension settings)."
                 : " Check Bazarr's System > Logs: the provider may have throttled it, or the search result expired in Bazarr. Search again and pick another result.";
             _logger.LogWarning("Bazarr download from {Provider} for {ItemId} produced no usable subtitle within {Seconds} s", stored.Result.Provider, video.Node.Id, _timing.WaitTimeout.TotalSeconds);
-            return Fail(StatusCodes.Status502BadGateway, BazarrErrorCodes.DownloadFailed, $"Bazarr didn't save a usable English subtitle within {_timing.WaitTimeout.TotalSeconds:0} seconds." + hint);
+            return Fail(StatusCodes.Status502BadGateway, BazarrErrorCodes.DownloadFailed, $"Bazarr didn't save a usable {SubtitleLanguage.Name(lang)} subtitle within {_timing.WaitTimeout.TotalSeconds:0} seconds." + hint);
         }
 
-        // Anything else Bazarr overwrote goes back; the new sidecar didn't exist before, so it stays.
-        await RestoreAsync(copies, _logger).ConfigureAwait(false);
+        // Anything else Bazarr overwrote goes back; the new (or, with Download new, replaced) sidecar stays. A
+        // replaced one is kept as <name>.old, and an older one of the same language that would be synced instead of
+        // the new one is moved aside to <name>.old too (D52).
+        var replaced = copies.FirstOrDefault(c => string.Equals(c.Path, sidecar.Path, StringComparison.OrdinalIgnoreCase));
+        await RestoreAsync(copies.Where(c => c != replaced).ToList(), _logger).ConfigureAwait(false);
+        var keptOld = new List<string>();
+        if (replaced is not null && KeepOld(replaced.Path, replaced.Bytes) is { } old)
+        {
+            keptOld.Add(Path.GetFileName(old));
+        }
+
+        keptOld.AddRange(MoveShadowsAside(videoPath, lang, sidecar));
 
         // A fresh subtitle must be synced even if this video was synced before (BAZARR-PLAN.md rule 5).
-        await _state.DeleteAsync(video.Node.Id, CancellationToken.None).ConfigureAwait(false);
+        await _state.DeleteAsync(video.Node.Id, lang, CancellationToken.None).ConfigureAwait(false);
 
         var note = "downloaded from " + stored.Result.Provider;
         var series = video.Node.SeriesName ?? string.Empty;
-        var queued = _queue.Enqueue(userId, [new JobRequestItem(video.Node.Id, DisplayName(video.Node), series)], JobSource.Bazarr, note, maxQueued);
-        var name = Path.GetFileName(sidecar.Path);
+        var queued = _queue.Enqueue(userId, [new JobRequestItem(video.Node.Id, DisplayName(video.Node), series, lang)], JobSource.Bazarr, note, maxQueued);
+        var name = Path.GetFileName(sidecar.Path) + (keptOld.Count > 0 ? $" (the previous one is kept as {string.Join(", ", keptOld)})" : string.Empty);
         _logger.LogInformation("Bazarr downloaded {Subtitle} from {Provider} for {ItemId}; queued: {Queued}", name, stored.Result.Provider, video.Node.Id, queued.Error is null);
         return queued.Error is null
             ? (new BazarrDownloadDto(true, name, $"Downloaded {name} from {stored.Result.Provider}. It's in the queue to be re-timed."), null)
@@ -372,7 +404,10 @@ public sealed class BazarrDownloadService
 
         var name = Path.GetFileName(found);
         _logger.LogInformation("Bazarr downloaded {Subtitle} ({Language}) from {Provider} for {ItemId}; not re-timed (not English)", name, language, stored.Result.Provider, video.Node.Id);
-        return (new BazarrDownloadDto(false, name, $"Downloaded {name} from {stored.Result.Provider}. Subtitle Fixer only re-times English subtitles, so this one stays as it is."), null);
+        var why = SubtitleLanguage.Parse(language) is not null
+            ? "Subtitle Fixer only re-times subtitles on English audio, so this one stays as it is."
+            : "Subtitle Fixer only re-times English and Danish subtitles, so this one stays as it is.";
+        return (new BazarrDownloadDto(false, name, $"Downloaded {name} from {stored.Result.Provider}. {why}"), null);
     }
 
     /// <summary>Waits for a new subtitle in the given language next to the video that parses as SRT and has stopped growing.</summary>
@@ -439,15 +474,19 @@ public sealed class BazarrDownloadService
         return tag.Equals(language, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Waits until an accepted sidecar exists, parses as SRT and has stopped growing.</summary>
-    private async Task<Sidecar?> WaitForSidecarAsync(string videoPath, CancellationToken cancellationToken)
+    /// <summary>
+    /// Waits until an accepted sidecar of the language is new or changed (Download new writes over one that was there),
+    /// parses as SRT and has stopped growing.
+    /// </summary>
+    private async Task<Sidecar?> WaitForSidecarAsync(string videoPath, string language, IReadOnlyList<SubtitleCopy> copies, CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow + _timing.WaitTimeout;
         long? lastSize = null;
+        string? lastPath = null;
         while (DateTime.UtcNow < deadline)
         {
             await Task.Delay(_timing.PollInterval, cancellationToken).ConfigureAwait(false);
-            var sidecar = EligibilityService.FindSidecar(videoPath);
+            var sidecar = FreshSidecar(videoPath, language, copies);
             if (sidecar is null)
             {
                 continue;
@@ -463,32 +502,135 @@ public sealed class BazarrDownloadService
                 continue;
             }
 
-            if (lastSize == size && SubtitleVerifier.IsValidSrt(sidecar.Path, out _))
+            if (lastSize == size && lastPath == sidecar.Path && SubtitleVerifier.IsValidSrt(sidecar.Path, out _))
             {
                 return sidecar;
             }
 
             lastSize = size;
+            lastPath = sidecar.Path;
         }
 
         return null;
     }
 
-    /// <summary>Deletes an accepted sidecar that wasn't there before (a broken or late download).</summary>
-    private void RemoveNewAccepted(string videoPath, HashSet<string> before)
+    /// <summary>The first accepted sidecar of the language (priority order) that didn't exist before or has changed.</summary>
+    private static Sidecar? FreshSidecar(string videoPath, string language, IReadOnlyList<SubtitleCopy> copies)
     {
-        if (EligibilityService.FindSidecar(videoPath) is { } s && !before.Contains(s.Path))
+        var folder = Path.GetDirectoryName(videoPath);
+        var baseName = Path.GetFileNameWithoutExtension(videoPath);
+        if (string.IsNullOrEmpty(folder) || string.IsNullOrEmpty(baseName))
         {
+            return null;
+        }
+
+        foreach (var tag in SubtitleLanguage.Tags(language))
+        {
+            var path = Path.Combine(folder, baseName + "." + tag + ".srt");
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+
+            var copy = copies.FirstOrDefault(c => string.Equals(c.Path, path, StringComparison.OrdinalIgnoreCase));
             try
             {
-                File.Delete(s.Path);
-                _logger.LogWarning("Removed {Path}: Bazarr's download didn't finish as a valid subtitle", s.Path);
+                if (copy is null || !File.ReadAllBytes(path).AsSpan().SequenceEqual(copy.Bytes))
+                {
+                    return new Sidecar(path, tag, language);
+                }
+            }
+            catch (IOException)
+            {
+                // still being written
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Deletes an accepted sidecar of the language that wasn't there before (a broken or late download).</summary>
+    private void RemoveNewAccepted(string videoPath, string language, HashSet<string> before)
+    {
+        var folder = Path.GetDirectoryName(videoPath);
+        var baseName = Path.GetFileNameWithoutExtension(videoPath);
+        if (string.IsNullOrEmpty(folder) || string.IsNullOrEmpty(baseName))
+        {
+            return;
+        }
+
+        foreach (var tag in SubtitleLanguage.Tags(language))
+        {
+            var path = Path.Combine(folder, baseName + "." + tag + ".srt");
+            if (!File.Exists(path) || before.Contains(path))
+            {
+                continue;
+            }
+
+            try
+            {
+                File.Delete(path);
+                _logger.LogWarning("Removed {Path}: Bazarr's download didn't finish as a valid subtitle", path);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                _logger.LogError(ex, "Could not remove {Path}", s.Path);
+                _logger.LogError(ex, "Could not remove {Path}", path);
             }
         }
+    }
+
+    /// <summary>Keeps the replaced subtitle's previous content as <c>&lt;name&gt;.old</c> (Download new, D52).</summary>
+    private string? KeepOld(string path, byte[] bytes)
+    {
+        var old = path + ".old";
+        try
+        {
+            File.WriteAllBytes(old, bytes);
+            return old;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogError(ex, "Could not keep the previous subtitle as {Path}", old);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// After Download new: an older sidecar of the same language that comes before the new one in priority order
+    /// (for example the old <c>.en.srt</c> when Bazarr wrote <c>.en.hi.srt</c>) would be synced instead, so it is
+    /// renamed to <c>&lt;name&gt;.old</c>. Returns the new names.
+    /// </summary>
+    private List<string> MoveShadowsAside(string videoPath, string language, Sidecar fresh)
+    {
+        var moved = new List<string>();
+        var folder = Path.GetDirectoryName(videoPath)!;
+        var baseName = Path.GetFileNameWithoutExtension(videoPath);
+        foreach (var tag in SubtitleLanguage.Tags(language))
+        {
+            if (string.Equals(tag, fresh.LanguageTag, StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+
+            var path = Path.Combine(folder, baseName + "." + tag + ".srt");
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+
+            try
+            {
+                File.Move(path, path + ".old", overwrite: true);
+                moved.Add(Path.GetFileName(path) + ".old");
+                _logger.LogInformation("Moved {Path} aside so the new subtitle is the one synced", path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogError(ex, "Could not move {Path} aside", path);
+            }
+        }
+
+        return moved;
     }
 
     private static List<string> NewFiles(string videoPath, HashSet<string> before)
