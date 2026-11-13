@@ -304,7 +304,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 
 .hits-head, .hit {
     display: grid; align-items: center; gap: 4px 14px;
-    grid-template-columns: 72px 76px minmax(0, 1fr) 96px 86px;
+    grid-template-columns: 72px 76px minmax(0, 1fr) 86px;
 }
 .hits-head { display: none; padding: 6px 18px; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); border-bottom: 1px solid var(--line); }
 .find.has-hits .hits-head { display: grid; }
@@ -337,12 +337,12 @@ button:disabled { opacity: 0.45; cursor: default; }
 .hit-get.working .icon { animation: pulse 1s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.35; } }
 
-/* Too narrow for five columns: the table becomes cards (score, language and match on top, then the release and Get). */
+/* Too narrow for four columns: the table becomes cards (score and language on top, then the release and Get). */
 @media (max-width: 820px) {
     .find.has-hits .hits-head { display: none; }
     .hit {
         grid-template-columns: auto auto 1fr auto;
-        grid-template-areas: "score lang . match" "release release release get" "detail detail detail detail";
+        grid-template-areas: "score lang . ." "release release release get";
         margin: 8px 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2);
     }
     .hit:last-child { border-bottom: 1px solid var(--line); }

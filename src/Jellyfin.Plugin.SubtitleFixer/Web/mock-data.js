@@ -452,7 +452,12 @@
         if (p === 'Bazarr/Search') {
             var target = items[q.get('itemId')];
             if (!target || (target.type !== 'Episode' && target.type !== 'Movie')) { return err('not_found', 404, 'That item was not found or you cannot access it.'); }
-            if (evaluate(target).reason !== 'no_sidecar') { return err('has_subtitle', 409, 'This item already has an English subtitle. Re-time it instead.'); }
+            // D52: a search for one language is refused only when that language is there and it isn't Download new
+            var wantLang = q.get('language');
+            var have = (row(target).subtitles || []).filter(function (x) { return x.language === (wantLang || 'en'); })[0];
+            if (have && have.present && q.get('replace') !== 'true') {
+                return err('has_subtitle', 409, 'This item already has a' + (wantLang === 'da' ? ' Danish' : 'n English') + ' subtitle. Sync it again, or choose Download new.');
+            }
             if (params.get('bazarr') === 'error') { return err('search_failed', 502, 'Bazarr: Movie file not found. Path mapping issue?'); }
             searchFor = target.id;
             var base = target.type === 'Movie' ? target.name.replace(/\W+/g, '.') + '.' + target.productionYear : 'Show.S01E' + pad(target.indexNumber || 1);
