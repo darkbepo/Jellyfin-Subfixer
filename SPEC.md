@@ -3,9 +3,9 @@
 Source of truth for scope and rules. Details live in `docs/`.
 
 ## 1. Purpose
-Let users re-time English subtitles on English-audio TV episodes from inside Jellyfin, using SubSync, without ever risking the existing subtitle and without repeating work on a library of ~40,000 episodes.
+Let users re-time English and Danish subtitles on English-audio TV episodes and movies from inside Jellyfin, using SubSync, without ever risking the existing subtitle and without repeating work on a library of ~40,000 episodes.
 
-**Disclaimer shown on the page:** "Only fixes English subtitles on English audio."
+**Disclaimer shown on the page:** "Only fixes English and Danish subtitles on English audio."
 
 ## 2. Scope (v1)
 - Jellyfin 12.x: .NET 10, `targetAbi` `12.0.0.0`, the new MUI layout with the avatar menu. Record the exact server version in `docs/M0-SPIKES.md` (owner says 12.4; 12.0 and 12.1 are confirmed to exist).
@@ -16,7 +16,9 @@ Let users re-time English subtitles on English-audio TV episodes from inside Jel
 
 **Movies** (`docs/MOVIES-PLAN.md`, D26): movie libraries, movie search and movie sync, with the same eligibility, backup and queue rules. A request is either episodes of one series or movies, never both.
 
-**Out of scope for v1** (possible later): embedded subtitle extraction, other languages, Linux/macOS, parallel SubSync jobs, subtitles with any name other than `.en.srt` / `.eng.srt` / `.en.hi.srt` / `.eng.hi.srt`, and other formats (`.ass`, `.vtt`).
+**Danish** (0.7.0.0, D50): Danish subtitles (`.da.srt`, `.dan.srt`, `.da.hi.srt`, `.dan.hi.srt`) are re-timed too, on English audio, with SubSync 1.5.0 or later. A Danish subtitle is timed by the English one next to the same video when there is one. Each subtitle language of an item is synced, recorded and backed up on its own.
+
+**Out of scope for v1** (possible later): embedded subtitle extraction, languages other than English and Danish, Linux/macOS, parallel SubSync jobs, subtitles with any name other than the `.en` / `.eng` / `.da` / `.dan` names above (with `.hi`), and other formats (`.ass`, `.vtt`).
 
 ## 3. Hard rules
 Enforced on the server; the UI mirrors them. See `docs/API.md` for error codes.
@@ -25,18 +27,19 @@ Enforced on the server; the UI mirrors them. See `docs/API.md` for error codes.
 3. **UI series lock.** Once anything is selected, items of other series cannot be selected until the selection is cleared (they stay visible and browsable, dimmed).
 4. **Caps** (configurable): `MaxEpisodesPerRequest` default 150, `MaxQueuedEpisodes` default 300. Skipped and ineligible episodes do not count.
 5. **One SubSync at a time**; global queue. With SubSync 1.3.0 that one process may hold the next item too, sent ahead while the current one listens (D45).
-6. **Never re-sync** an episode with a matching `done` record.
+6. **Never re-sync** an episode with a matching `done` record, except when a user chooses **Sync again** on that one episode or movie and language (D51).
 7. **Never lose a subtitle**: backup, run, verify, swap, delete backup; restore on any failure (`docs/JOB-FLOW.md`).
 8. **Permissions**: `AllowedUsers` = `AllAuthenticated` (default) or `AdminOnly`. Admins are always allowed; everyone else only once SubSync is configured, so a fresh install is admin-only until set up (D10). Users only see what they can access in Jellyfin, within the libraries chosen in `AllowedLibraryIds` (D43). Bazarr search and download follow the same rule (D28).
 
 ## 4. Eligibility
-An episode is eligible only if all hold:
-- Item type is Episode and its video file exists.
-- At least one audio stream has language `eng` or `en`. When no stream is tagged (`und` or empty), a **Check audio** result counts instead: SubSync's `detect` heard English with at least 50% confidence in this same video (D49). A check never overrides a language tag.
-- It has an external sidecar named exactly `<videoBase>.en.srt`, `.eng.srt`, `.en.hi.srt` or `.eng.hi.srt` (video name without extension; `.hi` = hearing-impaired). Any other name is treated as not English and ignored. No naming heuristics. One subtitle per episode: the first that exists in that order is processed (D6, D27).
-- No `done` record whose fingerprint still matches.
+Each subtitle language of an item (English, Danish; D50) is eligible only if all hold:
+- Item type is Episode or Movie and its video file exists.
+- At least one audio stream has language `eng` or `en`. When no stream is tagged (`und` or empty), a **Check audio** result counts instead: SubSync's `detect` heard English with at least 50% confidence in this same video (D49). A check never overrides a language tag. Danish subtitles need English audio too.
+- It has an external sidecar named exactly `<videoBase>.en.srt`, `.eng.srt`, `.en.hi.srt` or `.eng.hi.srt` (Danish: `.da.srt`, `.dan.srt`, `.da.hi.srt`, `.dan.hi.srt`); video name without extension; `.hi` = hearing-impaired. Any other name is ignored. No naming heuristics. One subtitle per item and language: the first that exists in that order is processed (D6, D27).
+- No `done` record of that language whose fingerprint still matches (unless Sync again, D51).
+- Danish only with SubSync 1.5.0 or later; with an older one a Danish item fails with "update SubSync" and nothing is touched.
 
-Ineligible items are shown with a reason: `no_video_file`, `already_synced`, `no_english_audio`, `no_sidecar`. Items with status `check` or `failed` stay selectable, labelled "previously attempted".
+Starting a selection queues every eligible language of every selected item, English first. A Danish subtitle that isn't there is simply not synced; it isn't counted as skipped. Ineligible items are shown with a reason: `no_video_file`, `already_synced`, `no_english_audio`, `no_sidecar`. Items with status `check` or `failed` stay selectable, labelled "previously attempted".
 
 ## 5. When an episode counts as "synced"
 A `done` record stores video path, size and mtime (UTC). It is valid while all three still match. A replaced video makes the episode eligible again. Files are never hashed. `check` (SubSync matched too few lines and wrote nothing) is not done. Details: `docs/ARCHITECTURE.md` (state schema).

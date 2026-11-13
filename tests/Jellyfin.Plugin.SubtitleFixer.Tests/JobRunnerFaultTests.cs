@@ -19,6 +19,11 @@ public sealed class FakeWorker : ISubSyncWorker
 
     public bool IsConfigured { get; set; } = true;
 
+    /// <summary>Gets or sets the SubSync version the worker reports (Danish needs 1.5.0, D50).</summary>
+    public Version? Version { get; set; } = new(1, 5, 0);
+
+    public Task<Version?> GetVersionAsync(CancellationToken cancellationToken) => Task.FromResult(Version);
+
     public static WorkerResult Result(WorkerStatus status, string? reason = null) =>
         new(status, null, reason, "eng", 42, "1.2.0", status == WorkerStatus.Synced ? 0 : 4);
 

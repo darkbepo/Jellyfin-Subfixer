@@ -82,7 +82,7 @@ public sealed class WebTests
         using var reader = new StreamReader(stream);
         var html = reader.ReadToEnd();
 
-        Assert.Contains("Only fixes English subtitles on English audio.", html, StringComparison.Ordinal);
+        Assert.Contains("Only fixes English and Danish subtitles on English audio.", html, StringComparison.Ordinal);
         Assert.Contains("href=\"../web/\"", html, StringComparison.Ordinal);
     }
 

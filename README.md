@@ -2,7 +2,7 @@
 
 Fix out-of-sync English subtitles from inside Jellyfin. Pick seasons, episodes or movies, and the plugin uses [SubSync](https://github.com/darkbepo/SubSync) to move every subtitle line to where it is actually spoken. It then refreshes the item, so the fixed subtitle is served right away. If an item has no subtitle at all, users can also find one through Bazarr, and it is re-timed as soon as it arrives.
 
-> Only fixes English subtitles on English audio.
+> Only fixes English and Danish subtitles on English audio.
 
 ## Requirements
 - **Jellyfin 12** on a **Windows** server. SubSync is Windows-only, so Linux, Docker and macOS servers aren't supported.

@@ -66,6 +66,7 @@ CREATE TABLE audio_checks (
   item_id TEXT PRIMARY KEY, video_path TEXT NOT NULL, video_size INTEGER NOT NULL, video_mtime_utc TEXT NOT NULL,
   language TEXT, probability REAL, speech_seconds REAL NOT NULL, checked_utc TEXT NOT NULL);
 ```
+v5 (D50): `synced_items` and `in_flight` are keyed by `(item_id, language)` (`language` `en` or `da`; existing rows became `en`), and `failed_syncs` has a `language` column. `IStateStore.GetAsync(ids, language)`, `DeleteAsync(id, language)` and `RemoveInFlightAsync(id, language)`; the overloads without a language mean English.
 `audio_checks` is loaded into memory at startup (`AudioCheckCache`) and `AudioCheckFacade` attaches a check to the video facts, so every rule sees a checked-English item the same way.
 Migrations are numbered steps in `SqliteStateStore`; a database with a newer version than the code knows is refused, not touched. The file is `state.db` in the plugin's data folder.
 `done` is valid while `video_path`, `video_size` and `video_mtime_utc` still match the file. Lookups are batched per page of IDs.
