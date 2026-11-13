@@ -74,9 +74,11 @@ public sealed record BazarrResultDto(
 /// <param name="Kind"><c>movie</c> or <c>episode</c>.</param>
 /// <param name="Resource">Video path Bazarr matched (the dialog's Resource line).</param>
 /// <param name="MatchedBy"><c>path</c> or <c>ids</c>.</param>
-/// <param name="Results">Non-forced results in every language Bazarr returned, best score first (D48).</param>
-/// <param name="Hidden">Results left out because they're forced (foreign-parts-only) subtitles.</param>
-public sealed record BazarrSearchDto(Guid ItemId, string Kind, string? Resource, string MatchedBy, IReadOnlyList<BazarrResultDto> Results, int Hidden);
+/// <param name="Results">Non-forced results in the languages the item is missing, best score first (D48, D50).</param>
+/// <param name="Hidden">Results left out: forced (foreign-parts-only) ones, and languages the item already has.</param>
+/// <param name="Have">Subtitle languages already next to the video, upper case (<c>EN</c>, <c>DA</c>), for the dialog.</param>
+/// <param name="EnglishWanted">Whether English results are offered: the item has English audio and no English subtitle.</param>
+public sealed record BazarrSearchDto(Guid ItemId, string Kind, string? Resource, string MatchedBy, IReadOnlyList<BazarrResultDto> Results, int Hidden, IReadOnlyList<string>? Have = null, bool EnglishWanted = true);
 
 /// <summary>A search error for the controller: HTTP status, code and message.</summary>
 /// <param name="Status">HTTP status.</param>
@@ -290,19 +292,17 @@ public sealed class BazarrSearchService
             return (null, new BazarrError(StatusCodes.Status404NotFound, BazarrErrorCodes.ItemNotFound, "That item was not found or you cannot access it."));
         }
 
-        // Record-free evaluation: the rule is about the files, not about earlier syncs.
+        // Record-free evaluation: the rule is about the files, not about earlier syncs. Any item with a video can be
+        // searched (D50): English only where it's missing on English audio (it gets re-timed), other languages
+        // where that language is missing (kept as saved).
         var check = EligibilityService.Evaluate(video, null);
-        var refusal = check.Reason switch
+        if (check.Reason == IneligibleReason.NoVideoFile)
         {
-            IneligibleReason.None => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.HasSubtitle, "This item already has an English subtitle. Re-time it instead."),
-            IneligibleReason.NoVideoFile => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.NoVideoFile, "Jellyfin has no video file for this item."),
-            IneligibleReason.NoEnglishAudio => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.NoEnglishAudio, "This item has no English audio, so an English subtitle can't be re-timed to it."),
-            _ => null,
-        };
-        if (refusal is not null)
-        {
-            return (null, refusal);
+            return (null, new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.NoVideoFile, "Jellyfin has no video file for this item."));
         }
+
+        var englishWanted = check.Reason == IneligibleReason.NoSidecar;
+        var have = BazarrDownloadService.ExistingLanguages(video.VideoPath!);
 
         var lookup = _lookups.GetLookup(userId, video);
         if (lookup is null)
@@ -342,6 +342,7 @@ public sealed class BazarrSearchService
         // ones are re-timed after a download.
         var shown = all
             .Where(r => !r.Forced && !string.IsNullOrWhiteSpace(r.Language))
+            .Where(r => IsEnglish(r.Language) ? englishWanted : !have.Contains(BazarrDownloadService.NormalizeLanguage(LanguageCodeOf(r.Language))))
             .OrderByDescending(r => r.Score)
             .ThenBy(r => r.HearingImpaired)
             .Select(r =>
@@ -363,7 +364,7 @@ public sealed class BazarrSearchService
             .ToList();
 
         _logger.LogInformation("Bazarr search for {ItemId}: {Shown} of {Total} results shown (matched by {MatchedBy})", itemId, shown.Count, all.Count, target.MatchedBy);
-        return (new BazarrSearchDto(itemId, target.IsMovie ? "movie" : "episode", target.Path, target.MatchedBy, shown, all.Count - shown.Count), null);
+        return (new BazarrSearchDto(itemId, target.IsMovie ? "movie" : "episode", target.Path, target.MatchedBy, shown, all.Count - shown.Count, have.Select(l => l.ToUpperInvariant()).Order(StringComparer.Ordinal).ToList(), englishWanted), null);
     }
 
     /// <summary>The base language code, lower case: <c>pt-BR</c> stays <c>pt-br</c>, <c>en:hi</c> becomes <c>en</c>.</summary>

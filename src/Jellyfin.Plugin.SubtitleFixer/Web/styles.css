@@ -205,13 +205,22 @@ button:disabled { opacity: 0.45; cursor: default; }
 .panel-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0; font-size: 1rem; }
 .panel-head .small { font-weight: 400; }
 .panel > .panel-head { margin-bottom: 10px; }
+/* The whole heading is the button, and it looks like one: a bar with a round chevron and "Hide"/"Show" on the
+   right (owner, 2026-11-12: it wasn't obvious that it folds). */
 .panel-toggle {
-    gap: 6px; min-height: 32px; padding: 2px 8px 2px 2px; margin-left: -2px;
-    background: none; border-color: transparent; color: var(--text); font-weight: 650; font-size: 1rem;
+    flex: 1 1 auto; justify-content: flex-start; gap: 10px; min-height: 44px; padding: 6px 14px 6px 8px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    color: var(--text); font-weight: 650; font-size: 1rem; text-align: left;
 }
-.panel-toggle:hover:not(:disabled) { background: var(--surface-2); border-color: transparent; }
-.panel-toggle .chevron { transition: transform 0.15s; }
+.panel-toggle:hover:not(:disabled) { background: var(--surface-2); border-color: #3a424a; }
+.panel-toggle .chevron {
+    width: 26px; height: 26px; padding: 3px; border-radius: 50%;
+    background: var(--surface-2); color: var(--muted); transition: transform 0.15s;
+}
+.panel-toggle:hover .chevron { color: var(--text); }
 .panel-toggle[aria-expanded="false"] .chevron { transform: rotate(-90deg); }
+.panel-toggle::after { content: "Hide"; margin-left: auto; font-size: 0.82rem; font-weight: 500; color: var(--muted); }
+.panel-toggle[aria-expanded="false"]::after { content: "Show"; color: var(--accent); }
 .panel.collapsed > .panel-head { margin-bottom: 0; }
 .card.collapsed { padding-bottom: 12px; padding-top: 12px; }
 
@@ -270,6 +279,9 @@ button:disabled { opacity: 0.45; cursor: default; }
 .check-btn:hover:not(:disabled) { background: rgba(229, 165, 10, 0.16); border-color: var(--warn); }
 .check-btn.working { cursor: progress; }
 .row.card .check-btn { min-height: 26px; padding: 2px 8px; font-size: 0.8rem; }
+/* Find subtitles where English is already there (other languages only): a quiet icon button (D50) */
+.find-btn.find-more { padding: 4px 8px; color: var(--muted); border-color: var(--line); background: transparent; }
+.find-btn.find-more:hover:not(:disabled) { color: var(--accent); border-color: #2c4a6e; background: rgba(79, 156, 249, 0.08); }
 .badge.checked { color: var(--ok); border-color: #2f6b52; }
 
 .find {

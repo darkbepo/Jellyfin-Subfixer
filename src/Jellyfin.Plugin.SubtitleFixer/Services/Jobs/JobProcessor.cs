@@ -24,6 +24,7 @@ public sealed partial class JobProcessor : BackgroundService
     private readonly StartupStatus _startup;
     private readonly IStateStore _state;
     private readonly ILogger<JobProcessor> _logger;
+    private readonly AudioCheckService? _checks;
     private int _consecutiveCrashes;
 
     /// <summary>
@@ -34,13 +35,34 @@ public sealed partial class JobProcessor : BackgroundService
     /// <param name="startup">Startup status (recovery gate).</param>
     /// <param name="state">State store (failed-syncs log).</param>
     /// <param name="logger">Logger.</param>
-    public JobProcessor(JobQueue queue, JobRunner runner, StartupStatus startup, IStateStore state, ILogger<JobProcessor> logger)
+    /// <param name="checks">Runs Check audio items (D49); null in tests that have none.</param>
+    public JobProcessor(JobQueue queue, JobRunner runner, StartupStatus startup, IStateStore state, ILogger<JobProcessor> logger, AudioCheckService? checks = null)
     {
         _queue = queue;
         _runner = runner;
         _startup = startup;
         _state = state;
         _logger = logger;
+        _checks = checks;
+    }
+
+    // A Check audio item (D49): SubSync's detect with nothing else running. Its result never touches a subtitle.
+    private async Task RunCheckAsync(RunningJob job)
+    {
+        RunOutcome outcome;
+        try
+        {
+            outcome = _checks is null
+                ? new RunOutcome(JobItemStatus.Failed, "Checking the audio isn't available.", null, null)
+                : await _checks.RunAsync(job.Snapshot, job.CancellationToken, (stage, percent) => _queue.SetProgress(job.Snapshot.JobId, stage, null, percent)).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Subtitle Fixer could not check the audio of {Name}", job.Snapshot.Name);
+            outcome = new RunOutcome(JobItemStatus.Failed, "Failed: " + ex.Message, null, null);
+        }
+
+        await SettleAsync(job, outcome, countCrash: false).ConfigureAwait(false);
     }
 
     /// <summary>Runs one taken entry and applies the stop rules. Public for tests.</summary>
@@ -126,7 +148,7 @@ public sealed partial class JobProcessor : BackgroundService
                 item.UserId,
                 status.Value,
                 outcome.Message,
-                item.Source == JobSource.Bazarr ? "bazarr" : "manual",
+                JobQueue.SourceCode(item.Source),
                 item.Note,
                 DateTime.UtcNow);
             await _state.AddFailedSyncAsync(entry, FailedLogSize, CancellationToken.None).ConfigureAwait(false);

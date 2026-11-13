@@ -72,7 +72,6 @@ public sealed partial class JobProcessor
         finally
         {
             await CloseSessionAsync().ConfigureAwait(false);
-            _queue.EndRun();  // SubSync has closed: an audio check may run now (D49)
             _syncOnly = false;
             if (_runProcesses > 0)
             {
@@ -95,6 +94,15 @@ public sealed partial class JobProcessor
     // runs, and send it.
     private async Task StartItemAsync(RunningJob job, CancellationToken stoppingToken)
     {
+        // Check audio (D49): SubSync's detect, alone. Nothing is in flight here, so the run's serve is closed first
+        // (one SubSync at a time); the next sync item starts a new one.
+        if (job.Snapshot.Source == JobSource.AudioCheck)
+        {
+            await CloseSessionAsync().ConfigureAwait(false);
+            await RunCheckAsync(job).ConfigureAwait(false);
+            return;
+        }
+
         if (_syncOnly)
         {
             await ProcessAsync(job).ConfigureAwait(false);
@@ -267,7 +275,7 @@ public sealed partial class JobProcessor
                 return;
             }
 
-            if (_queue.TryTake() is not { } job)
+            if (_queue.TryTake(syncOnly: true) is not { } job)
             {
                 return;
             }

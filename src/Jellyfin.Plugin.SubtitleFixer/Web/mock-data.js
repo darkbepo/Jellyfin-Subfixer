@@ -231,6 +231,15 @@
             var ep = items[running.itemId];
             if (running.cancelRequested) {
                 running.status = 'cancelled'; running.message = 'Cancelled.';
+            } else if (running.source === 'audio_check') {
+                // Check audio (D49): mov-9 is English, anything else untagged sounds Danish.
+                var english = running.itemId === 'mov-9';
+                var heard = english
+                    ? { language: 'en', probability: 0.985, english: true, checkedUtc: new Date().toISOString(), message: 'Sounds like English (99% sure). It can be re-timed now.' }
+                    : { language: 'da', probability: 0.91, english: false, checkedUtc: new Date().toISOString(), message: 'Sounds like Danish (DA, 91% sure), not English.' };
+                running.status = 'done';
+                running.message = heard.message;
+                if (ep) { ep.facts = { state: english ? 'ok' : 'no_english_audio', untagged: true, hi: ep.facts.hi, checked: heard }; }
             } else if (outcomeSeq % 6 === 0) {
                 running.status = 'check'; running.message = 'Matched only 5 lines; is this the subtitle for this video?';
                 if (ep) { ep.facts = { state: 'check', message: running.message }; }
@@ -418,21 +427,24 @@
             return ok({ ok: true, version: '1.2.0-mock', mode: 'GPU', message: 'SubSync is ready.', checkExitCode: 0, checkOutput: 'mock check output' });
         }
         if (p === 'AudioCheck' && method === 'POST') {
-            // Check audio (D49): mov-9 is English, anything else untagged sounds Danish.
+            // Check audio is a queue item (D49); tick() applies its result.
             var c = body && items[body.itemId];
             if (!c || !c.facts || !c.facts.untagged) { return err('audio_tagged', 409, 'Only untagged audio can be checked.'); }
-            var english = c.id === 'mov-9';
-            var heard = english
-                ? { language: 'en', probability: 0.985, english: true, checkedUtc: new Date().toISOString(), message: 'Sounds like English (99% sure). It can be re-timed now.' }
-                : { language: 'da', probability: 0.91, english: false, checkedUtc: new Date().toISOString(), message: 'Sounds like Danish (DA, 91% sure), not English.' };
-            c.facts = { state: english ? 'ok' : 'no_english_audio', untagged: true, hi: c.facts.hi, checked: heard };
-            return ok({ itemId: c.id, language: heard.language, probability: heard.probability, english: heard.english, speechSeconds: 90, checkedUtc: heard.checkedUtc, message: heard.message });
+            if (queue.some(function (j) { return j.itemId === c.id && (j.status === 'queued' || j.status === 'running'); })) {
+                return ok({ queued: false, queueLength: queue.length, message: 'This item is already in the queue.' });
+            }
+            var cj = job(c.id, c.name + ' (' + c.productionYear + ')', '', ME);
+            cj.source = 'audio_check';
+            cj.note = 'Check audio';
+            queue.push(cj);
+            stopReason = null;
+            return ok({ queued: true, queueLength: queue.length, message: 'The audio check is in the queue.' }, 202);
         }
         if (p === 'Bazarr/Info') { return ok({ enabled: params.get('bazarr') !== 'off' }); }
         if (p === 'Bazarr/Search') {
             var target = items[q.get('itemId')];
             if (!target || (target.type !== 'Episode' && target.type !== 'Movie')) { return err('not_found', 404, 'That item was not found or you cannot access it.'); }
-            if (evaluate(target).reason !== 'no_sidecar') { return err('has_subtitle', 409, 'This item already has an English subtitle. Re-time it instead.'); }
+            if (evaluate(target).reason === 'no_video_file') { return err('no_video_file', 409, 'Jellyfin has no video file for this item.'); }
             if (params.get('bazarr') === 'error') { return err('search_failed', 502, 'Bazarr: Movie file not found. Path mapping issue?'); }
             searchFor = target.id;
             var base = target.type === 'Movie' ? target.name.replace(/\W+/g, '.') + '.' + target.productionYear : 'Show.S01E' + pad(target.indexNumber || 1);
@@ -444,16 +456,21 @@
                 hit(79, true, 'podnapisi', [base + '.WEB-DL.DDP5.1.H.264-NTb'], null, ['title', 'year'], ['source'], 'da'),
                 hit(66, false, 'embeddedsubtitles', [base], null, ['title'], ['source', 'resolution', 'video_codec', 'release_group'])
             ];
+            // D50: English only where it's missing on English audio; the mock's items have no other languages yet.
+            var englishWanted = evaluate(target).reason === 'no_sidecar';
+            var hasEnglish = ['no_sidecar', 'no_english_audio'].indexOf(evaluate(target).reason) < 0;
+            var hiddenCount = 1 + results.filter(function (h) { return h.english && !englishWanted; }).length;
+            results = results.filter(function (h) { return !h.english || englishWanted; });
             return ok({ itemId: target.id, kind: target.type === 'Movie' ? 'movie' : 'episode',
                 resource: (target.type === 'Movie' ? 'D:\\Movies\\' : '/tv/Show/Season 01/') + base + '.mkv',
-                matchedBy: 'path', results: results, hidden: 1 });
+                matchedBy: 'path', results: results, hidden: hiddenCount, have: hasEnglish ? ['EN'] : [], englishWanted: englishWanted });
         }
         if (p === 'Bazarr/Download') {
             var dl = body && items[body.itemId];
             var picked = body && bazarrHits[body.resultId];
             if (!dl) { return err('not_found', 404, 'That item was not found or you cannot access it.'); }
             if (!picked || picked.itemId !== dl.id) { return err('result_expired', 410, 'That search result has expired. Search again.'); }
-            if (evaluate(dl).reason !== 'no_sidecar') { return err('has_subtitle', 409, 'This item already has an English subtitle. Re-time it instead.'); }
+            if (picked.language === 'en' && evaluate(dl).reason !== 'no_sidecar') { return err('has_subtitle', 409, 'This item already has an English subtitle. Re-time it instead.'); }
             if (params.get('bazarr') === 'dlfail') {
                 return err('download_failed', 502, 'Bazarr didn’t save a usable English subtitle within 120 seconds. Check Bazarr’s System > Logs: the provider may have throttled it.');
             }

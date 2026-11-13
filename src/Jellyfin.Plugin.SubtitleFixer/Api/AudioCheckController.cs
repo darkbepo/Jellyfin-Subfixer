@@ -31,10 +31,10 @@ public sealed class AudioCheckController : ControllerBase
         _checks = checks;
     }
 
-    /// <summary>Checks which language an item's untagged audio is, and remembers it.</summary>
+    /// <summary>Puts a check of an item's untagged audio in the queue (D49).</summary>
     /// <param name="request">The item.</param>
-    /// <param name="cancellationToken">Cancelled when the page goes away; SubSync is stopped.</param>
-    /// <returns>What SubSync heard.</returns>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>202 when queued, 200 when it was already there.</returns>
     [HttpPost("AudioCheck")]
     [Consumes(MediaTypeNames.Application.Json)]
     [Produces(MediaTypeNames.Application.Json)]
@@ -56,7 +56,9 @@ public sealed class AudioCheckController : ControllerBase
             return ApiResults.Error(StatusCodes.Status400BadRequest, "bad_request", "itemId is required.");
         }
 
-        var (result, error) = await _checks.CheckAsync(caller.User.Id, id, cancellationToken).ConfigureAwait(false);
-        return error is not null ? ApiResults.Error(error.Status, error.Code, error.Message) : ApiResults.Json(result!);
+        var (result, error) = await _checks.EnqueueAsync(caller.User.Id, id, cancellationToken).ConfigureAwait(false);
+        return error is not null
+            ? ApiResults.Error(error.Status, error.Code, error.Message)
+            : ApiResults.Json(result!, result!.Queued ? StatusCodes.Status202Accepted : StatusCodes.Status200OK);
     }
 }

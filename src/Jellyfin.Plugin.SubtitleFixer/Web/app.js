@@ -315,7 +315,7 @@
         if (item.status === 'done') { return 'synced'; }
         // Untagged audio nobody has checked yet stays in view: Check audio can make it fixable (D49).
         if (item.audioUntagged && !item.audioCheck) { return null; }
-        return canFind(item) ? null : 'ineligible';
+        return missingEnglish(item) ? null : 'ineligible';
     }
 
     function shown(item) {
@@ -563,19 +563,10 @@
         badgesFor(item).forEach(function (b) { badges.appendChild(b); });
         if (badges.children.length) { li.appendChild(badges); }
 
-        // Find subtitles only where there is no English subtitle (D28); the server refuses the rest with has_subtitle.
+        // Find subtitles on every item with a video (D50): labelled where English is missing, a small icon elsewhere
+        // (other languages only).
         if (canFind(item)) {
-            var find = el('button', 'find-btn');
-            find.type = 'button';
-            find.tabIndex = -1;
-            find.title = 'Search for an English subtitle';
-            find.setAttribute('aria-label', 'Find subtitles for ' + label);
-            var fi = icon('find');
-            fi.setAttribute('class', 'icon');
-            find.appendChild(fi);
-            find.appendChild(el('span', 'find-text', 'Find subtitles'));
-            find.addEventListener('click', function (e) { e.stopPropagation(); openFind(item); });
-            li.appendChild(find);
+            li.appendChild(findButton(item, label, missingEnglish(item)));
         }
 
         if (canCheck(item)) { li.appendChild(checkButton(item, false)); }
@@ -646,16 +637,7 @@
         var badges = el('div', 'badges');
         badgesFor(item).forEach(function (b) { badges.appendChild(b); });
         if (canFind(item)) {
-            var find = el('button', 'find-btn');
-            find.type = 'button';
-            find.tabIndex = -1;
-            find.title = 'Search for an English subtitle';
-            find.setAttribute('aria-label', 'Find subtitles for ' + label);
-            var fi = icon('find');
-            fi.setAttribute('class', 'icon');
-            find.appendChild(fi);
-            find.addEventListener('click', function (e) { e.stopPropagation(); openFind(item); });
-            badges.appendChild(find);
+            badges.appendChild(findButton(item, label, false));
         }
         if (canCheck(item)) { badges.appendChild(checkButton(item, true)); }
         if (badges.children.length) { li.appendChild(badges); }
@@ -748,12 +730,10 @@
         button.classList.add('working');
         button.querySelector('.check-text').textContent = 'Checking…';
         Array.prototype.forEach.call($('list').querySelectorAll('.check-btn'), function (other) { if (other !== button) { other.disabled = true; } });
+        // A check is a queue item (D49): it waits its turn like a sync, and the result shows in the queue.
         api('POST', 'AudioCheck', { itemId: item.id }).then(function (r) {
             checking = null;
-            showHint(videoLabel(item) + ': ' + r.message);
-            // The server decides what the check changes; reload this folder and come back to the item.
-            var hint = r.message;
-            loadPage(view.parentId, false, item.id).then(function () { showHint(videoLabel(item) + ': ' + hint); });
+            foldToQueue(r.queued ? 'Audio check of ' + videoLabel(item) + ' added to the queue.' : r.message, item.id);
         }, function (err) {
             checking = null;
             rerenderRows();
@@ -773,13 +753,14 @@
         if (!isVideo(item)) { return out; }
         var job = queueByItem.get(item.id);
         if (job) {
-            var label = { queued: 'Queued', running: 'Syncing…', done: 'Fixed', check: 'Check', failed: 'Failed', cancelled: 'Cancelled', skipped: 'Skipped' }[job.status] || job.status;
+            var checkJob = job.source === 'audio_check';
+            var label = { queued: checkJob ? 'Check queued' : 'Queued', running: checkJob ? 'Checking audio…' : 'Syncing…', done: checkJob ? 'Audio checked' : 'Fixed', check: 'Check', failed: 'Failed', cancelled: 'Cancelled', skipped: 'Skipped' }[job.status] || job.status;
             out.push(badge(job.status, label, job.message));
             if (job.status === 'queued' || job.status === 'running') { return out; }
         }
         if (job && job.status === 'done') { return out; }
         if (item.status === 'done') { out.push(badge('synced', 'Already synced', 'Re-timed before; it runs again only if the video file changes')); }
-        else if (canFind(item)) { out.push(badge('', 'No English subtitle', 'Not eligible for re-timing: ' + REASONS.no_sidecar)); }
+        else if (missingEnglish(item)) { out.push(badge('', 'No English subtitle', 'Not eligible for re-timing: ' + REASONS.no_sidecar)); }
         else if (!item.eligible) { out.push(badge('', 'Not eligible: ' + reasonText(item), reasonTip(item))); }
         else if (item.status === 'attempted') { out.push(badge('attempted', 'Previously attempted', item.message)); }
         if (item.subtitleHi) { out.push(badge('hi', 'HI', 'The English subtitle is for the hearing impaired (.hi.srt): it includes sound descriptions')); }
@@ -788,10 +769,27 @@
     }
 
     // ---------- Find subtitles (BAZARR-PLAN.md phase 1: read-only) ----------
+    // Any item with a video can look for the subtitle languages it's missing (D50): English where it has none on
+    // English audio (it gets re-timed), other languages anywhere (kept as saved). The server leaves out what's there.
     function canFind(item) {
-        if (!bazarrEnabled || !isVideo(item) || item.reason !== 'no_sidecar') { return false; }
+        if (!bazarrEnabled || !isVideo(item) || item.reason === 'no_video_file') { return false; }
         var job = queueByItem.get(item.id);
         return !(job && (job.status === 'queued' || job.status === 'running'));
+    }
+    function missingEnglish(item) { return canFind(item) && item.reason === 'no_sidecar'; }
+
+    function findButton(item, label, labelled) {
+        var find = el('button', 'find-btn' + (labelled ? '' : ' find-more'));
+        find.type = 'button';
+        find.tabIndex = -1;
+        find.title = labelled ? 'Search for an English subtitle' : 'Find subtitles in the languages it’s missing';
+        find.setAttribute('aria-label', 'Find subtitles for ' + label);
+        var fi = icon('find');
+        fi.setAttribute('class', 'icon');
+        find.appendChild(fi);
+        if (labelled) { find.appendChild(el('span', 'find-text', 'Find subtitles')); }
+        find.addEventListener('click', function (e) { e.stopPropagation(); openFind(item); });
+        return find;
     }
 
     function openFind(item) {
@@ -805,12 +803,13 @@
         dlg.returnTo = item.id;
         if (!dlg.open) { dlg.showModal(); }
 
-        findState = { item: item, results: null };
+        findState = { item: item, results: null, have: [] };
         $('find-lang').value = prefs.findLang;
         $('find-hide-hi').checked = prefs.findHideHi;
         api('GET', 'Bazarr/Search?itemId=' + encodeURIComponent(item.id)).then(function (r) {
             if (seq !== findSeq || !dlg.open) { return; }
             findState.results = r.results;
+            findState.have = r.have || [];
             applyFindFilters();
         }, function (err) {
             if (seq !== findSeq || !dlg.open) { return; }
@@ -819,7 +818,7 @@
     }
 
     // Show only (language codes, "EN" or "DA, EN") and Hide hearing impaired, both remembered per viewer (D48).
-    var findState = { item: null, results: null };
+    var findState = { item: null, results: null, have: [] };
     function findLanguages() {
         return prefs.findLang.toLowerCase().split(/[\s,;]+/).filter(Boolean);
     }
@@ -837,12 +836,14 @@
         renderHits(shownHits, findState.item);
         dlg.classList.toggle('has-hits', shownHits.length > 0);
         var left = all.length - shownHits.length;
+        // The server only returns languages the item is missing (D50); say which it already has.
+        var have = findState.have && findState.have.length ? 'Already has ' + findState.have.join(', ') + '. ' : '';
         if (!all.length) {
-            setFindStatus('empty', 'No subtitles found.');
+            setFindStatus('empty', have + 'No subtitles found in the languages it’s missing.');
         } else if (!shownHits.length) {
-            setFindStatus('empty', plural(all.length, 'subtitle', 'subtitles') + ' found, but none match your filters.');
+            setFindStatus('empty', have + plural(all.length, 'subtitle', 'subtitles') + ' found, but none match your filters.');
         } else {
-            setFindStatus('', plural(shownHits.length, 'subtitle', 'subtitles') + ' found, best match first.' + (left ? ' ' + left + ' hidden by your filters.' : ''));
+            setFindStatus('', have + plural(shownHits.length, 'subtitle', 'subtitles') + ' found, best match first.' + (left ? ' ' + left + ' hidden by your filters.' : ''));
         }
     }
 
@@ -867,9 +868,7 @@
         api('POST', 'Bazarr/Download', { itemId: item.id, resultId: hit.id }).then(function (r) {
             if (r.queued) {
                 closeFind();
-                showHint('Subtitle downloaded. It’s in the queue to be re-timed to the audio.');
-                spotlight = item.id;
-                pollNow();
+                foldToQueue('Subtitle downloaded. It’s in the queue to be re-timed to the audio.', item.id);
                 return;
             }
             if (seq !== findSeq || !dlg.open) { return; }
@@ -1101,6 +1100,20 @@
         start.textContent = p.eligible ? 'Start (' + p.eligible + ')' : 'Start';
     }
 
+    // Anything that adds to the queue (Start, Get, Check audio) ends here (owner, 2026-11-12): back to the top of the
+    // explorer, Libraries folded, the Queue open and in view, with the item highlighted when one is given.
+    function foldToQueue(message, itemId) {
+        if (message) { $('footer-text').textContent = message; }
+        if (itemId) { spotlight = itemId; }
+        browse(null);
+        setPanel('libraries', false);
+        setPanel('queue', true);
+        return pollNow().then(function () {
+            var calm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            if (!$('queue-panel').hidden) { $('queue-panel').scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' }); }
+        });
+    }
+
     function startJobs() {
         var ids = selectionIds();
         $('start').disabled = true;
@@ -1108,16 +1121,7 @@
             selected.clear();
             selectionChanged();
             clearTimeout(previewTimer);
-            $('footer-text').textContent = plural(r.queued, 'item', 'items') + ' added to the queue' +
-                (r.skipped ? ', ' + r.skipped + ' skipped' : '') + '.';
-            // Back to the top of the explorer, folded away, so the queue is what's on screen (UI.md, after Start).
-            browse(null);
-            setPanel('libraries', false);
-            setPanel('queue', true);
-            pollNow().then(function () {
-                var calm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-                if (!$('queue-panel').hidden) { $('queue-panel').scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' }); }
-            });
+            foldToQueue(plural(r.queued, 'item', 'items') + ' added to the queue' + (r.skipped ? ', ' + r.skipped + ' skipped' : '') + '.');
         }, function (err) {
             preview = { pending: false, result: null, error: err };
             renderFooter();
@@ -1243,12 +1247,13 @@
             if (i.itemId) { li.dataset.item = i.itemId; }
             var main = el('div', 'main');
             main.appendChild(el('span', 'name', i.name));
-            var sub = [i.seriesName, i.message].filter(Boolean).join(' · ');
+            var isCheck = i.source === 'audio_check';
+            var sub = [isCheck ? 'Check audio' : null, i.seriesName, i.message].filter(Boolean).join(' · ');
             if (sub) { main.appendChild(el('span', 'sub', sub)); }
             li.appendChild(main);
             var badges = el('div', 'badges');
             if (i.mine) { badges.appendChild(badge('mine', 'Yours')); }
-            var label = { running: 'Syncing…', queued: 'Queued', done: 'Done', check: 'Check', failed: 'Failed', cancelled: 'Cancelled', skipped: 'Skipped' }[i.status];
+            var label = { running: isCheck ? 'Checking…' : 'Syncing…', queued: 'Queued', done: isCheck ? 'Checked' : 'Done', check: 'Check', failed: 'Failed', cancelled: 'Cancelled', skipped: 'Skipped' }[i.status];
             badges.appendChild(badge(i.status, label, i.message));
             li.appendChild(badges);
             list.appendChild(li);
@@ -1277,6 +1282,14 @@
         var attention = t.failed + t.check;
         if (attention > lastAttention) { loadFailed(false); }
         lastAttention = attention;
+
+        // A finished audio check changes what the item can do (D49): reload the folder on screen to show it.
+        var checkEnded = false;
+        queueByItem.forEach(function (v, k) {
+            var p = previous.get(k);
+            if (v.source === 'audio_check' && p && (p.status === 'queued' || p.status === 'running') && v.status !== 'queued' && v.status !== 'running') { checkEnded = true; }
+        });
+        if (checkEnded && view.mode === 'browse' && view.parentId) { loadPage(view.parentId, false); }
 
         // Re-render explorer rows whose queue status changed.
         var changed = false;

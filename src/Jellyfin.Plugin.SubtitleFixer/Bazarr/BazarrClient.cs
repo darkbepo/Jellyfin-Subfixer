@@ -143,14 +143,14 @@ public sealed partial class BazarrClient : IBazarrClient
     /// <summary>Header Bazarr reads the key from (<c>bazarr/api/utils.py</c>, <c>authenticate</c>).</summary>
     public const string ApiKeyHeader = "X-API-KEY";
 
-    /// <summary>Per-call timeout (BAZARR-PLAN.md).</summary>
-    public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
+    /// <summary>Per-call timeout (BAZARR-PLAN.md). Two minutes: a busy Bazarr took longer than 30 s to answer (owner, 2026-11-12; D50).</summary>
+    public static readonly TimeSpan Timeout = TimeSpan.FromMinutes(2);
 
     /// <summary>
     /// Timeout for a manual search, which asks every enabled provider in turn (5.6 s for three providers on the test
-    /// Bazarr; slow providers take longer). See D30.
+    /// Bazarr; slow providers take longer). See D30; raised from 90 s to 3 minutes (D50).
     /// </summary>
-    public static readonly TimeSpan SearchTimeout = TimeSpan.FromSeconds(90);
+    public static readonly TimeSpan SearchTimeout = TimeSpan.FromMinutes(3);
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<BazarrClient> _logger;

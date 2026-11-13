@@ -374,17 +374,36 @@ public sealed class BazarrSearchServiceTests : IDisposable
     [InlineData("eng")]
     [InlineData("en.hi")]
     [InlineData("eng.hi")]
-    public async Task Item_with_an_accepted_sidecar_is_refused_with_409_has_subtitle(string tag)
+    public async Task Item_with_an_english_subtitle_is_searched_for_other_languages_only(string tag)
     {
+        // D50: an English subtitle no longer blocks the search; it only takes English out of the results.
         var movie = Movie("m.mkv");
         _dir.File("m." + tag + ".srt");
+        _bazarr.Movies.Add(new BazarrMovie(1, movie.VideoPath, null, null));
+        _bazarr.MovieResults[1] = [FakeBazarr.Result("podnapisi", 90), FakeBazarr.Result("podnapisi", 80, language: "da")];
 
-        var (_, error) = await Service().SearchAsync(_user, movie.Node.Id, CancellationToken.None);
+        var (result, error) = await Service().SearchAsync(_user, movie.Node.Id, CancellationToken.None);
 
-        Assert.Equal(409, error!.Status);
-        Assert.Equal("has_subtitle", error.Code);
-        Assert.Empty(_bazarr.MovieSearches);
-        Assert.Equal(0, _bazarr.MovieListCalls);
+        Assert.Null(error);
+        Assert.False(result!.EnglishWanted);
+        Assert.Equal(["da"], result.Results.Select(r => r.LanguageCode));
+        Assert.Contains("EN", result.Have!);
+        Assert.Equal(1, result.Hidden);
+    }
+
+    [Fact]
+    public async Task Languages_already_there_are_left_out_in_both_spellings()
+    {
+        var movie = Movie("m.mkv");
+        _dir.File("m.dan.srt");
+        _bazarr.Movies.Add(new BazarrMovie(1, movie.VideoPath, null, null));
+        _bazarr.MovieResults[1] = [FakeBazarr.Result("podnapisi", 90), FakeBazarr.Result("podnapisi", 80, language: "da"), FakeBazarr.Result("podnapisi", 70, language: "sv")];
+
+        var (result, _) = await Service().SearchAsync(_user, movie.Node.Id, CancellationToken.None);
+
+        Assert.True(result!.EnglishWanted);
+        Assert.Equal(["en", "sv"], result.Results.Select(r => r.LanguageCode));
+        Assert.Equal(["DA"], result.Have!);
     }
 
     [Fact]
@@ -416,13 +435,18 @@ public sealed class BazarrSearchServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Item_without_english_audio_is_refused()
+    public async Task Item_without_english_audio_gets_only_other_languages()
     {
+        // An English subtitle couldn't be re-timed to French audio, so English isn't offered; Danish still is.
         var movie = _library.AddMovie("M", 2000, _dir.File("m.mkv"), "fre");
+        _bazarr.Movies.Add(new BazarrMovie(1, movie.VideoPath, null, null));
+        _bazarr.MovieResults[1] = [FakeBazarr.Result("podnapisi", 90), FakeBazarr.Result("podnapisi", 80, language: "da")];
 
-        var (_, error) = await Service().SearchAsync(_user, movie.Node.Id, CancellationToken.None);
+        var (result, error) = await Service().SearchAsync(_user, movie.Node.Id, CancellationToken.None);
 
-        Assert.Equal("no_english_audio", error!.Code);
+        Assert.Null(error);
+        Assert.False(result!.EnglishWanted);
+        Assert.Equal(["da"], result.Results.Select(r => r.LanguageCode));
     }
 
     [Fact]
@@ -499,14 +523,14 @@ public sealed class BazarrSearchServiceTests : IDisposable
     [Fact]
     public async Task Refused_items_do_not_use_up_the_rate_limit()
     {
-        var withSub = Movie("a.mkv");
-        _dir.File("a.en.srt");
+        // Only a missing video refuses a search now (D50).
+        var noVideo = _library.AddMovie("Gone", 2000, Path.Combine(_dir.Path, "gone.mkv"), "eng");
         var without = Movie("b.mkv");
         _bazarr.Movies.Add(new BazarrMovie(2, without.VideoPath, null, null));
         _bazarr.MovieResults[2] = [];
         var service = Service();
 
-        Assert.Equal("has_subtitle", (await service.SearchAsync(_user, withSub.Node.Id, CancellationToken.None)).Error!.Code);
+        Assert.Equal("no_video_file", (await service.SearchAsync(_user, noVideo.Node.Id, CancellationToken.None)).Error!.Code);
         Assert.Null((await service.SearchAsync(_user, without.Node.Id, CancellationToken.None)).Error);
     }
 

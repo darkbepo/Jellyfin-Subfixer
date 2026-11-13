@@ -20,8 +20,8 @@ public sealed record BazarrDownloadDto(bool Queued, string Subtitle, string Mess
 /// <param name="PollInterval">How often to look.</param>
 public sealed record BazarrDownloadTiming(TimeSpan WaitTimeout, TimeSpan PollInterval)
 {
-    /// <summary>Gets the defaults: two minutes, checked every second (D33).</summary>
-    public static BazarrDownloadTiming Default { get; } = new(TimeSpan.FromMinutes(2), TimeSpan.FromSeconds(1));
+    /// <summary>Gets the defaults: four minutes, checked every second (D33; was two, D50).</summary>
+    public static BazarrDownloadTiming Default { get; } = new(TimeSpan.FromMinutes(4), TimeSpan.FromSeconds(1));
 }
 
 /// <summary>
@@ -104,11 +104,6 @@ public sealed class BazarrDownloadService
             return Fail(StatusCodes.Status404NotFound, BazarrErrorCodes.ItemNotFound, "That item was not found or you cannot access it.");
         }
 
-        if (Refusal(video) is { } refused)
-        {
-            return (null, refused);
-        }
-
         var stored = _store.Get(resultId, userId, itemId);
         if (stored is null)
         {
@@ -117,6 +112,10 @@ public sealed class BazarrDownloadService
 
         // Only English subtitles are re-timed, so only they need SubSync and room in the queue (D48).
         var english = BazarrSearchService.IsEnglish(stored.Result.Language);
+        if (Refusal(video, english) is { } refused)
+        {
+            return (null, refused);
+        }
         var maxQueued = config.MaxQueuedEpisodes;
         if (english)
         {
@@ -227,6 +226,68 @@ public sealed class BazarrDownloadService
         return restored;
     }
 
+    /// <summary>
+    /// The subtitle languages already next to a video (D50), from names like <c>&lt;video&gt;.da.srt</c>,
+    /// <c>.eng.hi.srt</c> or <c>.pt-BR.ass</c>, normalised by <see cref="NormalizeLanguage"/>. A plain
+    /// <c>&lt;video&gt;.srt</c> says no language and counts for none.
+    /// </summary>
+    /// <param name="videoPath">Video.</param>
+    /// <returns>Languages, lower case.</returns>
+    internal static HashSet<string> ExistingLanguages(string videoPath)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var folder = Path.GetDirectoryName(videoPath);
+        var baseName = Path.GetFileNameWithoutExtension(videoPath);
+        if (string.IsNullOrEmpty(folder) || string.IsNullOrEmpty(baseName) || !Directory.Exists(folder))
+        {
+            return result;
+        }
+
+        foreach (var file in Directory.EnumerateFiles(folder))
+        {
+            if (!IsSubtitleOf(file, baseName))
+            {
+                continue;
+            }
+
+            var name = Path.GetFileNameWithoutExtension(file);
+            if (name.Length <= baseName.Length + 1)
+            {
+                continue;
+            }
+
+            var tag = name[(baseName.Length + 1)..].Split('.')[0];
+            if (tag.Length > 0)
+            {
+                result.Add(NormalizeLanguage(tag));
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>One spelling per language: lower case, three-letter codes as two letters (<c>eng</c> is <c>en</c>, <c>dan</c> is <c>da</c>).</summary>
+    /// <param name="code">A language tag from a file name or Bazarr.</param>
+    /// <returns>The normalised code.</returns>
+    internal static string NormalizeLanguage(string code)
+    {
+        var c = code.Trim().ToLowerInvariant();
+        if (c.Length != 3)
+        {
+            return c;
+        }
+
+        foreach (var culture in System.Globalization.CultureInfo.GetCultures(System.Globalization.CultureTypes.NeutralCultures))
+        {
+            if (string.Equals(culture.ThreeLetterISOLanguageName, c, StringComparison.OrdinalIgnoreCase) && culture.TwoLetterISOLanguageName.Length == 2)
+            {
+                return culture.TwoLetterISOLanguageName;
+            }
+        }
+
+        return c;
+    }
+
     private static bool IsSubtitleOf(string file, string baseName)
     {
         var name = Path.GetFileName(file);
@@ -238,15 +299,18 @@ public sealed class BazarrDownloadService
     private static (BazarrDownloadDto?, BazarrError?) Fail(int status, string code, string message, int? retryAfter = null) =>
         (null, new BazarrError(status, code, message, retryAfter));
 
-    private static BazarrError? Refusal(VideoFacts video) => EligibilityService.Evaluate(video, null).Reason switch
+    // English: only where it's missing on English audio, since it goes into the queue to be re-timed. Another language
+    // only needs a video; whether that language is already there is checked before downloading (D50).
+    private static BazarrError? Refusal(VideoFacts video, bool english) => EligibilityService.Evaluate(video, null).Reason switch
     {
-        IneligibleReason.None => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.HasSubtitle, "This item already has an English subtitle. Re-time it instead."),
         IneligibleReason.NoVideoFile => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.NoVideoFile, "Jellyfin has no video file for this item."),
-        IneligibleReason.NoEnglishAudio => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.NoEnglishAudio, "This item has no English audio, so an English subtitle can't be re-timed to it."),
+        IneligibleReason.None when english => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.HasSubtitle, "This item already has an English subtitle. Re-time it instead."),
+        IneligibleReason.AlreadySynced when english => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.HasSubtitle, "This item already has an English subtitle. Re-time it instead."),
+        IneligibleReason.NoEnglishAudio when english => new BazarrError(StatusCodes.Status409Conflict, BazarrErrorCodes.NoEnglishAudio, "This item has no English audio, so an English subtitle can't be re-timed to it."),
         _ => null,
     };
 
-    private static string DisplayName(LibraryNode node)
+    internal static string DisplayName(LibraryNode node)
     {
         if (node.Kind == NodeKind.Movie)
         {
@@ -272,8 +336,9 @@ public sealed class BazarrDownloadService
             return Fail(StatusCodes.Status409Conflict, BazarrErrorCodes.DownloadFailed, $"A subtitle file next to the video is larger than {MaxSnapshotBytes / (1024 * 1024)} MB, so it can't be backed up safely.");
         }
 
-        // A subtitle may have appeared since the checks above; never let Bazarr overwrite it.
-        if (EligibilityService.FindSidecar(videoPath) is not null)
+        // An English subtitle may have appeared since the checks above; never let Bazarr overwrite it. (Other languages
+        // are checked against their own language just below.)
+        if (BazarrSearchService.IsEnglish(stored.Result.Language) && EligibilityService.FindSidecar(videoPath) is not null)
         {
             return Fail(StatusCodes.Status409Conflict, BazarrErrorCodes.HasSubtitle, "This item already has an English subtitle. Re-time it instead.");
         }

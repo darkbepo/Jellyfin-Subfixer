@@ -330,6 +330,24 @@ public sealed class BazarrDownloadTests : IDisposable
     }
 
     [Fact]
+    public async Task A_danish_download_works_next_to_an_english_subtitle_and_leaves_it_alone()
+    {
+        // D50: an item that has English can still get the languages it's missing.
+        var english = _dir.File("Film.en.srt", Srt);
+        var mtime = File.GetLastWriteTimeUtc(english);
+        _bazarr.OnDownload = (_, _) => Write("Film.da.srt", Srt);
+
+        var (result, error) = await Service().DownloadAsync(_user, _movie.Node.Id, Danish(), CancellationToken.None);
+
+        Assert.Null(error);
+        Assert.Equal("Film.da.srt", result!.Subtitle);
+        Assert.False(result.Queued);
+        Assert.Equal(Srt, File.ReadAllText(english));
+        Assert.Equal(mtime, File.GetLastWriteTimeUtc(english));
+        Assert.Empty(_queue.Snapshot().Items);
+    }
+
+    [Fact]
     public async Task A_danish_download_needs_neither_subsync_nor_room_in_the_queue()
     {
         _worker.IsConfigured = false;

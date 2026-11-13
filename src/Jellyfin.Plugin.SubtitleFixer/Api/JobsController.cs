@@ -368,7 +368,7 @@ public sealed class JobsController : ControllerBase
                 JobQueue.StatusCode(i.Status),
                 i.Message,
                 mine,
-                i.Source == JobSource.Bazarr ? "bazarr" : "manual",
+                JobQueue.SourceCode(i.Source),
                 visible ? i.Note : null,
                 i.Seconds,
                 i.StartedUtc,
