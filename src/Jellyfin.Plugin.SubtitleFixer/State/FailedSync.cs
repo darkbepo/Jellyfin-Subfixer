@@ -23,4 +23,5 @@ public sealed record FailedSync(
     string? Message,
     string Source,
     string? Note,
-    DateTime FinishedUtc);
+    DateTime FinishedUtc,
+    string Language = Domain.SubtitleLanguage.English);

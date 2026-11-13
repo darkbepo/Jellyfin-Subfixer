@@ -52,7 +52,7 @@ public sealed record VideoFingerprint(string Path, long Size, DateTime MtimeUtc)
 /// <param name="SubtitlePath">The subtitle being synced.</param>
 /// <param name="BackupPath">Its backup, <c>&lt;subtitle&gt;.bak</c>.</param>
 /// <param name="StartedUtc">When the backup was journaled.</param>
-public sealed record InFlightBackup(Guid ItemId, string SubtitlePath, string BackupPath, DateTime StartedUtc);
+public sealed record InFlightBackup(Guid ItemId, string SubtitlePath, string BackupPath, DateTime StartedUtc, string Language = Domain.SubtitleLanguage.English);
 
 /// <summary>One row of <c>synced_items</c> (ARCHITECTURE.md, state schema).</summary>
 public sealed record SyncRecord
@@ -83,4 +83,7 @@ public sealed record SyncRecord
 
     /// <summary>Gets when the row was written (UTC).</summary>
     public required DateTime UpdatedUtc { get; init; }
+
+    /// <summary>Gets the subtitle language this record is about (D50); English for records from before 0.7.0.0.</summary>
+    public string Language { get; init; } = Domain.SubtitleLanguage.English;
 }

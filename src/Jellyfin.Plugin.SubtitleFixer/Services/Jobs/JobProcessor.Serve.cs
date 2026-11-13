@@ -190,7 +190,9 @@ public sealed partial class JobProcessor
             run.Video.Path,
             run.Sidecar.Path,
             run.Sidecar.Path,
-            p => _queue.SetProgress(jobId, p.Stage, null, RunTimeEstimate.Percent(estimate, p.Stage, p.Percent)));
+            p => _queue.SetProgress(jobId, p.Stage, null, RunTimeEstimate.Percent(estimate, p.Stage, p.Percent)),
+            run.Options.SubtitleLanguage,
+            run.Options.Reference);
         _inFlight.Add(new Flight(job, run, item));
         _runItems++;
     }

@@ -14,23 +14,38 @@ public interface IStateStore
     /// <returns>A task.</returns>
     Task InitializeAsync(CancellationToken cancellationToken);
 
-    /// <summary>Gets the records for the given items; missing items are absent from the result.</summary>
+    /// <summary>Gets the English records for the given items; missing items are absent from the result.</summary>
     /// <param name="itemIds">Item ids.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Records by item id.</returns>
-    Task<IReadOnlyDictionary<Guid, SyncRecord>> GetAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken);
+    Task<IReadOnlyDictionary<Guid, SyncRecord>> GetAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken) =>
+        GetAsync(itemIds, Domain.SubtitleLanguage.English, cancellationToken);
 
-    /// <summary>Inserts or replaces a record.</summary>
+    /// <summary>Gets the records of one subtitle language for the given items (D50); missing items are absent.</summary>
+    /// <param name="itemIds">Item ids.</param>
+    /// <param name="language">Subtitle language.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Records by item id.</returns>
+    Task<IReadOnlyDictionary<Guid, SyncRecord>> GetAsync(IReadOnlyCollection<Guid> itemIds, string language, CancellationToken cancellationToken);
+
+    /// <summary>Inserts or replaces a record (keyed by item and <see cref="SyncRecord.Language"/>).</summary>
     /// <param name="record">Record.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task.</returns>
     Task UpsertAsync(SyncRecord record, CancellationToken cancellationToken);
 
-    /// <summary>Removes the record of an item (used by startup recovery: "mark not synced").</summary>
+    /// <summary>Removes the English record of an item (used by startup recovery: "mark not synced").</summary>
     /// <param name="itemId">Item id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task.</returns>
-    Task DeleteAsync(Guid itemId, CancellationToken cancellationToken);
+    Task DeleteAsync(Guid itemId, CancellationToken cancellationToken) => DeleteAsync(itemId, Domain.SubtitleLanguage.English, cancellationToken);
+
+    /// <summary>Removes an item's record of one subtitle language.</summary>
+    /// <param name="itemId">Item id.</param>
+    /// <param name="language">Subtitle language.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    Task DeleteAsync(Guid itemId, string language, CancellationToken cancellationToken);
 
     /// <summary>
     /// Journals a backup before the <c>.bak</c> is created, so startup recovery knows exactly which files to restore
@@ -41,11 +56,19 @@ public interface IStateStore
     /// <returns>A task.</returns>
     Task AddInFlightAsync(InFlightBackup entry, CancellationToken cancellationToken);
 
-    /// <summary>Removes the journal entry once the backup is gone (deleted after success, or restored).</summary>
+    /// <summary>Removes the English journal entry once the backup is gone (deleted after success, or restored).</summary>
     /// <param name="itemId">Item id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task.</returns>
-    Task RemoveInFlightAsync(Guid itemId, CancellationToken cancellationToken);
+    Task RemoveInFlightAsync(Guid itemId, CancellationToken cancellationToken) =>
+        RemoveInFlightAsync(itemId, Domain.SubtitleLanguage.English, cancellationToken);
+
+    /// <summary>Removes the journal entry of an item and subtitle language once the backup is gone.</summary>
+    /// <param name="itemId">Item id.</param>
+    /// <param name="language">Subtitle language.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    Task RemoveInFlightAsync(Guid itemId, string language, CancellationToken cancellationToken);
 
     /// <summary>Gets every journal entry (normally zero or one).</summary>
     /// <param name="cancellationToken">Cancellation token.</param>

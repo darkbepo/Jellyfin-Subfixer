@@ -150,7 +150,8 @@ public sealed partial class JobProcessor : BackgroundService
                 outcome.Message,
                 JobQueue.SourceCode(item.Source),
                 item.Note,
-                DateTime.UtcNow);
+                DateTime.UtcNow,
+                item.Language);
             await _state.AddFailedSyncAsync(entry, FailedLogSize, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)

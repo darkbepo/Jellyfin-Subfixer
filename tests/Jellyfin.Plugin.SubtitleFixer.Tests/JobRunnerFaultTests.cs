@@ -19,6 +19,11 @@ public sealed class FakeWorker : ISubSyncWorker
 
     public bool IsConfigured { get; set; } = true;
 
+    /// <summary>Gets or sets the SubSync version the worker reports (Danish needs 1.5.0, D50).</summary>
+    public Version? Version { get; set; } = new(1, 5, 0);
+
+    public Task<Version?> GetVersionAsync(CancellationToken cancellationToken) => Task.FromResult(Version);
+
     public static WorkerResult Result(WorkerStatus status, string? reason = null) =>
         new(status, null, reason, "eng", 42, "1.2.0", status == WorkerStatus.Synced ? 0 : 4);
 
@@ -462,15 +467,15 @@ public sealed class JobRunnerFaultTests : IDisposable
 
         public Task InitializeAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-        public Task<IReadOnlyDictionary<Guid, SyncRecord>> GetAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken) => _inner.GetAsync(itemIds, cancellationToken);
+        public Task<IReadOnlyDictionary<Guid, SyncRecord>> GetAsync(IReadOnlyCollection<Guid> itemIds, string language, CancellationToken cancellationToken) => _inner.GetAsync(itemIds, language, cancellationToken);
 
         public Task UpsertAsync(SyncRecord record, CancellationToken cancellationToken) => _inner.UpsertAsync(record, cancellationToken);
 
-        public Task DeleteAsync(Guid itemId, CancellationToken cancellationToken) => _inner.DeleteAsync(itemId, cancellationToken);
+        public Task DeleteAsync(Guid itemId, string language, CancellationToken cancellationToken) => _inner.DeleteAsync(itemId, language, cancellationToken);
 
         public Task AddInFlightAsync(InFlightBackup entry, CancellationToken cancellationToken) => throw new IOException("database is locked");
 
-        public Task RemoveInFlightAsync(Guid itemId, CancellationToken cancellationToken) => _inner.RemoveInFlightAsync(itemId, cancellationToken);
+        public Task RemoveInFlightAsync(Guid itemId, string language, CancellationToken cancellationToken) => _inner.RemoveInFlightAsync(itemId, language, cancellationToken);
 
         public Task<IReadOnlyList<InFlightBackup>> GetInFlightAsync(CancellationToken cancellationToken) => _inner.GetInFlightAsync(cancellationToken);
 

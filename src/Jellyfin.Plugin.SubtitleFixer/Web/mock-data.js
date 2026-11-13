@@ -145,6 +145,20 @@
             r.audioUntagged = !!node.facts.untagged && ev.reason === 'no_english_audio';
             r.audioCheck = node.facts.checked || null;
             r.subtitleHi = ev.reason !== 'no_sidecar' && !!node.facts.hi;
+            // D50/D52: one entry per language. Mock: every third episode (and some movies) also has a Danish subtitle.
+            var enThere = ev.reason !== 'no_sidecar' && ev.reason !== 'no_video_file';
+            var noAudio = ev.reason === 'no_english_audio';
+            var daThere = node.facts.da || (((node.indexNumber || node.productionYear || 0) % 3) === 0 && ev.reason !== 'no_video_file');
+            var daDone = daThere && (node.facts.daState === 'done' || (!node.facts.daState && (node.indexNumber || 0) % 6 === 0));
+            r.subtitles = [
+                { language: 'en', present: enThere, hi: enThere && !!node.facts.hi, status: ev.status, eligible: ev.eligible, reason: ev.reason, message: ev.message,
+                  syncedWith: ev.status === 'done' ? (node.facts.old ? '1.3.1' : '1.5.0') : null, outdated: ev.status === 'done' && !!node.facts.old },
+                { language: 'da', present: daThere, hi: false, status: daDone ? 'done' : 'none', eligible: daThere && !daDone && !noAudio,
+                  reason: !daThere ? 'no_sidecar' : daDone ? 'already_synced' : noAudio ? 'no_english_audio' : null, message: null,
+                  syncedWith: daDone ? '1.5.0' : null, outdated: false }
+            ];
+            if (node.facts.state === 'done' && (node.indexNumber || 0) % 4 === 0) { r.subtitles[0].outdated = true; r.subtitles[0].syncedWith = '1.3.1'; }
+            if (!ev.eligible && r.subtitles[1].eligible) { r.eligible = true; r.reason = null; }
         }
         return r;
     }
@@ -201,9 +215,9 @@
     var queue = [];
     var stopReason = null;
     var jobSeq = 0;
-    function job(itemId, name, seriesName, userId, status) {
+    function job(itemId, name, seriesName, userId, status, language, again) {
         return { jobId: 'job-' + (++jobSeq), itemId: itemId, name: name, seriesName: seriesName, userId: userId, status: status || 'queued',
-            message: null, source: 'manual', note: null, seconds: null, startedUtc: null, cancelRequested: false };
+            message: null, source: 'manual', note: null, seconds: null, startedUtc: null, cancelRequested: false, language: language || 'en', again: !!again };
     }
     // Another user's episode from a library this viewer cannot see, already running.
     var other = job('hidden-1', 'S02E05 Private', 'Private Show', OTHER, 'running');
@@ -232,7 +246,7 @@
             if (running.cancelRequested) {
                 running.status = 'cancelled'; running.message = 'Cancelled.';
             } else if (running.source === 'audio_check') {
-                // Check audio (D49): mov-9 is English, anything else untagged sounds Danish.
+                // Check audio is a queue item (D49): mov-9 is English, anything else untagged sounds Danish.
                 var english = running.itemId === 'mov-9';
                 var heard = english
                     ? { language: 'en', probability: 0.985, english: true, checkedUtc: new Date().toISOString(), message: 'Sounds like English (99% sure). It can be re-timed now.' }
@@ -287,7 +301,7 @@
             return { jobId: j.jobId, itemId: v ? j.itemId : null, name: v ? j.name : 'Episode in another library', seriesName: v ? j.seriesName : null,
                 status: j.status, message: j.message, mine: j.userId === ME, source: j.source, note: v ? j.note : null, seconds: j.seconds, startedUtc: j.startedUtc,
                 stage: j.status === 'running' ? mockStage(j) : null, expectedSeconds: j.status === 'running' ? 3 : null,
-                percent: j.status === 'running' ? mockPercent(j) : null };
+                percent: j.status === 'running' ? mockPercent(j) : null, language: j.language || 'en', again: !!j.again };
         };
         var order = queue.filter(function (j) { return ['queued', 'running'].indexOf(j.status) < 0; })
             .concat(queue.filter(function (j) { return j.status === 'running'; }))
@@ -370,6 +384,12 @@
                 return ok({ kind: v.kind, seriesId: v.seriesId, seriesName: v.seriesName, selected: v.selected, eligible: v.eligible.length, skipped: v.skipped, attemptedBefore: v.attemptedBefore });
             }
             if (params.get('subsync') === 'off') { return err('subsync_unavailable', 503, 'SubSync is not configured. Ask an administrator.'); }
+            if (body && body.again) {  // Sync again (D51): one episode, one language
+                var one = items[body.itemIds[0]];
+                var lang = (body.languages && body.languages[0]) || 'en';
+                queue.push(job(one.id, one.type === 'Movie' ? one.name + ' (' + one.productionYear + ')' : 'S' + pad(one.parentIndexNumber) + 'E' + pad(one.indexNumber) + ' ' + one.name, one.seriesName || '', ME, 'queued', lang, true));
+                return ok({ queued: 1, skipped: 0, queueLength: queue.filter(function (j) { return j.status === 'queued' || j.status === 'running'; }).length }, 202);
+            }
             if (!v.eligible.length) { return err('nothing_eligible', 400, 'None of the selected episodes can be fixed.'); }
             var pendingIds = {};
             queue.forEach(function (j) { if (j.status === 'queued' || j.status === 'running') { pendingIds[j.itemId] = true; } });
@@ -444,7 +464,12 @@
         if (p === 'Bazarr/Search') {
             var target = items[q.get('itemId')];
             if (!target || (target.type !== 'Episode' && target.type !== 'Movie')) { return err('not_found', 404, 'That item was not found or you cannot access it.'); }
-            if (evaluate(target).reason === 'no_video_file') { return err('no_video_file', 409, 'Jellyfin has no video file for this item.'); }
+            // D52: a search for one language is refused only when that language is there and it isn't Download new
+            var wantLang = q.get('language');
+            var have = (row(target).subtitles || []).filter(function (x) { return x.language === (wantLang || 'en'); })[0];
+            if (have && have.present && q.get('replace') !== 'true') {
+                return err('has_subtitle', 409, 'This item already has a' + (wantLang === 'da' ? ' Danish' : 'n English') + ' subtitle. Sync it again, or choose Download new.');
+            }
             if (params.get('bazarr') === 'error') { return err('search_failed', 502, 'Bazarr: Movie file not found. Path mapping issue?'); }
             searchFor = target.id;
             var base = target.type === 'Movie' ? target.name.replace(/\W+/g, '.') + '.' + target.productionYear : 'Show.S01E' + pad(target.indexNumber || 1);
@@ -456,21 +481,16 @@
                 hit(79, true, 'podnapisi', [base + '.WEB-DL.DDP5.1.H.264-NTb'], null, ['title', 'year'], ['source'], 'da'),
                 hit(66, false, 'embeddedsubtitles', [base], null, ['title'], ['source', 'resolution', 'video_codec', 'release_group'])
             ];
-            // D50: English only where it's missing on English audio; the mock's items have no other languages yet.
-            var englishWanted = evaluate(target).reason === 'no_sidecar';
-            var hasEnglish = ['no_sidecar', 'no_english_audio'].indexOf(evaluate(target).reason) < 0;
-            var hiddenCount = 1 + results.filter(function (h) { return h.english && !englishWanted; }).length;
-            results = results.filter(function (h) { return !h.english || englishWanted; });
             return ok({ itemId: target.id, kind: target.type === 'Movie' ? 'movie' : 'episode',
                 resource: (target.type === 'Movie' ? 'D:\\Movies\\' : '/tv/Show/Season 01/') + base + '.mkv',
-                matchedBy: 'path', results: results, hidden: hiddenCount, have: hasEnglish ? ['EN'] : [], englishWanted: englishWanted });
+                matchedBy: 'path', results: results, hidden: 1 });
         }
         if (p === 'Bazarr/Download') {
             var dl = body && items[body.itemId];
             var picked = body && bazarrHits[body.resultId];
             if (!dl) { return err('not_found', 404, 'That item was not found or you cannot access it.'); }
             if (!picked || picked.itemId !== dl.id) { return err('result_expired', 410, 'That search result has expired. Search again.'); }
-            if (picked.language === 'en' && evaluate(dl).reason !== 'no_sidecar') { return err('has_subtitle', 409, 'This item already has an English subtitle. Re-time it instead.'); }
+            if (evaluate(dl).reason !== 'no_sidecar') { return err('has_subtitle', 409, 'This item already has an English subtitle. Re-time it instead.'); }
             if (params.get('bazarr') === 'dlfail') {
                 return err('download_failed', 502, 'Bazarr didn’t save a usable English subtitle within 120 seconds. Check Bazarr’s System > Logs: the provider may have throttled it.');
             }

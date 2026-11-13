@@ -41,7 +41,9 @@
     var selected = new Map();        // episodeId -> { seriesId, seasonId }
     var seasonEligible = new Map();  // seasonId -> array of eligible episode ids (complete list)
     var seasonInfo = new Map();      // seasonId -> { seriesId, eligibleCount }
-    var queueByItem = new Map();     // itemId -> job status (visible items only)
+    var queueByItem = new Map();     // itemId -> job status (visible items only); a pending one wins over a finished one
+    var queueByLang = new Map();     // itemId|language -> job (D50: an episode can have an English and a Danish job)
+    var LANG_NAMES = { en: 'English', da: 'Danish' };
     var lastStatus = null;
     var preview = { pending: false, result: null, error: null };
     var retryAction = null;
@@ -315,7 +317,7 @@
         if (item.status === 'done') { return 'synced'; }
         // Untagged audio nobody has checked yet stays in view: Check audio can make it fixable (D49).
         if (item.audioUntagged && !item.audioCheck) { return null; }
-        return missingEnglish(item) ? null : 'ineligible';
+        return canFind(item) ? null : 'ineligible';
     }
 
     function shown(item) {
@@ -563,11 +565,8 @@
         badgesFor(item).forEach(function (b) { badges.appendChild(b); });
         if (badges.children.length) { li.appendChild(badges); }
 
-        // Find subtitles on every item with a video (D50): labelled where English is missing, a small icon elsewhere
-        // (other languages only).
-        if (canFind(item)) {
-            li.appendChild(findButton(item, label, missingEnglish(item)));
-        }
+        // EN / DA subtitle chips (D52): grey when missing (click: find one), coloured when there (click: a menu).
+        if (isVideo(item) && item.subtitles) { li.appendChild(subChips(item, label)); }
 
         if (canCheck(item)) { li.appendChild(checkButton(item, false)); }
 
@@ -636,9 +635,7 @@
 
         var badges = el('div', 'badges');
         badgesFor(item).forEach(function (b) { badges.appendChild(b); });
-        if (canFind(item)) {
-            badges.appendChild(findButton(item, label, false));
-        }
+        if (isVideo(item) && item.subtitles) { badges.appendChild(subChips(item, label)); }
         if (canCheck(item)) { badges.appendChild(checkButton(item, true)); }
         if (badges.children.length) { li.appendChild(badges); }
         return li;
@@ -760,42 +757,137 @@
         }
         if (job && job.status === 'done') { return out; }
         if (item.status === 'done') { out.push(badge('synced', 'Already synced', 'Re-timed before; it runs again only if the video file changes')); }
-        else if (missingEnglish(item)) { out.push(badge('', 'No English subtitle', 'Not eligible for re-timing: ' + REASONS.no_sidecar)); }
-        else if (!item.eligible) { out.push(badge('', 'Not eligible: ' + reasonText(item), reasonTip(item))); }
+        else if (!item.eligible && item.reason !== 'no_sidecar') { out.push(badge('', 'Not eligible: ' + reasonText(item), reasonTip(item))); }
         else if (item.status === 'attempted') { out.push(badge('attempted', 'Previously attempted', item.message)); }
-        if (item.subtitleHi) { out.push(badge('hi', 'HI', 'The English subtitle is for the hearing impaired (.hi.srt): it includes sound descriptions')); }
+        if (!item.subtitles && item.subtitleHi) { out.push(badge('hi', 'HI', 'The English subtitle is for the hearing impaired (.hi.srt): it includes sound descriptions')); }
         if (item.audioCheck && item.audioCheck.english) { out.push(badge('checked', 'Audio checked: English', item.audioCheck.message)); }
         return out;
     }
 
+    // ---------- Subtitle chips (D52) ----------
+    // One chip per language. Grey: no such subtitle next to the video; a click searches for one (when Find subtitles
+    // is set up). Coloured: it's there (green when synced); a click opens a small menu: Sync again (or Sync) and
+    // Download new. "Outdated" marks a sync by SubSync before 1.4.1, whose lines could flash by too fast to read.
+    function subChips(item, label) {
+        var box = el('div', 'subs');
+        item.subtitles.forEach(function (s) {
+            var name = LANG_NAMES[s.language] || s.language;
+            var job = queueByLang.get(item.id + '|' + s.language);
+            var pending = job && (job.status === 'queued' || job.status === 'running');
+            var chip = el('button', 'sub-chip ' + (s.present ? 'present' : 'missing'));
+            chip.type = 'button';
+            chip.tabIndex = 0;  // reachable with Tab; Enter / Space opens it
+            chip.dataset.lang = s.language;
+            if (s.present && s.status === 'done') { chip.classList.add('synced'); }
+            if (s.outdated) { chip.classList.add('outdated'); }
+            if (pending) { chip.classList.add('busy'); }
+            chip.appendChild(el('span', 'code', s.language.toUpperCase()));
+            if (s.hi) { chip.appendChild(el('span', 'hi', 'HI')); }
+            var tip;
+            if (pending) {
+                tip = name + ' subtitle: ' + (job.status === 'running' ? 'syncing now' : 'in the queue');
+            } else if (!s.present) {
+                tip = 'No ' + name + ' subtitle' + (canFindLang(item, s) ? '. Click to find one.' : '');
+            } else {
+                tip = name + ' subtitle' + (s.hi ? ' for the hearing impaired' : '') + ': '
+                    + (s.status === 'done' ? 'synced' + (s.syncedWith ? ' with SubSync ' + s.syncedWith : '') : s.status === 'attempted' ? 'tried before' + (s.message ? ' (' + s.message + ')' : '') : 'not synced yet')
+                    + (s.outdated ? '. Lines may flash by too fast to read; Sync again fixes that.' : '.') + ' Click for options.';
+            }
+            chip.title = tip;
+            chip.setAttribute('aria-label', tip + ' (' + label + ')');
+            var usable = pending ? false : s.present ? true : canFindLang(item, s);
+            if (!usable) { chip.setAttribute('aria-disabled', 'true'); }
+            chip.addEventListener('click', function (e) {
+                e.stopPropagation();
+                if (!usable) { return; }
+                if (!s.present) { openFind(item, s.language, false); return; }
+                openChipMenu(chip, item, s);
+            });
+            box.appendChild(chip);
+        });
+        return box;
+    }
+
+    function canFindLang(item, s) {
+        if (!bazarrEnabled || s.reason === 'no_english_audio' || s.reason === 'no_video_file') { return false; }
+        var job = queueByLang.get(item.id + '|' + s.language);
+        return !(job && (job.status === 'queued' || job.status === 'running'));
+    }
+
+    var chipMenu = null, chipMenuFrom = null;
+    function closeChipMenu(refocus) {
+        if (chipMenu) { chipMenu.remove(); chipMenu = null; }
+        if (refocus && chipMenuFrom && document.body.contains(chipMenuFrom)) { chipMenuFrom.focus(); }
+        chipMenuFrom = null;
+    }
+    function openChipMenu(chip, item, s) {
+        closeChipMenu();
+        var name = LANG_NAMES[s.language] || s.language;
+        var menu = el('div', 'chip-menu');
+        menu.setAttribute('role', 'menu');
+        var add = function (text, enabled, why, action) {
+            var b = el('button', null, text);
+            b.type = 'button';
+            b.setAttribute('role', 'menuitem');
+            b.disabled = !enabled;
+            if (why) { b.title = why; }
+            b.addEventListener('click', function (e) { e.stopPropagation(); closeChipMenu(); action(); });
+            menu.appendChild(b);
+        };
+        var canSync = s.reason !== 'no_english_audio' && s.reason !== 'no_video_file' && !(lastStatus && lastStatus.subsyncAvailable === false);
+        add(s.status === 'done' ? 'Sync again' : 'Sync', canSync, canSync ? null : 'Needs English audio and SubSync', function () { syncAgain(item, s.language); });
+        if (bazarrEnabled) {
+            add('Download new', canFindLang(item, s), null, function () { openFind(item, s.language, true); });
+        }
+        document.body.appendChild(menu);
+        var r = chip.getBoundingClientRect();
+        menu.style.top = (window.scrollY + r.bottom + 4) + 'px';
+        menu.style.left = Math.max(8, Math.min(window.scrollX + r.left, window.scrollX + document.documentElement.clientWidth - menu.offsetWidth - 8)) + 'px';
+        menu.setAttribute('aria-label', name + ' subtitle');
+        chipMenu = menu;
+        chipMenuFrom = chip;
+        // arrow keys move between the menu's items; Tab leaves it
+        menu.addEventListener('keydown', function (e) {
+            var items = Array.prototype.filter.call(menu.querySelectorAll('button'), function (b) { return !b.disabled; });
+            var at = items.indexOf(document.activeElement);
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (items.length) { items[(at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus(); }
+            } else if (e.key === 'Tab') {
+                closeChipMenu(false);
+            }
+        });
+        var first = menu.querySelector('button:not(:disabled)');
+        if (first) { first.focus(); }
+    }
+    document.addEventListener('click', function (e) { if (chipMenu && !chipMenu.contains(e.target)) { closeChipMenu(); } });
+    document.addEventListener('keydown', function (e) {
+        // only the menu closes: the pop-up's own Escape handler skips handled keys
+        if (e.key === 'Escape' && chipMenu) { e.preventDefault(); e.stopPropagation(); closeChipMenu(true); }
+    }, true);
+
+    // Sync again (D51): one episode or movie, one language, also when it is already synced.
+    function syncAgain(item, lang) {
+        api('POST', 'Jobs', { itemIds: [item.id], languages: [lang], again: true }).then(function () {
+            showHint(videoLabel(item) + ': the ' + LANG_NAMES[lang] + ' subtitle is in the queue to be synced again.');
+            pollNow();
+        }, function (err) { failed(err); });
+    }
+
     // ---------- Find subtitles (BAZARR-PLAN.md phase 1: read-only) ----------
-    // Any item with a video can look for the subtitle languages it's missing (D50): English where it has none on
-    // English audio (it gets re-timed), other languages anywhere (kept as saved). The server leaves out what's there.
     function canFind(item) {
-        if (!bazarrEnabled || !isVideo(item) || item.reason === 'no_video_file') { return false; }
+        if (!bazarrEnabled || !isVideo(item) || item.reason !== 'no_sidecar') { return false; }
         var job = queueByItem.get(item.id);
         return !(job && (job.status === 'queued' || job.status === 'running'));
     }
-    function missingEnglish(item) { return canFind(item) && item.reason === 'no_sidecar'; }
 
-    function findButton(item, label, labelled) {
-        var find = el('button', 'find-btn' + (labelled ? '' : ' find-more'));
-        find.type = 'button';
-        find.tabIndex = -1;
-        find.title = labelled ? 'Search for an English subtitle' : 'Find subtitles in the languages it’s missing';
-        find.setAttribute('aria-label', 'Find subtitles for ' + label);
-        var fi = icon('find');
-        fi.setAttribute('class', 'icon');
-        find.appendChild(fi);
-        if (labelled) { find.appendChild(el('span', 'find-text', 'Find subtitles')); }
-        find.addEventListener('click', function (e) { e.stopPropagation(); openFind(item); });
-        return find;
-    }
-
-    function openFind(item) {
+    // lang: the chip it was opened from (en / da, D52), or none; replace: Download new (the subtitle that is there
+    // is replaced, and the previous one kept as .old).
+    function openFind(item, lang, replace) {
         var dlg = $('find');
         var seq = ++findSeq;
-        $('find-item').textContent = videoLabel(item) + (item.type === 'Episode' && item.seriesName ? ' · ' + item.seriesName : '');
+        $('find-item').textContent = videoLabel(item) + (item.type === 'Episode' && item.seriesName ? ' · ' + item.seriesName : '')
+            + (lang ? ' · ' + (replace ? 'new ' : '') + LANG_NAMES[lang] + ' subtitle' : '');
         $('find-list').replaceChildren();
         dlg.classList.remove('has-hits');
         setFindStatus('busy', 'Searching for subtitles. This can take a while…');
@@ -803,13 +895,13 @@
         dlg.returnTo = item.id;
         if (!dlg.open) { dlg.showModal(); }
 
-        findState = { item: item, results: null, have: [] };
-        $('find-lang').value = prefs.findLang;
+        findState = { item: item, results: null, lang: lang || null, replace: !!replace };
+        $('find-lang').value = lang ? lang.toUpperCase() : prefs.findLang;
         $('find-hide-hi').checked = prefs.findHideHi;
-        api('GET', 'Bazarr/Search?itemId=' + encodeURIComponent(item.id)).then(function (r) {
+        var query = 'Bazarr/Search?itemId=' + encodeURIComponent(item.id) + (lang ? '&language=' + lang : '') + (replace ? '&replace=true' : '');
+        api('GET', query).then(function (r) {
             if (seq !== findSeq || !dlg.open) { return; }
             findState.results = r.results;
-            findState.have = r.have || [];
             applyFindFilters();
         }, function (err) {
             if (seq !== findSeq || !dlg.open) { return; }
@@ -818,8 +910,9 @@
     }
 
     // Show only (language codes, "EN" or "DA, EN") and Hide hearing impaired, both remembered per viewer (D48).
-    var findState = { item: null, results: null, have: [] };
+    var findState = { item: null, results: null, lang: null, replace: false };
     function findLanguages() {
+        if (findState.lang) { return [findState.lang]; }  // opened from a chip: that language, until the box is edited
         return prefs.findLang.toLowerCase().split(/[\s,;]+/).filter(Boolean);
     }
     function findKeeps(h) {
@@ -836,14 +929,12 @@
         renderHits(shownHits, findState.item);
         dlg.classList.toggle('has-hits', shownHits.length > 0);
         var left = all.length - shownHits.length;
-        // The server only returns languages the item is missing (D50); say which it already has.
-        var have = findState.have && findState.have.length ? 'Already has ' + findState.have.join(', ') + '. ' : '';
         if (!all.length) {
-            setFindStatus('empty', have + 'No subtitles found in the languages it’s missing.');
+            setFindStatus('empty', 'No subtitles found.');
         } else if (!shownHits.length) {
-            setFindStatus('empty', have + plural(all.length, 'subtitle', 'subtitles') + ' found, but none match your filters.');
+            setFindStatus('empty', plural(all.length, 'subtitle', 'subtitles') + ' found, but none match your filters.');
         } else {
-            setFindStatus('', have + plural(shownHits.length, 'subtitle', 'subtitles') + ' found, best match first.' + (left ? ' ' + left + ' hidden by your filters.' : ''));
+            setFindStatus('', plural(shownHits.length, 'subtitle', 'subtitles') + ' found, best match first.' + (left ? ' ' + left + ' hidden by your filters.' : ''));
         }
     }
 
@@ -865,7 +956,7 @@
         button.querySelector('.get-text').textContent = 'Getting…';
         setFindStatus('busy', 'Downloading the subtitle. This usually takes a few seconds…');
 
-        api('POST', 'Bazarr/Download', { itemId: item.id, resultId: hit.id }).then(function (r) {
+        api('POST', 'Bazarr/Download', { itemId: item.id, resultId: hit.id, replace: !!findState.replace }).then(function (r) {
             if (r.queued) {
                 closeFind();
                 foldToQueue('Subtitle downloaded. It’s in the queue to be re-timed to the audio.', item.id);
@@ -922,29 +1013,6 @@
             }
             li.appendChild(rel);
 
-            var miss = h.dontMatches || [];
-            var matches = h.matches || [];
-            var tip = miss.length
-                ? 'Doesn’t match: ' + miss.map(humanize).join(', ') + (matches.length ? '. Matches: ' + matches.map(humanize).join(', ') : '')
-                : 'Matches the file' + (matches.length ? ': ' + matches.map(humanize).join(', ') : '');
-            var match = el('button', 'hit-match ' + (miss.length ? 'partial' : 'full'));
-            match.type = 'button';
-            match.title = tip;
-            match.setAttribute('aria-label', (miss.length ? 'Partial match. ' : 'Full match. ') + tip);
-            match.setAttribute('aria-expanded', 'false');
-            var mi = icon(miss.length ? 'partial' : 'check');
-            mi.setAttribute('class', 'icon');
-            match.appendChild(mi);
-            match.appendChild(el('span', 'match-text', miss.length ? 'Partial' : 'Match'));
-            // No hover on touch screens: a tap shows the details inline.
-            var detail = el('span', 'hit-detail', tip);
-            detail.hidden = true;
-            match.addEventListener('click', function () {
-                detail.hidden = !detail.hidden;
-                match.setAttribute('aria-expanded', String(!detail.hidden));
-            });
-            li.appendChild(match);
-
             var get = el('button', 'hit-get primary');
             get.type = 'button';
             get.setAttribute('aria-label', 'Get the ' + h.score + '% subtitle' + (h.releases && h.releases[0] ? ' for ' + h.releases[0] : ''));
@@ -954,7 +1022,6 @@
             get.appendChild(el('span', 'get-text', 'Get'));
             get.addEventListener('click', function () { getHit(item, h, get); });
             li.appendChild(get);
-            li.appendChild(detail);
 
             list.appendChild(li);
         });
@@ -1171,9 +1238,17 @@
 
     function renderQueue(s) {
         var previous = queueByItem;
+        var previousLang = queueByLang;
         lastStatus = s;
         queueByItem = new Map();
-        s.items.forEach(function (i) { if (i.itemId) { queueByItem.set(i.itemId, i); } });
+        queueByLang = new Map();
+        var isPending = function (j) { return j && (j.status === 'queued' || j.status === 'running'); };
+        s.items.forEach(function (i) {
+            if (!i.itemId) { return; }
+            if (!isPending(queueByItem.get(i.itemId))) { queueByItem.set(i.itemId, i); }
+            var key = i.itemId + '|' + (i.language || 'en');
+            if (!isPending(queueByLang.get(key))) { queueByLang.set(key, i); }
+        });
 
         var t = s.totals;
         var finished = t.done + t.check + t.failed + t.cancelled + t.skipped;
@@ -1247,8 +1322,10 @@
             if (i.itemId) { li.dataset.item = i.itemId; }
             var main = el('div', 'main');
             main.appendChild(el('span', 'name', i.name));
+            // Check audio items (D49) say so; sync items say which subtitle language (D50).
             var isCheck = i.source === 'audio_check';
-            var sub = [isCheck ? 'Check audio' : null, i.seriesName, i.message].filter(Boolean).join(' · ');
+            var langBit = isCheck ? 'Check audio' : (LANG_NAMES[i.language || 'en'] || i.language) + ' subtitle' + (i.again ? ', synced again' : '');
+            var sub = [i.seriesName, langBit, i.message].filter(Boolean).join(' · ');
             if (sub) { main.appendChild(el('span', 'sub', sub)); }
             li.appendChild(main);
             var badges = el('div', 'badges');
@@ -1295,6 +1372,9 @@
         var changed = false;
         queueByItem.forEach(function (v, k) { var p = previous.get(k); if (!p || p.status !== v.status) { changed = true; } });
         previous.forEach(function (_, k) { if (!queueByItem.has(k)) { changed = true; } });
+        // D50: the other language's job of the same item can change while the item's main entry doesn't
+        queueByLang.forEach(function (v, k) { var p = previousLang.get(k); if (!p || p.status !== v.status) { changed = true; } });
+        previousLang.forEach(function (_, k) { if (!queueByLang.has(k)) { changed = true; } });
         if (changed) { rerenderRows(); }
     }
 
@@ -1457,6 +1537,8 @@
     function onListKey(e) {
         var r = e.target.closest('.row');
         if (!r) { return; }
+        // a subtitle chip handles its own Enter and Space (it's a button, D52)
+        if (e.target.closest('.sub-chip') && (e.key === 'Enter' || e.key === ' ')) { return; }
         var all = rows();
         var i = all.indexOf(r);
         var item = view.items.filter(function (x) { return x.id === r.dataset.id; })[0];
@@ -1479,7 +1561,8 @@
             case 'Enter':
                 if (item && !isVideo(item)) { openItem(item); e.preventDefault(); }
                 else if (item && view.mode === 'search' && item.type === 'Episode') { openItem(item); e.preventDefault(); }
-                else if (item && canFind(item)) { openFind(item); e.preventDefault(); }  // the row's Find subtitles button
+                else if (item && item.subtitles && r.querySelector('.sub-chip')) { r.querySelector('.sub-chip').focus(); e.preventDefault(); }  // into the chips (D52)
+                else if (item && canFind(item)) { openFind(item); e.preventDefault(); }
                 break;
             case ' ':
                 if (e.target.tagName === 'INPUT') { return; }  // the checkbox handles its own space
@@ -1566,14 +1649,14 @@
         var langTimer = null;
         $('find-lang').addEventListener('input', function () {
             clearTimeout(langTimer);
-            langTimer = setTimeout(function () { prefs.findLang = $('find-lang').value.slice(0, 40); savePrefs(); applyFindFilters(); }, 150);
+            langTimer = setTimeout(function () { findState.lang = null; prefs.findLang = $('find-lang').value.slice(0, 40); savePrefs(); applyFindFilters(); }, 150);
         });
         $('find-hide-hi').addEventListener('change', function () { prefs.findHideHi = $('find-hide-hi').checked; savePrefs(); applyFindFilters(); });
         $('find').addEventListener('close', function () {
             findSeq++;
             var id = $('find').returnTo;
             var r = id ? $('list').querySelector('[data-id="' + CSS.escape(id) + '"]') : null;
-            var back = r && (r.querySelector('.find-btn') || r);
+            var back = r && (r.querySelector('.sub-chip.missing, .sub-chip') || r);
             if (back) { back.focus(); }
         });
         $('find').addEventListener('click', function (e) { if (e.target === $('find')) { closeFind(); } });  // backdrop click

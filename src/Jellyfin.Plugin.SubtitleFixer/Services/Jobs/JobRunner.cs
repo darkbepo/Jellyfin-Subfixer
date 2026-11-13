@@ -115,9 +115,10 @@ public sealed class JobRunner
             return Done(new RunOutcome(JobItemStatus.Failed, "The episode is gone or no longer accessible.", null, null));
         }
 
-        var records = await _state.GetAsync([job.ItemId], CancellationToken.None).ConfigureAwait(false);
+        var language = SubtitleLanguage.Normalize(job.Language);
+        var records = await _state.GetAsync([job.ItemId], language, CancellationToken.None).ConfigureAwait(false);
         records.TryGetValue(job.ItemId, out var previous);
-        var check = EligibilityService.Evaluate(facts, previous);
+        var check = EligibilityService.Evaluate(facts, previous, language, job.Again);
         switch (check.Reason)
         {
             case IneligibleReason.AlreadySynced:
@@ -127,8 +128,30 @@ public sealed class JobRunner
             case IneligibleReason.NoVideoFile:
                 return Done(new RunOutcome(JobItemStatus.Failed, "The video file is missing or can't be read.", null, null));
             case IneligibleReason.NoSidecar:
-                await RecordAsync(job.ItemId, check.Video!, SubtitleGuess(check.Video!.Path), SyncStatus.Failed, "file missing: subtitle", null).ConfigureAwait(false);
-                return Done(new RunOutcome(JobItemStatus.Failed, "The English subtitle next to the video is gone.", null, null));
+                await RecordAsync(job.ItemId, language, check.Video!, SubtitleGuess(check.Video!.Path, language), SyncStatus.Failed, "file missing: subtitle", null).ConfigureAwait(false);
+                return Done(new RunOutcome(JobItemStatus.Failed, $"The {SubtitleLanguage.Name(language)} subtitle next to the video is gone.", null, null));
+        }
+
+        if (language != SubtitleLanguage.English
+            && !SubtitleLanguage.Supported(language, await _worker.GetVersionAsync(CancellationToken.None).ConfigureAwait(false)))
+        {
+            // nothing recorded: it becomes possible as soon as SubSync is updated
+            return Done(new RunOutcome(JobItemStatus.Failed, "Danish subtitles need SubSync 1.5.0 or later. Update SubSync on the Subtitle Fixer settings page.", null, null));
+        }
+
+        // a Bazarr download is working on this item's files right now: wait for it (bounded, D52)
+        if (DownloadGuard.Shared.IsActive(job.ItemId))
+        {
+            try
+            {
+                await DownloadGuard.Shared.WaitAsync(job.ItemId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return Done(new RunOutcome(JobItemStatus.Cancelled, "Cancelled.", null, null));
+            }
+
+            return await PrepareAsync(job, cancellationToken).ConfigureAwait(false);  // the files may have changed
         }
 
         if (cancellationToken.IsCancellationRequested)
@@ -143,16 +166,19 @@ public sealed class JobRunner
         InFlightBackup backup;
         try
         {
-            backup = await _backup.CreateAsync(job.ItemId, sidecar.Path, CancellationToken.None).ConfigureAwait(false);
+            backup = await _backup.CreateAsync(job.ItemId, sidecar.Path, CancellationToken.None, language).ConfigureAwait(false);
         }
         catch (BackupException ex)
         {
-            await RecordAsync(job.ItemId, video, sidecar.Path, SyncStatus.Failed, "cannot create backup", null).ConfigureAwait(false);
+            await RecordAsync(job.ItemId, language, video, sidecar.Path, SyncStatus.Failed, "cannot create backup", null).ConfigureAwait(false);
             _logger.LogWarning(ex, "No backup for {Subtitle}; SubSync not started", sidecar.Path);
             return Done(new RunOutcome(JobItemStatus.Failed, ex.Message, null, null));
         }
 
-        return new Preparation(null, new PreparedRun(job, facts.Runtime, video, sidecar, backup, WithTimeLimit(_options(), facts.Runtime)));
+        // a Danish subtitle is timed by the English one next to the same video, when there is one (SubSync 1.5.0, D50)
+        var reference = language == SubtitleLanguage.Danish ? EligibilityService.FindSidecar(video.Path, SubtitleLanguage.English)?.Path : null;
+        var options = WithTimeLimit(_options(), facts.Runtime) with { SubtitleLanguage = language, Reference = reference };
+        return new Preparation(null, new PreparedRun(job, facts.Runtime, video, sidecar, backup, options));
     }
 
     /// <summary>Steps 3 to 7 with one SubSync process of its own.</summary>
@@ -213,7 +239,7 @@ public sealed class JobRunner
     {
         _logger.LogError(ex, "Unexpected error while syncing {Subtitle}; restoring the original", run.Sidecar.Path);
         await _backup.RestoreAsync(run.Backup, CancellationToken.None).ConfigureAwait(false);
-        await RecordAsync(run.Job.ItemId, run.Video, run.Sidecar.Path, SyncStatus.Failed, "unexpected error: " + ex.Message, null).ConfigureAwait(false);
+        await RecordAsync(run.Job.ItemId, run.Sidecar.Language, run.Video, run.Sidecar.Path, SyncStatus.Failed, "unexpected error: " + ex.Message, null).ConfigureAwait(false);
         return new RunOutcome(JobItemStatus.Failed, "Unexpected error: " + ex.Message, null, WorkerStatus.Crashed);
     }
 
@@ -242,8 +268,8 @@ public sealed class JobRunner
         return scaled > options.Timeout ? options with { Timeout = scaled } : options;
     }
 
-    private static string SubtitleGuess(string videoPath) =>
-        Path.Combine(Path.GetDirectoryName(videoPath) ?? string.Empty, Path.GetFileNameWithoutExtension(videoPath) + ".en.srt");
+    private static string SubtitleGuess(string videoPath, string language) =>
+        Path.Combine(Path.GetDirectoryName(videoPath) ?? string.Empty, Path.GetFileNameWithoutExtension(videoPath) + "." + SubtitleLanguage.Tags(language)[0] + ".srt");
 
     private static Preparation Done(RunOutcome outcome) => new(outcome, null);
 
@@ -255,7 +281,7 @@ public sealed class JobRunner
                 if (SubtitleVerifier.IsValidSrt(sidecar.Path, out var invalid))
                 {
                     await _backup.DiscardAsync(backup).ConfigureAwait(false);
-                    await RecordAsync(job.ItemId, video, sidecar.Path, SyncStatus.Done, result.Reason, result).ConfigureAwait(false);
+                    await RecordAsync(job.ItemId, sidecar.Language, video, sidecar.Path, SyncStatus.Done, result.Reason, result).ConfigureAwait(false);
                     try
                     {
                         _refresh.RequestRefresh(job.ItemId);
@@ -269,12 +295,12 @@ public sealed class JobRunner
                 }
 
                 await _backup.RestoreAsync(backup, CancellationToken.None).ConfigureAwait(false);
-                await RecordAsync(job.ItemId, video, sidecar.Path, SyncStatus.Failed, invalid, result).ConfigureAwait(false);
+                await RecordAsync(job.ItemId, sidecar.Language, video, sidecar.Path, SyncStatus.Failed, invalid, result).ConfigureAwait(false);
                 return new RunOutcome(JobItemStatus.Failed, invalid, result.Seconds, WorkerStatus.Failed);
 
             case WorkerStatus.NoMatch:
                 await _backup.RestoreAsync(backup, CancellationToken.None).ConfigureAwait(false);
-                await RecordAsync(job.ItemId, video, sidecar.Path, SyncStatus.Check, result.Reason, result).ConfigureAwait(false);
+                await RecordAsync(job.ItemId, sidecar.Language, video, sidecar.Path, SyncStatus.Check, result.Reason, result).ConfigureAwait(false);
                 return new RunOutcome(JobItemStatus.Check, result.Reason, result.Seconds, result.Status);
 
             case WorkerStatus.Cancelled:
@@ -288,21 +314,22 @@ public sealed class JobRunner
 
             case WorkerStatus.TimedOut:
                 await _backup.RestoreAsync(backup, CancellationToken.None).ConfigureAwait(false);
-                await RecordAsync(job.ItemId, video, sidecar.Path, SyncStatus.Failed, "timeout", result).ConfigureAwait(false);
+                await RecordAsync(job.ItemId, sidecar.Language, video, sidecar.Path, SyncStatus.Failed, "timeout", result).ConfigureAwait(false);
                 return new RunOutcome(JobItemStatus.Failed, result.Reason ?? "SubSync took too long and was stopped.", result.Seconds, result.Status);
 
             default:
                 await _backup.RestoreAsync(backup, CancellationToken.None).ConfigureAwait(false);
-                await RecordAsync(job.ItemId, video, sidecar.Path, SyncStatus.Failed, result.Reason, result).ConfigureAwait(false);
+                await RecordAsync(job.ItemId, sidecar.Language, video, sidecar.Path, SyncStatus.Failed, result.Reason, result).ConfigureAwait(false);
                 return new RunOutcome(JobItemStatus.Failed, result.Reason, result.Seconds, result.Status);
         }
     }
 
-    private Task RecordAsync(Guid itemId, VideoFingerprint video, string subtitlePath, SyncStatus status, string? message, WorkerResult? result) =>
+    private Task RecordAsync(Guid itemId, string language, VideoFingerprint video, string subtitlePath, SyncStatus status, string? message, WorkerResult? result) =>
         _state.UpsertAsync(
             new SyncRecord
             {
                 ItemId = itemId,
+                Language = SubtitleLanguage.Normalize(language),
                 Video = video,
                 SubtitlePath = subtitlePath,
                 Status = status,

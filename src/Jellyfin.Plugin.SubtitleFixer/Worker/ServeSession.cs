@@ -215,8 +215,11 @@ public sealed class ServeSession : IDisposable
     /// <param name="subtitle">Subtitle.</param>
     /// <param name="output">File to write, here the subtitle itself.</param>
     /// <param name="onProgress">Each stage SubSync reports for the item.</param>
+    /// <param name="subtitleLanguage">The subtitle's language (D50); a Danish one is sent with <c>subtitle_language</c>.</param>
+    /// <param name="reference">For a Danish subtitle: the English one to time it by, or null.</param>
     /// <returns>The item.</returns>
-    public ServeItem Send(string id, string video, string subtitle, string output, Action<WorkerProgress>? onProgress)
+    public ServeItem Send(string id, string video, string subtitle, string output, Action<WorkerProgress>? onProgress,
+        string subtitleLanguage = Domain.SubtitleLanguage.English, string? reference = null)
     {
         var item = new ServeItem(id, output, onProgress, DateTime.UtcNow);
         lock (_gate)
@@ -230,7 +233,17 @@ public sealed class ServeSession : IDisposable
             item.StartClock();
         }
 
-        var line = JsonSerializer.Serialize(new Dictionary<string, string> { ["id"] = id, ["video"] = video, ["subtitle"] = subtitle, ["output"] = output });
+        var request = new Dictionary<string, string> { ["id"] = id, ["video"] = video, ["subtitle"] = subtitle, ["output"] = output };
+        if (Domain.SubtitleLanguage.Normalize(subtitleLanguage) == Domain.SubtitleLanguage.Danish)
+        {
+            request["subtitle_language"] = Domain.SubtitleLanguage.Danish;
+            if (!string.IsNullOrEmpty(reference))
+            {
+                request["reference"] = reference;
+            }
+        }
+
+        var line = JsonSerializer.Serialize(request);
         if (!_transport.TryWriteLine(line))
         {
             // The process is gone; Exited says so and the caller restores the item.

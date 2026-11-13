@@ -47,6 +47,8 @@ public sealed class FakeServe : IServeTransport
 
     public List<ServeRequest> Requests { get; } = new();
 
+    public List<string> RawLines { get; } = new();
+
     public List<(string Id, DateTime At)> Results { get; } = new();
 
     public int MaxInFlight { get; private set; }
@@ -101,6 +103,7 @@ public sealed class FakeServe : IServeTransport
         var request = Parse(line)!;
         lock (_gate)
         {
+            RawLines.Add(line);
             Requests.Add(request);
             _inFlight++;
             MaxInFlight = Math.Max(MaxInFlight, _inFlight);

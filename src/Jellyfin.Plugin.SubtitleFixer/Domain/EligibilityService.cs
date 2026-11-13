@@ -36,8 +36,13 @@ public enum EpisodeStatus
 
 /// <summary>A sidecar subtitle that may be processed.</summary>
 /// <param name="Path">Full path of the subtitle.</param>
-/// <param name="LanguageTag">Tag in the file name: <c>en</c>, <c>eng</c>, <c>en.hi</c> or <c>eng.hi</c>. Passed to SubSync as <c>--suffix</c>, so the result keeps the same name.</param>
-public sealed record Sidecar(string Path, string LanguageTag);
+/// <param name="LanguageTag">Tag in the file name: <c>en</c>, <c>eng</c>, <c>en.hi</c>, <c>eng.hi</c> (or the Danish <c>da</c>, <c>dan</c>, <c>da.hi</c>, <c>dan.hi</c>). Passed to SubSync 1.2.0 as <c>--suffix</c>, so the result keeps the same name.</param>
+/// <param name="Language">The subtitle's language (<see cref="SubtitleLanguage"/>), D50.</param>
+public sealed record Sidecar(string Path, string LanguageTag, string Language = SubtitleLanguage.English)
+{
+    /// <summary>Gets a value indicating whether it is a hearing-impaired subtitle (<c>.hi</c>).</summary>
+    public bool IsHearingImpaired => LanguageTag.EndsWith(".hi", StringComparison.OrdinalIgnoreCase);
+}
 
 /// <summary>Result of evaluating one episode.</summary>
 /// <param name="Reason">Why it is not eligible, or <see cref="IneligibleReason.None"/>.</param>
@@ -56,12 +61,6 @@ public sealed record Eligibility(IneligibleReason Reason, EpisodeStatus Status, 
 /// </summary>
 public static class EligibilityService
 {
-    /// <summary>
-    /// Sidecar tags in priority order; only the first that exists is processed (one subtitle per episode).
-    /// Plain English before hearing-impaired, <c>en</c> before <c>eng</c> (D6).
-    /// </summary>
-    private static readonly string[] SidecarTags = ["en", "eng", "en.hi", "eng.hi"];
-
     /// <summary>Gets the API wire name of a reason (API.md), or null for eligible.</summary>
     /// <param name="reason">Reason.</param>
     /// <returns>Wire name.</returns>
@@ -131,12 +130,13 @@ public static class EligibilityService
         facts?.AudioCheck is { } check && check.Video.Matches(video) ? check : null;
 
     /// <summary>
-    /// Finds the sidecar named exactly <c>&lt;videoBase&gt;.en.srt</c>, <c>.eng.srt</c>, <c>.en.hi.srt</c> or <c>.eng.hi.srt</c>.
-    /// No other names are considered (D6).
+    /// Finds the sidecar named exactly <c>&lt;videoBase&gt;.en.srt</c>, <c>.eng.srt</c>, <c>.en.hi.srt</c> or <c>.eng.hi.srt</c>
+    /// (Danish: <c>.da.srt</c>, <c>.dan.srt</c>, <c>.da.hi.srt</c>, <c>.dan.hi.srt</c>). No other names are considered (D6, D50).
     /// </summary>
     /// <param name="videoPath">Video path.</param>
+    /// <param name="language">Subtitle language (<see cref="SubtitleLanguage"/>).</param>
     /// <returns>The sidecar, or null.</returns>
-    public static Sidecar? FindSidecar(string videoPath)
+    public static Sidecar? FindSidecar(string videoPath, string language = SubtitleLanguage.English)
     {
         var folder = Path.GetDirectoryName(videoPath);
         var baseName = Path.GetFileNameWithoutExtension(videoPath);
@@ -145,23 +145,26 @@ public static class EligibilityService
             return null;
         }
 
-        foreach (var tag in SidecarTags)
+        var lang = SubtitleLanguage.Normalize(language);
+        foreach (var tag in SubtitleLanguage.Tags(lang))
         {
             var candidate = Path.Combine(folder, baseName + "." + tag + ".srt");
             if (File.Exists(candidate))
             {
-                return new Sidecar(candidate, tag);
+                return new Sidecar(candidate, tag, lang);
             }
         }
 
         return null;
     }
 
-    /// <summary>Evaluates one episode against the rules and its stored record.</summary>
+    /// <summary>Evaluates one item and subtitle language against the rules and its stored record.</summary>
     /// <param name="episode">Episode facts from Jellyfin.</param>
-    /// <param name="record">Stored record, if any.</param>
+    /// <param name="record">Stored record of this language, if any.</param>
+    /// <param name="language">Subtitle language (D50); both need English audio.</param>
+    /// <param name="again">Sync again (D51): a <c>done</c> record doesn't stop it.</param>
     /// <returns>The evaluation.</returns>
-    public static Eligibility Evaluate(VideoFacts episode, SyncRecord? record)
+    public static Eligibility Evaluate(VideoFacts episode, SyncRecord? record, string language = SubtitleLanguage.English, bool again = false)
     {
         ArgumentNullException.ThrowIfNull(episode);
 
@@ -174,7 +177,7 @@ public static class EligibilityService
             return new Eligibility(IneligibleReason.NoVideoFile, status, message, null, null);
         }
 
-        if (status == EpisodeStatus.Done)
+        if (status == EpisodeStatus.Done && !again)
         {
             return new Eligibility(IneligibleReason.AlreadySynced, status, null, null, video);
         }
@@ -184,7 +187,7 @@ public static class EligibilityService
             return new Eligibility(IneligibleReason.NoEnglishAudio, status, message, null, video);
         }
 
-        var sidecar = FindSidecar(video.Path);
+        var sidecar = FindSidecar(video.Path, language);
         if (sidecar is null)
         {
             return new Eligibility(IneligibleReason.NoSidecar, status, message, null, video);

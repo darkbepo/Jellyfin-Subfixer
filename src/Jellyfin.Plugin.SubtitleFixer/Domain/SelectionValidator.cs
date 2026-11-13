@@ -35,10 +35,11 @@ public static class ErrorCodes
 /// <param name="Message">Message for people.</param>
 public sealed record SelectionError(string Code, string Message);
 
-/// <summary>An episode that will be queued.</summary>
+/// <summary>An episode and subtitle language that will be queued.</summary>
 /// <param name="Episode">Episode facts.</param>
 /// <param name="Eligibility">Its evaluation (eligible).</param>
-public sealed record EpisodeCandidate(VideoFacts Episode, Eligibility Eligibility);
+/// <param name="Language">Subtitle language (D50).</param>
+public sealed record EpisodeCandidate(VideoFacts Episode, Eligibility Eligibility, string Language = SubtitleLanguage.English);
 
 /// <summary>Counts of episodes that will not be queued.</summary>
 /// <param name="AlreadySynced">Already synced.</param>
@@ -118,14 +119,45 @@ public sealed class SelectionValidator
     /// <summary>Validates and expands a selection.</summary>
     /// <param name="userId">Requesting user.</param>
     /// <param name="itemIds">Submitted season and episode ids.</param>
-    /// <param name="maxEpisodesPerRequest">Cap on eligible episodes.</param>
+    /// <param name="maxEpisodesPerRequest">Cap on eligible subtitles (an episode with an English and a Danish one counts twice).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="languages">Subtitle languages to queue (D50); null or empty: every language. A missing Danish
+    /// subtitle is simply not there to sync, so it isn't counted as skipped.</param>
+    /// <param name="again">Sync again (D51): only for exactly one episode or movie; its synced subtitles are queued too.</param>
     /// <returns>The result.</returns>
-    public async Task<SelectionResult> ValidateAsync(Guid userId, IReadOnlyList<Guid>? itemIds, int maxEpisodesPerRequest, CancellationToken cancellationToken)
+    /// <param name="excluded">Languages the installed SubSync can't sync (Danish before 1.5.0); left out of the selection.</param>
+    public async Task<SelectionResult> ValidateAsync(Guid userId, IReadOnlyList<Guid>? itemIds, int maxEpisodesPerRequest, CancellationToken cancellationToken,
+        IReadOnlyList<string>? languages = null, bool again = false, IReadOnlyCollection<string>? excluded = null)
     {
         if (itemIds is null || itemIds.Count == 0)
         {
             return SelectionResult.Reject(ErrorCodes.NothingEligible, "Select at least one season, episode or movie.");
+        }
+
+        var wanted = (languages ?? []).Select(SubtitleLanguage.Parse).ToList();
+        if (wanted.Any(l => l is null))
+        {
+            return SelectionResult.Reject(ErrorCodes.UnsupportedItemType, "Subtitle languages are \"en\" and \"da\".");
+        }
+
+        var langs = wanted.Count == 0 ? SubtitleLanguage.All : SubtitleLanguage.All.Where(l => wanted.Contains(l)).ToList();
+        if (again && (itemIds.Distinct().Count() != 1 || _library.GetNode(userId, itemIds[0]) is not { Kind: NodeKind.Episode or NodeKind.Movie }))
+        {
+            return SelectionResult.Reject(ErrorCodes.UnsupportedItemType, "Sync again works on one episode or movie at a time.");
+        }
+
+        if (again && langs.Count != 1)
+        {
+            return SelectionResult.Reject(ErrorCodes.UnsupportedItemType, "Sync again works on one subtitle language at a time.");
+        }
+
+        if (excluded is not null)
+        {
+            langs = langs.Where(l => !excluded.Contains(l)).ToList();
+            if (langs.Count == 0)
+            {
+                return SelectionResult.Reject(ErrorCodes.SubSyncUnavailable, "Danish subtitles need SubSync 1.5.0 or later. Update SubSync on the Subtitle Fixer settings page.");
+            }
         }
 
         if (itemIds.Count > MaxIdsPerRequest)
@@ -210,28 +242,68 @@ public sealed class SelectionValidator
             }
         }
 
-        var records = await _state.GetAsync(episodes.Select(e => e.Node.Id).ToArray(), cancellationToken).ConfigureAwait(false);
+        var ids = episodes.Select(e => e.Node.Id).ToArray();
+        var recordsOf = new Dictionary<string, IReadOnlyDictionary<Guid, SyncRecord>>();
+        foreach (var language in langs)
+        {
+            recordsOf[language] = await _state.GetAsync(ids, language, cancellationToken).ConfigureAwait(false);
+        }
 
         var eligible = new List<EpisodeCandidate>();
         int alreadySynced = 0, noAudio = 0, noSidecar = 0, noVideo = 0, attemptedBefore = 0;
         foreach (var episode in episodes)
         {
-            records.TryGetValue(episode.Node.Id, out var record);
-            var evaluation = EligibilityService.Evaluate(episode, record);
-            switch (evaluation.Reason)
+            var counted = false; // an episode counts once as "no English audio" or "no video", whatever its languages
+            var missing = false; // no English subtitle: counted only when no other language of the episode is queued
+            var before = eligible.Count;
+            foreach (var language in langs)
             {
-                case IneligibleReason.None:
-                    eligible.Add(new EpisodeCandidate(episode, evaluation));
-                    if (evaluation.Status == EpisodeStatus.Attempted)
-                    {
-                        attemptedBefore++;
-                    }
+                recordsOf[language].TryGetValue(episode.Node.Id, out var record);
+                var evaluation = EligibilityService.Evaluate(episode, record, language, again);
+                var english = language == SubtitleLanguage.English;
+                switch (evaluation.Reason)
+                {
+                    case IneligibleReason.None:
+                        eligible.Add(new EpisodeCandidate(episode, evaluation, language));
+                        if (evaluation.Status == EpisodeStatus.Attempted)
+                        {
+                            attemptedBefore++;
+                        }
 
-                    break;
-                case IneligibleReason.AlreadySynced: alreadySynced++; break;
-                case IneligibleReason.NoEnglishAudio: noAudio++; break;
-                case IneligibleReason.NoSidecar: noSidecar++; break;
-                case IneligibleReason.NoVideoFile: noVideo++; break;
+                        break;
+                    case IneligibleReason.AlreadySynced:
+                        alreadySynced++;
+                        break;
+                    case IneligibleReason.NoEnglishAudio:
+                        // a Danish subtitle only counts when there is one
+                        if (!counted && (english || (evaluation.Video is { } v && EligibilityService.FindSidecar(v.Path, language) is not null)))
+                        {
+                            noAudio++;
+                            counted = true;
+                        }
+
+                        break;
+                    case IneligibleReason.NoSidecar:
+                        if (english || langs.Count == 1)
+                        {
+                            missing = true;
+                        }
+
+                        break;
+                    case IneligibleReason.NoVideoFile:
+                        if (!counted)
+                        {
+                            noVideo++;
+                            counted = true;
+                        }
+
+                        break;
+                }
+            }
+
+            if (missing && eligible.Count == before)
+            {
+                noSidecar++;
             }
         }
 
@@ -240,8 +312,8 @@ public sealed class SelectionValidator
             return SelectionResult.Reject(
                 ErrorCodes.CapExceeded,
                 hasMovies
-                    ? $"{eligible.Count} movies can be fixed, but one request may queue at most {maxEpisodesPerRequest}. Select fewer movies."
-                    : $"{eligible.Count} episodes can be fixed, but one request may queue at most {maxEpisodesPerRequest}. Select fewer seasons or episodes.");
+                    ? $"{eligible.Count} movie subtitles can be fixed, but one request may queue at most {maxEpisodesPerRequest}. Select fewer movies."
+                    : $"{eligible.Count} episode subtitles can be fixed, but one request may queue at most {maxEpisodesPerRequest}. Select fewer seasons or episodes.");
         }
 
         return new SelectionResult

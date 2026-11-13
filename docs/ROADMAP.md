@@ -87,3 +87,10 @@ Phase 2: `subsync-cli serve`, one process per queue run, replacing D5 (D45, owne
 - [x] `GET`/`POST /Admin/SubSyncUpdate` (admin only), settings page section, `maintenance` in `/Status`.
 - Tested 2026-11-12 on Linux: build clean, 484 tests (41 new); the settings page's update section in headless Chromium with a stand-in `ApiClient` (offered, running, done; a CSS bug that kept the button visible was found and fixed). Not run: the real GitHub API and release zip, and the swap on Windows.
 - [ ] Owner: the `M0-LIVE-CHECKS.md` "SubSync update" checks.
+
+## M7 Danish subtitles (0.7.0.0, owner 2026-11-12)
+- [x] Danish sidecars re-timed on English audio with SubSync 1.5.0, timed by the English sidecar when there is one; records, journal and failed-syncs log per language (schema v5) (D50).
+- [x] Start queues every eligible language; queue entries per item and language; Retry keeps the language.
+- [x] Sync again per episode and language, with an "outdated" mark for syncs before SubSync 1.4.1 (D51).
+- [x] EN / DA chips with Find subtitles per language, Sync again and Download new; Bazarr's Danish downloads re-timed; no Match badge (D52).
+- [ ] Owner: on the test server (Jellyfin + Bazarr): a season with English and Danish subtitles, Sync again, Download new for both languages, a Danish download from Find subtitles.

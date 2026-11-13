@@ -16,7 +16,8 @@ public sealed record BazarrInfoDto(bool Enabled);
 /// <summary><c>POST /Bazarr/Download</c> request.</summary>
 /// <param name="ItemId">Episode or movie.</param>
 /// <param name="ResultId">Result handle from <c>GET /Bazarr/Search</c>.</param>
-public sealed record BazarrDownloadRequest(Guid? ItemId, string? ResultId);
+/// <param name="Replace">Download new (D52): replace the English or Danish subtitle that is already there.</param>
+public sealed record BazarrDownloadRequest(Guid? ItemId, string? ResultId, bool Replace = false);
 
 /// <summary>
 /// Find subtitles for any allowed user (BAZARR-PLAN.md owner decision 4: no separate Bazarr permission). The API key
@@ -63,7 +64,7 @@ public sealed class BazarrSearchController : ControllerBase
             return ApiResults.Error(StatusCodes.Status400BadRequest, "bad_request", "itemId and resultId are required.");
         }
 
-        var (result, error) = await _download.DownloadAsync(caller.User.Id, id, request.ResultId, cancellationToken).ConfigureAwait(false);
+        var (result, error) = await _download.DownloadAsync(caller.User.Id, id, request.ResultId, cancellationToken, request.Replace).ConfigureAwait(false);
         if (error is not null)
         {
             if (error.RetryAfterSeconds is { } seconds)
@@ -94,10 +95,12 @@ public sealed class BazarrSearchController : ControllerBase
     /// <summary>Bazarr's manual-search results for one episode or movie with no English subtitle (D28).</summary>
     /// <param name="itemId">Episode or movie.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="language">The language the search is for (<c>en</c>, <c>da</c>; D52), or none.</param>
+    /// <param name="replace">Download new: the subtitle of that language that is there will be replaced.</param>
     /// <returns>The results.</returns>
     [HttpGet("Search")]
     [Produces(MediaTypeNames.Application.Json)]
-    public async Task<IActionResult> Search([FromQuery] Guid? itemId, CancellationToken cancellationToken)
+    public async Task<IActionResult> Search([FromQuery] Guid? itemId, CancellationToken cancellationToken, [FromQuery] string? language = null, [FromQuery] bool replace = false)
     {
         if (Deny(out var caller) is { } denied)
         {
@@ -109,7 +112,7 @@ public sealed class BazarrSearchController : ControllerBase
             return ApiResults.Error(StatusCodes.Status400BadRequest, "bad_request", "itemId is required.");
         }
 
-        var (result, error) = await _search.SearchAsync(caller.User.Id, id, cancellationToken).ConfigureAwait(false);
+        var (result, error) = await _search.SearchAsync(caller.User.Id, id, cancellationToken, language, replace).ConfigureAwait(false);
         if (error is not null)
         {
             if (error.RetryAfterSeconds is { } seconds)

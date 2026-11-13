@@ -214,24 +214,41 @@ public sealed class FakeLibrary : ILibraryFacade
 /// <summary>In-memory state store.</summary>
 public sealed class FakeStateStore : IStateStore
 {
+    /// <summary>English records (the only ones before D50).</summary>
     public Dictionary<Guid, SyncRecord> Records { get; } = new();
+
+    /// <summary>Danish records (D50).</summary>
+    public Dictionary<Guid, SyncRecord> DanishRecords { get; } = new();
+
+    public Dictionary<Guid, SyncRecord> Of(string language) =>
+        SubtitleLanguage.Normalize(language) == SubtitleLanguage.Danish ? DanishRecords : Records;
+
+    public Task<IReadOnlyDictionary<Guid, SyncRecord>> GetAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken) =>
+        GetAsync(itemIds, SubtitleLanguage.English, cancellationToken);
+
+    public Task DeleteAsync(Guid itemId, CancellationToken cancellationToken) => DeleteAsync(itemId, SubtitleLanguage.English, cancellationToken);
+
+    public Task RemoveInFlightAsync(Guid itemId, CancellationToken cancellationToken) => RemoveInFlightAsync(itemId, SubtitleLanguage.English, cancellationToken);
 
     public string Location => "memory";
 
     public Task InitializeAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    public Task<IReadOnlyDictionary<Guid, SyncRecord>> GetAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyDictionary<Guid, SyncRecord>>(itemIds.Where(Records.ContainsKey).Distinct().ToDictionary(id => id, id => Records[id]));
+    public Task<IReadOnlyDictionary<Guid, SyncRecord>> GetAsync(IReadOnlyCollection<Guid> itemIds, string language, CancellationToken cancellationToken)
+    {
+        var records = Of(language);
+        return Task.FromResult<IReadOnlyDictionary<Guid, SyncRecord>>(itemIds.Where(records.ContainsKey).Distinct().ToDictionary(id => id, id => records[id]));
+    }
 
     public Task UpsertAsync(SyncRecord record, CancellationToken cancellationToken)
     {
-        Records[record.ItemId] = record;
+        Of(record.Language)[record.ItemId] = record;
         return Task.CompletedTask;
     }
 
-    public Task DeleteAsync(Guid itemId, CancellationToken cancellationToken)
+    public Task DeleteAsync(Guid itemId, string language, CancellationToken cancellationToken)
     {
-        Records.Remove(itemId);
+        Of(language).Remove(itemId);
         return Task.CompletedTask;
     }
 
@@ -246,17 +263,17 @@ public sealed class FakeStateStore : IStateStore
         return Task.CompletedTask;
     }
 
-    public Dictionary<Guid, InFlightBackup> InFlight { get; } = new();
+    public Dictionary<(Guid ItemId, string Language), InFlightBackup> InFlight { get; } = new();
 
     public Task AddInFlightAsync(InFlightBackup entry, CancellationToken cancellationToken)
     {
-        InFlight[entry.ItemId] = entry;
+        InFlight[(entry.ItemId, SubtitleLanguage.Normalize(entry.Language))] = entry;
         return Task.CompletedTask;
     }
 
-    public Task RemoveInFlightAsync(Guid itemId, CancellationToken cancellationToken)
+    public Task RemoveInFlightAsync(Guid itemId, string language, CancellationToken cancellationToken)
     {
-        InFlight.Remove(itemId);
+        InFlight.Remove((itemId, SubtitleLanguage.Normalize(language)));
         return Task.CompletedTask;
     }
 

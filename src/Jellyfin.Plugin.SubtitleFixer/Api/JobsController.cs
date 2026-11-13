@@ -13,8 +13,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace Jellyfin.Plugin.SubtitleFixer.Api;
 
 /// <summary><c>POST /Jobs</c> response.</summary>
-/// <param name="Queued">Episodes added.</param>
-/// <param name="Skipped">Selected episodes not added (ineligible, or already in the queue).</param>
+/// <param name="Queued">Subtitles added (since D50 an episode can add an English and a Danish one).</param>
+/// <param name="Skipped">Selected episodes with nothing to add (ineligible).</param>
 /// <param name="QueueLength">Queued and running episodes after adding.</param>
 public sealed record JobsAcceptedDto(int Queued, int Skipped, int QueueLength);
 
@@ -33,6 +33,8 @@ public sealed record JobsAcceptedDto(int Queued, int Skipped, int QueueLength);
 /// <param name="Stage">While running: reading_audio, listening or matching, once SubSync reports it.</param>
 /// <param name="ExpectedSeconds">While running: estimated total seconds, or null when the video length is unknown (D40).</param>
 /// <param name="Percent">While running: the item's progress from SubSync's own listening percentage (SubSync 1.3.0 and later), 0 to 95, or null.</param>
+/// <param name="Language">Subtitle language, <c>en</c> or <c>da</c> (D50).</param>
+/// <param name="Again">Queued with Sync again (D51).</param>
 public sealed record StatusItemDto(
     Guid JobId,
     Guid? ItemId,
@@ -47,7 +49,9 @@ public sealed record StatusItemDto(
     DateTime? StartedUtc,
     string? Stage = null,
     double? ExpectedSeconds = null,
-    int? Percent = null);
+    int? Percent = null,
+    string Language = SubtitleLanguage.English,
+    bool Again = false);
 
 /// <summary>Counts by status.</summary>
 /// <param name="Queued">Queued.</param>
@@ -91,6 +95,7 @@ public sealed record StatusDto(
 /// <param name="Source">manual or bazarr.</param>
 /// <param name="Note">Note from the source.</param>
 /// <param name="FinishedUtc">When it ended.</param>
+/// <param name="Language">Subtitle language, <c>en</c> or <c>da</c> (D50).</param>
 public sealed record FailedSyncDto(
     long Id,
     Guid? ItemId,
@@ -101,7 +106,8 @@ public sealed record FailedSyncDto(
     bool Mine,
     string Source,
     string? Note,
-    DateTime FinishedUtc);
+    DateTime FinishedUtc,
+    string Language = SubtitleLanguage.English);
 
 /// <summary><c>GET /FailedSyncs</c>.</summary>
 /// <param name="TotalCount">Entries the viewer may see.</param>
@@ -160,7 +166,7 @@ public sealed class JobsController : ControllerBase
             return denied;
         }
 
-        return await QueueAsync(caller, request?.ItemIds, cancellationToken).ConfigureAwait(false);
+        return await QueueAsync(caller, request?.ItemIds, cancellationToken, request?.Languages, request?.Again ?? false).ConfigureAwait(false);
     }
 
     /// <summary>The failed-syncs log (D44): the caller's own entries, or everyone's for an admin. Newest first, paged.</summary>
@@ -210,7 +216,7 @@ public sealed class JobsController : ControllerBase
             return ApiResults.Error(StatusCodes.Status404NotFound, "not_found", "That log entry was not found.");
         }
 
-        var result = await QueueAsync(caller, [entry.ItemId], cancellationToken).ConfigureAwait(false);
+        var result = await QueueAsync(caller, [entry.ItemId], cancellationToken, [entry.Language]).ConfigureAwait(false);
         if (result.StatusCode == StatusCodes.Status202Accepted)
         {
             await _state.RemoveFailedSyncsAsync(null, entry.Id, cancellationToken).ConfigureAwait(false);
@@ -266,14 +272,16 @@ public sealed class JobsController : ControllerBase
                 mine,
                 f.Source,
                 visible ? f.Note : null,
-                f.FinishedUtc);
+                f.FinishedUtc,
+                f.Language);
         }).ToList());
 
     private ContentResult? StateUnavailable() => _startup.StateReady
         ? null
         : ApiResults.Error(StatusCodes.Status503ServiceUnavailable, "state_unavailable", _startup.StateError ?? "The state database is not ready.");
 
-    private async Task<ContentResult> QueueAsync(Caller caller, IReadOnlyList<Guid>? itemIds, CancellationToken cancellationToken)
+    private async Task<ContentResult> QueueAsync(Caller caller, IReadOnlyList<Guid>? itemIds, CancellationToken cancellationToken,
+        IReadOnlyList<string>? languages = null, bool again = false)
     {
         if (!_worker.IsConfigured)
         {
@@ -281,7 +289,8 @@ public sealed class JobsController : ControllerBase
         }
 
         var config = Plugin.Instance?.Configuration;
-        var result = await _validator.ValidateAsync(caller.User.Id, itemIds, config?.MaxEpisodesPerRequest ?? 150, cancellationToken).ConfigureAwait(false);
+        var excluded = SubtitleLanguage.Supported(SubtitleLanguage.Danish, await _worker.GetVersionAsync(cancellationToken).ConfigureAwait(false)) ? null : new[] { SubtitleLanguage.Danish };
+        var result = await _validator.ValidateAsync(caller.User.Id, itemIds, config?.MaxEpisodesPerRequest ?? 150, cancellationToken, languages, again, excluded).ConfigureAwait(false);
         if (result.Error is { } error)
         {
             return ApiResults.Error(StatusCodes.Status400BadRequest, error.Code, error.Message);
@@ -292,7 +301,7 @@ public sealed class JobsController : ControllerBase
             return ApiResults.Error(StatusCodes.Status400BadRequest, ErrorCodes.NothingEligible, "None of the selected episodes can be fixed.");
         }
 
-        var items = result.Eligible.Select(c => new JobRequestItem(c.Episode.Node.Id, DisplayName(c.Episode.Node), result.SeriesName)).ToList();
+        var items = result.Eligible.Select(c => new JobRequestItem(c.Episode.Node.Id, DisplayName(c.Episode.Node), result.SeriesName, c.Language, again)).ToList();
         var queued = _queue.Enqueue(caller.User.Id, items, JobSource.Manual, null, config?.MaxQueuedEpisodes ?? 300);
         if (queued.Error is { } refused)
         {
@@ -301,7 +310,9 @@ public sealed class JobsController : ControllerBase
             return ApiResults.Error(status, refused.Code, refused.Message);
         }
 
-        return ApiResults.Json(new JobsAcceptedDto(queued.Queued, result.Selected - queued.Queued, queued.QueueLength), StatusCodes.Status202Accepted);
+        // Queued counts subtitles (an episode may add an English and a Danish one); Skipped counts episodes with none queued
+        var episodesQueued = result.Eligible.Select(c => c.Episode.Node.Id).Distinct().Count();
+        return ApiResults.Json(new JobsAcceptedDto(queued.Queued, Math.Max(0, result.Selected - episodesQueued), queued.QueueLength), StatusCodes.Status202Accepted);
     }
 
     /// <summary>The shared queue as the caller may see it.</summary>
@@ -374,7 +385,9 @@ public sealed class JobsController : ControllerBase
                 i.StartedUtc,
                 i.Stage,
                 i.ExpectedSeconds,
-                i.Percent);
+                i.Percent,
+                i.Language,
+                i.Again);
         }
 
         var items = snapshot.Items.Select(Map).ToList();
