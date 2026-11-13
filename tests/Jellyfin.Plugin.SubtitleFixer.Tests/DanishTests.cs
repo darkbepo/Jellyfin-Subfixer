@@ -113,7 +113,7 @@ public sealed class DanishTests : IDisposable
             [(both.Node.Id, "en"), (both.Node.Id, "da"), (onlyEn.Node.Id, "en"), (onlyDa.Node.Id, "da")],
             result.Eligible.Select(c => (c.Episode.Node.Id, c.Language)).ToList());
         Assert.Equal(2, result.Skipped.AlreadySynced);  // both of episode 4's
-        Assert.Equal(1, result.Skipped.NoSidecar);       // episode 3 has no English one; nobody is "missing" a Danish one
+        Assert.Equal(0, result.Skipped.NoSidecar);       // episode 3 has no English one but is queued for Danish; nobody is "missing" a Danish one
     }
 
     [Fact]
@@ -146,6 +146,68 @@ public sealed class DanishTests : IDisposable
         var e = Episode(1, en: true, da: false);
         var result = await new SelectionValidator(_library, _state).ValidateAsync(_user, [e.Node.Id], 150, CancellationToken.None, ["de"]);
         Assert.NotNull(result.Error);
+    }
+
+    [Fact]
+    public async Task Sync_again_needs_exactly_one_language()
+    {
+        var e = Episode(1, en: true, da: true);
+        var result = await new SelectionValidator(_library, _state).ValidateAsync(_user, [e.Node.Id], 150, CancellationToken.None, null, again: true);
+        Assert.Equal(ErrorCodes.UnsupportedItemType, result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task Danish_is_left_out_when_subsync_cant_sync_it()
+    {
+        var e = Episode(1, en: true, da: true);
+        var validator = new SelectionValidator(_library, _state);
+
+        var all = await validator.ValidateAsync(_user, [e.Node.Id], 150, CancellationToken.None, excluded: ["da"]);
+        var onlyDa = await validator.ValidateAsync(_user, [e.Node.Id], 150, CancellationToken.None, ["da"], excluded: ["da"]);
+
+        Assert.Equal("en", Assert.Single(all.Eligible).Language);
+        Assert.Equal(ErrorCodes.SubSyncUnavailable, onlyDa.Error!.Code);
+    }
+
+    [Fact]
+    public async Task An_episode_without_english_but_queued_for_danish_isnt_counted_as_skipped()
+    {
+        Episode(1, en: false, da: true);
+        Episode(2, en: false, da: false);
+
+        var result = await new SelectionValidator(_library, _state).ValidateAsync(_user, [_season.Id], 150, CancellationToken.None);
+
+        Assert.Single(result.Eligible);
+        Assert.Equal(1, result.Skipped.NoSidecar);  // only episode 2
+    }
+
+    [Fact]
+    public void Sync_again_on_a_queued_subtitle_makes_it_a_sync_again()
+    {
+        using var queue = new JobQueue(TimeProvider.System);
+        var id = Guid.NewGuid();
+        queue.Enqueue(_user, [new JobRequestItem(id, "E1", "Show", "da")], JobSource.Manual, null, 300);
+
+        var result = queue.Enqueue(_user, [new JobRequestItem(id, "E1", "Show", "da", Again: true)], JobSource.Manual, null, 300);
+
+        Assert.Equal(0, result.Queued);
+        Assert.True(Assert.Single(queue.Snapshot().Items).Again);
+    }
+
+    [Fact]
+    public async Task A_sync_waits_while_a_download_works_on_the_same_item()
+    {
+        var e = Episode(1, en: true, da: false);
+        Assert.True(DownloadGuard.Shared.TryEnter(e.Node.Id));
+        var run = Runner().RunAsync(Job(e, "en"), CancellationToken.None);
+        await Task.Delay(600);
+        Assert.False(run.IsCompleted);
+        Assert.Equal(0, _worker.Calls);
+
+        DownloadGuard.Shared.Exit(e.Node.Id);
+        var outcome = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(JobItemStatus.Done, outcome.Status);
     }
 
     // ---------- queue ----------
@@ -311,6 +373,42 @@ public sealed class DanishTests : IDisposable
         Assert.Equal("a.en.srt", Assert.Single(await store.GetInFlightAsync(CancellationToken.None)).SubtitlePath);
         Assert.Empty(await store.GetAsync([e.Node.Id], "da", CancellationToken.None));
         Assert.Single(await store.GetAsync([e.Node.Id], CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_v4_database_keeps_its_records_journal_and_log_as_english()
+    {
+        using var dir = new TempDir();
+        var path = Path.Combine(dir.Path, "state.db");
+        var migrations = (string[])typeof(SqliteStateStore).GetField("Migrations", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null)!;
+        var item = Guid.NewGuid().ToString("N");
+        await using (var c = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + path))
+        {
+            await c.OpenAsync();
+            await using var cmd = c.CreateCommand();
+            cmd.CommandText = "CREATE TABLE schema_version (version INTEGER NOT NULL);" + string.Join("\n", migrations[1..5]) + $"""
+                INSERT INTO schema_version VALUES (4);
+                INSERT INTO synced_items (item_id, video_path, video_size, video_mtime_utc, subtitle_path, status, message, audio_language, subsync_version, seconds, updated_utc)
+                  VALUES ('{item}', 'v.mkv', 1, '2026-11-01T00:00:00.0000000Z', 'v.en.srt', 'done', NULL, 'en', '1.3.1', 60, '2026-11-01T00:00:00.0000000Z');
+                INSERT INTO in_flight (item_id, subtitle_path, backup_path, started_utc) VALUES ('{item}', 'v.en.srt', 'v.en.srt.bak', '2026-11-01T00:00:00.0000000Z');
+                INSERT INTO failed_syncs (item_id, name, series_name, user_id, status, message, source, note, finished_utc)
+                  VALUES ('{item}', 'E1', 'Show', '{Guid.NewGuid():N}', 'failed', 'x', 'manual', NULL, '2026-11-01T00:00:00.0000000Z');
+                """;
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        using var store = new SqliteStateStore(path, NullLogger<SqliteStateStore>.Instance);
+        await store.InitializeAsync(CancellationToken.None);
+
+        var id = Guid.ParseExact(item, "N");
+        var record = Assert.Single(await store.GetAsync([id], CancellationToken.None)).Value;
+        Assert.Equal("en", record.Language);
+        Assert.Equal("1.3.1", record.SubSyncVersion);
+        Assert.Empty(await store.GetAsync([id], "da", CancellationToken.None));
+        Assert.Equal("en", Assert.Single(await store.GetInFlightAsync(CancellationToken.None)).Language);
+        Assert.Equal("en", Assert.Single((await store.GetFailedSyncsAsync(null, 0, 10, CancellationToken.None)).Items).Language);
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
     }
 
     // ---------- the page's subtitle list (D52) ----------

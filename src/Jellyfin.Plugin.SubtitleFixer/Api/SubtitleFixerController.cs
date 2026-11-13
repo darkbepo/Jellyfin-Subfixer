@@ -25,6 +25,7 @@ public sealed class SubtitleFixerController : ControllerBase
     private const int MaxPageSize = 200;
     private const string DiagnosticKey = "diagnostic_last_write";
 
+    private readonly Worker.ISubSyncWorker _worker;
     private readonly AccessService _access;
     private readonly BrowseService _browse;
     private readonly SelectionValidator _validator;
@@ -42,6 +43,7 @@ public sealed class SubtitleFixerController : ControllerBase
     /// <param name="state">State store.</param>
     /// <param name="startup">Startup status.</param>
     /// <param name="probe">SubSync probe.</param>
+    /// <param name="worker">SubSync worker (its version decides whether Danish can be synced, D50).</param>
     /// <param name="allLibraries">The library without the "Libraries" setting applied (for the settings page).</param>
     public SubtitleFixerController(
         AccessService access,
@@ -50,8 +52,10 @@ public sealed class SubtitleFixerController : ControllerBase
         IStateStore state,
         StartupStatus startup,
         SubSyncProbe probe,
-        JellyfinLibraryFacade allLibraries)
+        JellyfinLibraryFacade allLibraries,
+        Worker.ISubSyncWorker worker)
     {
+        _worker = worker;
         _allLibraries = allLibraries;
         _access = access;
         _browse = browse;
@@ -140,7 +144,8 @@ public sealed class SubtitleFixerController : ControllerBase
         }
 
         var max = Plugin.Instance?.Configuration.MaxEpisodesPerRequest ?? 150;
-        var result = await _validator.ValidateAsync(caller.User.Id, request?.ItemIds, max, cancellationToken, request?.Languages, request?.Again ?? false).ConfigureAwait(false);
+        var excluded = SubtitleLanguage.Supported(SubtitleLanguage.Danish, await _worker.GetVersionAsync(cancellationToken).ConfigureAwait(false)) ? null : new[] { SubtitleLanguage.Danish };
+        var result = await _validator.ValidateAsync(caller.User.Id, request?.ItemIds, max, cancellationToken, request?.Languages, request?.Again ?? false, excluded).ConfigureAwait(false);
         if (result.Error is { } error)
         {
             return Error(StatusCodes.Status400BadRequest, error.Code, error.Message);

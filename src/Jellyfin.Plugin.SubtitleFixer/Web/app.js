@@ -777,7 +777,7 @@
             var pending = job && (job.status === 'queued' || job.status === 'running');
             var chip = el('button', 'sub-chip ' + (s.present ? 'present' : 'missing'));
             chip.type = 'button';
-            chip.tabIndex = -1;
+            chip.tabIndex = 0;  // reachable with Tab; Enter / Space opens it
             chip.dataset.lang = s.language;
             if (s.present && s.status === 'done') { chip.classList.add('synced'); }
             if (s.outdated) { chip.classList.add('outdated'); }
@@ -815,9 +815,11 @@
         return !(job && (job.status === 'queued' || job.status === 'running'));
     }
 
-    var chipMenu = null;
-    function closeChipMenu() {
+    var chipMenu = null, chipMenuFrom = null;
+    function closeChipMenu(refocus) {
         if (chipMenu) { chipMenu.remove(); chipMenu = null; }
+        if (refocus && chipMenuFrom && document.body.contains(chipMenuFrom)) { chipMenuFrom.focus(); }
+        chipMenuFrom = null;
     }
     function openChipMenu(chip, item, s) {
         closeChipMenu();
@@ -844,11 +846,26 @@
         menu.style.left = Math.max(8, Math.min(window.scrollX + r.left, window.scrollX + document.documentElement.clientWidth - menu.offsetWidth - 8)) + 'px';
         menu.setAttribute('aria-label', name + ' subtitle');
         chipMenu = menu;
+        chipMenuFrom = chip;
+        // arrow keys move between the menu's items; Tab leaves it
+        menu.addEventListener('keydown', function (e) {
+            var items = Array.prototype.filter.call(menu.querySelectorAll('button'), function (b) { return !b.disabled; });
+            var at = items.indexOf(document.activeElement);
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (items.length) { items[(at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus(); }
+            } else if (e.key === 'Tab') {
+                closeChipMenu(false);
+            }
+        });
         var first = menu.querySelector('button:not(:disabled)');
         if (first) { first.focus(); }
     }
     document.addEventListener('click', function (e) { if (chipMenu && !chipMenu.contains(e.target)) { closeChipMenu(); } });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && chipMenu) { closeChipMenu(); } });
+    document.addEventListener('keydown', function (e) {
+        // only the menu closes: the pop-up's own Escape handler skips handled keys
+        if (e.key === 'Escape' && chipMenu) { e.preventDefault(); e.stopPropagation(); closeChipMenu(true); }
+    }, true);
 
     // Sync again (D51): one episode or movie, one language, also when it is already synced.
     function syncAgain(item, lang) {
@@ -1219,6 +1236,7 @@
 
     function renderQueue(s) {
         var previous = queueByItem;
+        var previousLang = queueByLang;
         lastStatus = s;
         queueByItem = new Map();
         queueByLang = new Map();
@@ -1342,6 +1360,9 @@
         var changed = false;
         queueByItem.forEach(function (v, k) { var p = previous.get(k); if (!p || p.status !== v.status) { changed = true; } });
         previous.forEach(function (_, k) { if (!queueByItem.has(k)) { changed = true; } });
+        // D50: the other language's job of the same item can change while the item's main entry doesn't
+        queueByLang.forEach(function (v, k) { var p = previousLang.get(k); if (!p || p.status !== v.status) { changed = true; } });
+        previousLang.forEach(function (_, k) { if (!queueByLang.has(k)) { changed = true; } });
         if (changed) { rerenderRows(); }
     }
 
@@ -1504,6 +1525,8 @@
     function onListKey(e) {
         var r = e.target.closest('.row');
         if (!r) { return; }
+        // a subtitle chip handles its own Enter and Space (it's a button, D52)
+        if (e.target.closest('.sub-chip') && (e.key === 'Enter' || e.key === ' ')) { return; }
         var all = rows();
         var i = all.indexOf(r);
         var item = view.items.filter(function (x) { return x.id === r.dataset.id; })[0];
@@ -1526,7 +1549,8 @@
             case 'Enter':
                 if (item && !isVideo(item)) { openItem(item); e.preventDefault(); }
                 else if (item && view.mode === 'search' && item.type === 'Episode') { openItem(item); e.preventDefault(); }
-                else if (item && canFind(item)) { openFind(item); e.preventDefault(); }  // the row's Find subtitles button
+                else if (item && item.subtitles && r.querySelector('.sub-chip')) { r.querySelector('.sub-chip').focus(); e.preventDefault(); }  // into the chips (D52)
+                else if (item && canFind(item)) { openFind(item); e.preventDefault(); }
                 break;
             case ' ':
                 if (e.target.tagName === 'INPUT') { return; }  // the checkbox handles its own space

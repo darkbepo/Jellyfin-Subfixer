@@ -34,6 +34,9 @@ public static class BazarrErrorCodes
     /// <summary>The search result handle has expired or belongs to someone else.</summary>
     public const string ResultExpired = "result_expired";
 
+    /// <summary>The item is queued or being synced, so its subtitle files can't be touched now (D52).</summary>
+    public const string ItemBusy = "item_busy";
+
     /// <summary>Another download for the same item is running.</summary>
     public const string DownloadInProgress = "download_in_progress";
 

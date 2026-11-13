@@ -289,7 +289,8 @@ public sealed class JobsController : ControllerBase
         }
 
         var config = Plugin.Instance?.Configuration;
-        var result = await _validator.ValidateAsync(caller.User.Id, itemIds, config?.MaxEpisodesPerRequest ?? 150, cancellationToken, languages, again).ConfigureAwait(false);
+        var excluded = SubtitleLanguage.Supported(SubtitleLanguage.Danish, await _worker.GetVersionAsync(cancellationToken).ConfigureAwait(false)) ? null : new[] { SubtitleLanguage.Danish };
+        var result = await _validator.ValidateAsync(caller.User.Id, itemIds, config?.MaxEpisodesPerRequest ?? 150, cancellationToken, languages, again, excluded).ConfigureAwait(false);
         if (result.Error is { } error)
         {
             return ApiResults.Error(StatusCodes.Status400BadRequest, error.Code, error.Message);

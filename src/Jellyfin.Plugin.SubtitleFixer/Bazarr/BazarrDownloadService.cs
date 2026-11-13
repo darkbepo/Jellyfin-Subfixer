@@ -48,6 +48,7 @@ public sealed class BazarrDownloadService
     private readonly Func<PluginConfiguration?> _config;
     private readonly BazarrDownloadTiming _timing;
     private readonly ConcurrentDictionary<Guid, byte> _items = new();
+    private readonly DownloadGuard _guard = DownloadGuard.Shared;
     private readonly ConcurrentDictionary<Guid, byte> _users = new();
 
     /// <summary>
@@ -121,7 +122,8 @@ public sealed class BazarrDownloadService
 
         // English and Danish subtitles are re-timed (Danish only on English audio), so only they need SubSync and room
         // in the queue (D48, D50).
-        var language = SubtitleLanguage.Parse(BazarrSearchService.LanguageCodeOf(stored.Result.Language));
+        var code = BazarrSearchService.LanguageCodeOf(stored.Result.Language);
+        var language = BazarrSearchService.IsEnglish(stored.Result.Language) ? SubtitleLanguage.English : SubtitleLanguage.Parse(code);  // en-us, en-gb are English
         var fingerprint = VideoFingerprint.FromFile(video.VideoPath!);
         var english = language == SubtitleLanguage.English;
         if (english && !EligibilityService.HasEnglishAudio(video, fingerprint))
@@ -155,8 +157,22 @@ public sealed class BazarrDownloadService
             }
         }
 
+        // Never touch the files of an item that is being synced: the download's snapshot and restore would undo the
+        // sync, or the sync's backup would undo the download (D52). The guard makes a job that starts meanwhile wait.
+        if (_queue.Snapshot().Items.Any(i => i.ItemId == itemId && i.Status is JobItemStatus.Queued or JobItemStatus.Running)
+            || (await _state.GetInFlightAsync(cancellationToken).ConfigureAwait(false)).Any(f => f.ItemId == itemId))
+        {
+            return Fail(StatusCodes.Status409Conflict, BazarrErrorCodes.ItemBusy, "This item is in the queue to be synced. Try again when it's done.");
+        }
+
         if (!_items.TryAdd(itemId, 0))
         {
+            return Fail(StatusCodes.Status409Conflict, BazarrErrorCodes.DownloadInProgress, "A subtitle is already being downloaded for this item.");
+        }
+
+        if (!_guard.TryEnter(itemId))
+        {
+            _items.TryRemove(itemId, out _);
             return Fail(StatusCodes.Status409Conflict, BazarrErrorCodes.DownloadInProgress, "A subtitle is already being downloaded for this item.");
         }
 
@@ -178,6 +194,7 @@ public sealed class BazarrDownloadService
         }
         finally
         {
+            _guard.Exit(itemId);
             _items.TryRemove(itemId, out _);
         }
     }
@@ -314,10 +331,33 @@ public sealed class BazarrDownloadService
             }
         }
 
+        // Download new: every subtitle of that language is copied to a new <name>.old on disk before Bazarr can write,
+        // so it is never only in memory (D52). No copy, no download.
+        var kept = new List<(string Path, string Old)>();
+        if (retimeLanguage is not null && replace)
+        {
+            foreach (var path in SameLanguage(videoPath, retimeLanguage))
+            {
+                var old = OldPath(path);
+                try
+                {
+                    File.Copy(path, old, overwrite: false);
+                    kept.Add((path, old));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _logger.LogError(ex, "Could not keep a copy of {Path}; nothing downloaded", path);
+                    DeleteQuietly(kept.Select(k => k.Old));
+                    return Fail(StatusCodes.Status409Conflict, BazarrErrorCodes.DownloadFailed, $"Couldn't keep a copy of {Path.GetFileName(path)} next to it ({ex.Message}), so nothing was downloaded.");
+                }
+            }
+        }
+
         var accepted = await _client.DownloadAsync(connection, stored.Target, stored.Result, cancellationToken).ConfigureAwait(false);
         if (!accepted.Ok)
         {
             await RestoreAsync(copies, _logger).ConfigureAwait(false);
+            DeleteQuietly(kept.Select(k => k.Old));  // nothing was written: the copies aren't needed
             var error = accepted.Failure switch
             {
                 BazarrFailure.NotFound => new BazarrError(StatusCodes.Status404NotFound, BazarrErrorCodes.NotFound, "Bazarr doesn't know this item any more."),
@@ -343,6 +383,7 @@ public sealed class BazarrDownloadService
             var strays = NewFiles(videoPath, before);
             RemoveNewAccepted(videoPath, lang, before);
             await RestoreAsync(copies, _logger).ConfigureAwait(false);
+            // the .old copies stay: Bazarr may still write after the wait (D33), and then the copy is what's left
             var names = string.Join(" or ", SubtitleLanguage.Tags(lang).Take(2).Select(t => "." + t + ".srt"));
             var hint = strays.Count > 0
                 ? $" Bazarr saved {string.Join(", ", strays)}, a name Subtitle Fixer doesn't re-time; it needs <video>{names} (check Bazarr's 'single language' and hearing-impaired extension settings)."
@@ -351,18 +392,32 @@ public sealed class BazarrDownloadService
             return Fail(StatusCodes.Status502BadGateway, BazarrErrorCodes.DownloadFailed, $"Bazarr didn't save a usable {SubtitleLanguage.Name(lang)} subtitle within {_timing.WaitTimeout.TotalSeconds:0} seconds." + hint);
         }
 
-        // Anything else Bazarr overwrote goes back; the new (or, with Download new, replaced) sidecar stays. A
-        // replaced one is kept as <name>.old, and an older one of the same language that would be synced instead of
-        // the new one is moved aside to <name>.old too (D52).
+        // Anything else Bazarr overwrote goes back; the new (or, with Download new, replaced) sidecar stays. An older
+        // one of the same language that would be synced instead of the new one is removed (its .old copy is on disk);
+        // if that fails, the download is undone (D52).
         var replaced = copies.FirstOrDefault(c => string.Equals(c.Path, sidecar.Path, StringComparison.OrdinalIgnoreCase));
         await RestoreAsync(copies.Where(c => c != replaced).ToList(), _logger).ConfigureAwait(false);
-        var keptOld = new List<string>();
-        if (replaced is not null && KeepOld(replaced.Path, replaced.Bytes) is { } old)
+        if (RemoveShadows(videoPath, lang, sidecar, kept) is { } stuck)
         {
-            keptOld.Add(Path.GetFileName(old));
+            await RestoreAsync(copies, _logger).ConfigureAwait(false);
+            RemoveNewAccepted(videoPath, lang, before);
+            DeleteQuietly(kept.Select(k => k.Old));  // everything is back as it was
+            return Fail(StatusCodes.Status409Conflict, BazarrErrorCodes.DownloadFailed, $"{Path.GetFileName(stuck)} couldn't be moved aside, so the new subtitle wouldn't be the one synced. The download was undone; your subtitles are as they were.");
         }
 
-        keptOld.AddRange(MoveShadowsAside(videoPath, lang, sidecar));
+        // keep the copies of what was replaced or moved aside; the others were untouched
+        var keptOld = new List<string>();
+        foreach (var (path, old) in kept)
+        {
+            if (string.Equals(path, sidecar.Path, StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
+            {
+                keptOld.Add(Path.GetFileName(old));
+            }
+            else
+            {
+                DeleteQuietly([old]);
+            }
+        }
 
         // A fresh subtitle must be synced even if this video was synced before (BAZARR-PLAN.md rule 5).
         await _state.DeleteAsync(video.Node.Id, lang, CancellationToken.None).ConfigureAwait(false);
@@ -535,7 +590,7 @@ public sealed class BazarrDownloadService
             var copy = copies.FirstOrDefault(c => string.Equals(c.Path, path, StringComparison.OrdinalIgnoreCase));
             try
             {
-                if (copy is null || !File.ReadAllBytes(path).AsSpan().SequenceEqual(copy.Bytes))
+                if (copy is null || File.GetLastWriteTimeUtc(path) != copy.LastWriteUtc || !File.ReadAllBytes(path).AsSpan().SequenceEqual(copy.Bytes))
                 {
                     return new Sidecar(path, tag, language);
                 }
@@ -579,58 +634,74 @@ public sealed class BazarrDownloadService
         }
     }
 
-    /// <summary>Keeps the replaced subtitle's previous content as <c>&lt;name&gt;.old</c> (Download new, D52).</summary>
-    private string? KeepOld(string path, byte[] bytes)
+    /// <summary>The accepted sidecars of a language next to the video, in priority order.</summary>
+    private static List<string> SameLanguage(string videoPath, string language)
+    {
+        var folder = Path.GetDirectoryName(videoPath)!;
+        var baseName = Path.GetFileNameWithoutExtension(videoPath);
+        return SubtitleLanguage.Tags(language).Select(t => Path.Combine(folder, baseName + "." + t + ".srt")).Where(File.Exists).ToList();
+    }
+
+    /// <summary><c>&lt;name&gt;.old</c>, or <c>.old.1</c>, <c>.old.2</c>… so an earlier copy is never overwritten.</summary>
+    internal static string OldPath(string path)
     {
         var old = path + ".old";
-        try
+        for (var n = 1; File.Exists(old); n++)
         {
-            File.WriteAllBytes(old, bytes);
-            return old;
+            old = path + ".old." + n.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+
+        return old;
+    }
+
+    private void DeleteQuietly(IEnumerable<string> paths)
+    {
+        foreach (var p in paths)
         {
-            _logger.LogError(ex, "Could not keep the previous subtitle as {Path}", old);
-            return null;
+            try
+            {
+                File.Delete(p);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Could not remove {Path}", p);
+            }
         }
     }
 
     /// <summary>
     /// After Download new: an older sidecar of the same language that comes before the new one in priority order
-    /// (for example the old <c>.en.srt</c> when Bazarr wrote <c>.en.hi.srt</c>) would be synced instead, so it is
-    /// renamed to <c>&lt;name&gt;.old</c>. Returns the new names.
+    /// (the old <c>.en.srt</c> when Bazarr wrote <c>.en.hi.srt</c>) would be synced instead, so it is removed. Only
+    /// files with a <c>.old</c> copy on disk are removed. Returns the file that couldn't be removed, or null.
     /// </summary>
-    private List<string> MoveShadowsAside(string videoPath, string language, Sidecar fresh)
+    private string? RemoveShadows(string videoPath, string language, Sidecar fresh, List<(string Path, string Old)> kept)
     {
-        var moved = new List<string>();
-        var folder = Path.GetDirectoryName(videoPath)!;
-        var baseName = Path.GetFileNameWithoutExtension(videoPath);
-        foreach (var tag in SubtitleLanguage.Tags(language))
+        foreach (var path in SameLanguage(videoPath, language))
         {
-            if (string.Equals(tag, fresh.LanguageTag, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(path, fresh.Path, StringComparison.OrdinalIgnoreCase))
             {
                 break;
             }
 
-            var path = Path.Combine(folder, baseName + "." + tag + ".srt");
-            if (!File.Exists(path))
-            {
-                continue;
-            }
-
+            var copy = kept.FirstOrDefault(k => string.Equals(k.Path, path, StringComparison.OrdinalIgnoreCase));
             try
             {
-                File.Move(path, path + ".old", overwrite: true);
-                moved.Add(Path.GetFileName(path) + ".old");
-                _logger.LogInformation("Moved {Path} aside so the new subtitle is the one synced", path);
+                if (copy.Old is null || !File.Exists(copy.Old) || new FileInfo(copy.Old).Length != new FileInfo(path).Length)
+                {
+                    return path;  // no safe copy: leave it, and undo the download
+                }
+
+                File.Delete(path);
+                _logger.LogInformation("Moved {Path} aside (kept as {Old}) so the new subtitle is the one synced", path, copy.Old);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 _logger.LogError(ex, "Could not move {Path} aside", path);
+                return path;
             }
         }
 
-        return moved;
+        return null;
     }
 
     private static List<string> NewFiles(string videoPath, HashSet<string> before)

@@ -25,7 +25,7 @@ Enforced on the server; the UI mirrors them. See `docs/API.md` for error codes.
 1. **One series per request.** Every submitted ID is resolved to its parent series; more than one series is rejected. Multiple seasons of the same series are allowed. Movies have no series: any movies may go together, but movies and episodes are never mixed (`mixed_selection`).
 2. **Only episodes and movies reach the queue.** Season IDs expand to episodes. Series IDs and library IDs are rejected.
 3. **UI series lock.** Once anything is selected, items of other series cannot be selected until the selection is cleared (they stay visible and browsable, dimmed).
-4. **Caps** (configurable): `MaxEpisodesPerRequest` default 150, `MaxQueuedEpisodes` default 300. Skipped and ineligible episodes do not count.
+4. **Caps** (configurable): `MaxEpisodesPerRequest` default 150, `MaxQueuedEpisodes` default 300. Skipped and ineligible episodes do not count. Since D50 they count subtitles: an episode with an English and a Danish subtitle counts twice.
 5. **One SubSync at a time**; global queue. With SubSync 1.3.0 that one process may hold the next item too, sent ahead while the current one listens (D45).
 6. **Never re-sync** an episode with a matching `done` record, except when a user chooses **Sync again** on that one episode or movie and language (D51).
 7. **Never lose a subtitle**: backup, run, verify, swap, delete backup; restore on any failure (`docs/JOB-FLOW.md`).

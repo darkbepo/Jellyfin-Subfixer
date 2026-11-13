@@ -125,8 +125,9 @@ public sealed class SelectionValidator
     /// subtitle is simply not there to sync, so it isn't counted as skipped.</param>
     /// <param name="again">Sync again (D51): only for exactly one episode or movie; its synced subtitles are queued too.</param>
     /// <returns>The result.</returns>
+    /// <param name="excluded">Languages the installed SubSync can't sync (Danish before 1.5.0); left out of the selection.</param>
     public async Task<SelectionResult> ValidateAsync(Guid userId, IReadOnlyList<Guid>? itemIds, int maxEpisodesPerRequest, CancellationToken cancellationToken,
-        IReadOnlyList<string>? languages = null, bool again = false)
+        IReadOnlyList<string>? languages = null, bool again = false, IReadOnlyCollection<string>? excluded = null)
     {
         if (itemIds is null || itemIds.Count == 0)
         {
@@ -143,6 +144,20 @@ public sealed class SelectionValidator
         if (again && (itemIds.Distinct().Count() != 1 || _library.GetNode(userId, itemIds[0]) is not { Kind: NodeKind.Episode or NodeKind.Movie }))
         {
             return SelectionResult.Reject(ErrorCodes.UnsupportedItemType, "Sync again works on one episode or movie at a time.");
+        }
+
+        if (again && langs.Count != 1)
+        {
+            return SelectionResult.Reject(ErrorCodes.UnsupportedItemType, "Sync again works on one subtitle language at a time.");
+        }
+
+        if (excluded is not null)
+        {
+            langs = langs.Where(l => !excluded.Contains(l)).ToList();
+            if (langs.Count == 0)
+            {
+                return SelectionResult.Reject(ErrorCodes.SubSyncUnavailable, "Danish subtitles need SubSync 1.5.0 or later. Update SubSync on the Subtitle Fixer settings page.");
+            }
         }
 
         if (itemIds.Count > MaxIdsPerRequest)
@@ -239,6 +254,8 @@ public sealed class SelectionValidator
         foreach (var episode in episodes)
         {
             var counted = false; // an episode counts once as "no English audio" or "no video", whatever its languages
+            var missing = false; // no English subtitle: counted only when no other language of the episode is queued
+            var before = eligible.Count;
             foreach (var language in langs)
             {
                 recordsOf[language].TryGetValue(episode.Node.Id, out var record);
@@ -269,7 +286,7 @@ public sealed class SelectionValidator
                     case IneligibleReason.NoSidecar:
                         if (english || langs.Count == 1)
                         {
-                            noSidecar++;
+                            missing = true;
                         }
 
                         break;
@@ -282,6 +299,11 @@ public sealed class SelectionValidator
 
                         break;
                 }
+            }
+
+            if (missing && eligible.Count == before)
+            {
+                noSidecar++;
             }
         }
 

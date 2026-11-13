@@ -139,6 +139,21 @@ public sealed class JobRunner
             return Done(new RunOutcome(JobItemStatus.Failed, "Danish subtitles need SubSync 1.5.0 or later. Update SubSync on the Subtitle Fixer settings page.", null, null));
         }
 
+        // a Bazarr download is working on this item's files right now: wait for it (bounded, D52)
+        if (DownloadGuard.Shared.IsActive(job.ItemId))
+        {
+            try
+            {
+                await DownloadGuard.Shared.WaitAsync(job.ItemId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return Done(new RunOutcome(JobItemStatus.Cancelled, "Cancelled.", null, null));
+            }
+
+            return await PrepareAsync(job, cancellationToken).ConfigureAwait(false);  // the files may have changed
+        }
+
         if (cancellationToken.IsCancellationRequested)
         {
             return Done(new RunOutcome(JobItemStatus.Cancelled, "Cancelled.", null, null));

@@ -207,7 +207,16 @@ public sealed class JobQueue : IDisposable
                 return new EnqueueResult(new SelectionError(ErrorCodes.SubSyncUnavailable, maintenance), 0, 0, _entries.Count(e => e.IsPending));
             }
 
-            // one entry per item and subtitle language (D50)
+            // one entry per item and subtitle language (D50); Sync again on one that is still queued makes it a sync again (D51)
+            foreach (var item in items.Where(i => i.Again))
+            {
+                var waiting = _entries.FirstOrDefault(e => e.Status == JobItemStatus.Queued && e.ItemId == item.ItemId && e.Language == Domain.SubtitleLanguage.Normalize(item.Language));
+                if (waiting is not null)
+                {
+                    waiting.Again = true;
+                }
+            }
+
             var pendingIds = _entries.Where(e => e.IsPending).Select(e => (e.ItemId, e.Language)).ToHashSet();
             var fresh = items.Where(i => pendingIds.Add((i.ItemId, Domain.SubtitleLanguage.Normalize(i.Language)))).ToList();
             var alreadyQueued = items.Count - fresh.Count;
@@ -626,7 +635,7 @@ public sealed class JobQueue : IDisposable
 
         public string Language { get; init; } = Domain.SubtitleLanguage.English;
 
-        public bool Again { get; init; }
+        public bool Again { get; set; }
 
         public JobItemStatus Status { get; set; } = JobItemStatus.Queued;
 
