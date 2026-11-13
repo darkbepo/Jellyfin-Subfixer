@@ -145,6 +145,20 @@
             r.audioUntagged = !!node.facts.untagged && ev.reason === 'no_english_audio';
             r.audioCheck = node.facts.checked || null;
             r.subtitleHi = ev.reason !== 'no_sidecar' && !!node.facts.hi;
+            // D50/D52: one entry per language. Mock: every third episode (and some movies) also has a Danish subtitle.
+            var enThere = ev.reason !== 'no_sidecar' && ev.reason !== 'no_video_file';
+            var noAudio = ev.reason === 'no_english_audio';
+            var daThere = node.facts.da || (((node.indexNumber || node.productionYear || 0) % 3) === 0 && ev.reason !== 'no_video_file');
+            var daDone = daThere && (node.facts.daState === 'done' || (!node.facts.daState && (node.indexNumber || 0) % 6 === 0));
+            r.subtitles = [
+                { language: 'en', present: enThere, hi: enThere && !!node.facts.hi, status: ev.status, eligible: ev.eligible, reason: ev.reason, message: ev.message,
+                  syncedWith: ev.status === 'done' ? (node.facts.old ? '1.3.1' : '1.5.0') : null, outdated: ev.status === 'done' && !!node.facts.old },
+                { language: 'da', present: daThere, hi: false, status: daDone ? 'done' : 'none', eligible: daThere && !daDone && !noAudio,
+                  reason: !daThere ? 'no_sidecar' : daDone ? 'already_synced' : noAudio ? 'no_english_audio' : null, message: null,
+                  syncedWith: daDone ? '1.5.0' : null, outdated: false }
+            ];
+            if (node.facts.state === 'done' && (node.indexNumber || 0) % 4 === 0) { r.subtitles[0].outdated = true; r.subtitles[0].syncedWith = '1.3.1'; }
+            if (!ev.eligible && r.subtitles[1].eligible) { r.eligible = true; r.reason = null; }
         }
         return r;
     }
@@ -201,9 +215,9 @@
     var queue = [];
     var stopReason = null;
     var jobSeq = 0;
-    function job(itemId, name, seriesName, userId, status) {
+    function job(itemId, name, seriesName, userId, status, language, again) {
         return { jobId: 'job-' + (++jobSeq), itemId: itemId, name: name, seriesName: seriesName, userId: userId, status: status || 'queued',
-            message: null, source: 'manual', note: null, seconds: null, startedUtc: null, cancelRequested: false };
+            message: null, source: 'manual', note: null, seconds: null, startedUtc: null, cancelRequested: false, language: language || 'en', again: !!again };
     }
     // Another user's episode from a library this viewer cannot see, already running.
     var other = job('hidden-1', 'S02E05 Private', 'Private Show', OTHER, 'running');
@@ -278,7 +292,7 @@
             return { jobId: j.jobId, itemId: v ? j.itemId : null, name: v ? j.name : 'Episode in another library', seriesName: v ? j.seriesName : null,
                 status: j.status, message: j.message, mine: j.userId === ME, source: j.source, note: v ? j.note : null, seconds: j.seconds, startedUtc: j.startedUtc,
                 stage: j.status === 'running' ? mockStage(j) : null, expectedSeconds: j.status === 'running' ? 3 : null,
-                percent: j.status === 'running' ? mockPercent(j) : null };
+                percent: j.status === 'running' ? mockPercent(j) : null, language: j.language || 'en', again: !!j.again };
         };
         var order = queue.filter(function (j) { return ['queued', 'running'].indexOf(j.status) < 0; })
             .concat(queue.filter(function (j) { return j.status === 'running'; }))
@@ -361,6 +375,12 @@
                 return ok({ kind: v.kind, seriesId: v.seriesId, seriesName: v.seriesName, selected: v.selected, eligible: v.eligible.length, skipped: v.skipped, attemptedBefore: v.attemptedBefore });
             }
             if (params.get('subsync') === 'off') { return err('subsync_unavailable', 503, 'SubSync is not configured. Ask an administrator.'); }
+            if (body && body.again) {  // Sync again (D51): one episode, one language
+                var one = items[body.itemIds[0]];
+                var lang = (body.languages && body.languages[0]) || 'en';
+                queue.push(job(one.id, one.type === 'Movie' ? one.name + ' (' + one.productionYear + ')' : 'S' + pad(one.parentIndexNumber) + 'E' + pad(one.indexNumber) + ' ' + one.name, one.seriesName || '', ME, 'queued', lang, true));
+                return ok({ queued: 1, skipped: 0, queueLength: queue.filter(function (j) { return j.status === 'queued' || j.status === 'running'; }).length }, 202);
+            }
             if (!v.eligible.length) { return err('nothing_eligible', 400, 'None of the selected episodes can be fixed.'); }
             var pendingIds = {};
             queue.forEach(function (j) { if (j.status === 'queued' || j.status === 'running') { pendingIds[j.itemId] = true; } });

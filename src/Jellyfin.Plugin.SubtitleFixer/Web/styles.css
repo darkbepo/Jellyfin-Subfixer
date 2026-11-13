@@ -392,3 +392,29 @@ button:disabled { opacity: 0.45; cursor: default; }
 /* ---------- inside the pop-up from the avatar menu (menu.js adds ?embedded=1) ---------- */
 .embedded .back { display: none; }
 .embedded .top { padding-right: 64px; } /* room for the pop-up's close button */
+
+/* Subtitle chips (D52): grey when the subtitle is missing, coloured when it's there, green when synced. */
+.subs { display: inline-flex; gap: 6px; flex: none; }
+.sub-chip {
+    display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 9px; border-radius: 999px;
+    font-size: 0.78rem; font-weight: 600; letter-spacing: 0.03em; cursor: pointer; white-space: nowrap;
+}
+.sub-chip .hi { font-size: 0.66rem; font-weight: 600; opacity: 0.85; }
+.sub-chip.missing { color: var(--muted); border: 1px dashed var(--line); background: transparent; opacity: 0.75; }
+.sub-chip.missing:hover:not([aria-disabled="true"]) { opacity: 1; color: var(--accent); border-color: var(--accent); }
+.sub-chip.present { color: var(--accent); border: 1px solid var(--accent); background: rgba(79, 156, 249, 0.10); }
+.sub-chip.present.synced { color: var(--ok); border-color: var(--ok); background: rgba(46, 160, 67, 0.10); }
+.sub-chip.present.outdated { color: var(--warn); border-color: var(--warn); background: rgba(229, 165, 10, 0.08); }
+.sub-chip.present:hover:not([aria-disabled="true"]) { filter: brightness(1.15); }
+.sub-chip.busy { cursor: progress; border-style: solid; animation: chip-busy 1.6s ease-in-out infinite; }
+.sub-chip[aria-disabled="true"] { cursor: default; }
+@keyframes chip-busy { 50% { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .sub-chip.busy { animation: none; } }
+.row.card .subs { flex-wrap: wrap; }
+.chip-menu {
+    position: absolute; z-index: 50; display: flex; flex-direction: column; min-width: 150px; padding: 4px;
+    border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.chip-menu button { justify-content: flex-start; text-align: left; border: 0; background: transparent; padding: 8px 12px; border-radius: 6px; color: var(--text); }
+.chip-menu button:hover:not(:disabled), .chip-menu button:focus-visible { background: rgba(79, 156, 249, 0.14); }
+.chip-menu button:disabled { color: var(--muted); }

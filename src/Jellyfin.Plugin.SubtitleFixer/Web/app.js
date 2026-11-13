@@ -41,7 +41,9 @@
     var selected = new Map();        // episodeId -> { seriesId, seasonId }
     var seasonEligible = new Map();  // seasonId -> array of eligible episode ids (complete list)
     var seasonInfo = new Map();      // seasonId -> { seriesId, eligibleCount }
-    var queueByItem = new Map();     // itemId -> job status (visible items only)
+    var queueByItem = new Map();     // itemId -> job status (visible items only); a pending one wins over a finished one
+    var queueByLang = new Map();     // itemId|language -> job (D50: an episode can have an English and a Danish job)
+    var LANG_NAMES = { en: 'English', da: 'Danish' };
     var lastStatus = null;
     var preview = { pending: false, result: null, error: null };
     var retryAction = null;
@@ -563,20 +565,8 @@
         badgesFor(item).forEach(function (b) { badges.appendChild(b); });
         if (badges.children.length) { li.appendChild(badges); }
 
-        // Find subtitles only where there is no English subtitle (D28); the server refuses the rest with has_subtitle.
-        if (canFind(item)) {
-            var find = el('button', 'find-btn');
-            find.type = 'button';
-            find.tabIndex = -1;
-            find.title = 'Search for an English subtitle';
-            find.setAttribute('aria-label', 'Find subtitles for ' + label);
-            var fi = icon('find');
-            fi.setAttribute('class', 'icon');
-            find.appendChild(fi);
-            find.appendChild(el('span', 'find-text', 'Find subtitles'));
-            find.addEventListener('click', function (e) { e.stopPropagation(); openFind(item); });
-            li.appendChild(find);
-        }
+        // EN / DA subtitle chips (D52): grey when missing (click: find one), coloured when there (click: a menu).
+        if (isVideo(item) && item.subtitles) { li.appendChild(subChips(item, label)); }
 
         if (canCheck(item)) { li.appendChild(checkButton(item, false)); }
 
@@ -645,18 +635,7 @@
 
         var badges = el('div', 'badges');
         badgesFor(item).forEach(function (b) { badges.appendChild(b); });
-        if (canFind(item)) {
-            var find = el('button', 'find-btn');
-            find.type = 'button';
-            find.tabIndex = -1;
-            find.title = 'Search for an English subtitle';
-            find.setAttribute('aria-label', 'Find subtitles for ' + label);
-            var fi = icon('find');
-            fi.setAttribute('class', 'icon');
-            find.appendChild(fi);
-            find.addEventListener('click', function (e) { e.stopPropagation(); openFind(item); });
-            badges.appendChild(find);
-        }
+        if (isVideo(item) && item.subtitles) { badges.appendChild(subChips(item, label)); }
         if (canCheck(item)) { badges.appendChild(checkButton(item, true)); }
         if (badges.children.length) { li.appendChild(badges); }
         return li;
@@ -779,12 +758,104 @@
         }
         if (job && job.status === 'done') { return out; }
         if (item.status === 'done') { out.push(badge('synced', 'Already synced', 'Re-timed before; it runs again only if the video file changes')); }
-        else if (canFind(item)) { out.push(badge('', 'No English subtitle', 'Not eligible for re-timing: ' + REASONS.no_sidecar)); }
-        else if (!item.eligible) { out.push(badge('', 'Not eligible: ' + reasonText(item), reasonTip(item))); }
+        else if (!item.eligible && item.reason !== 'no_sidecar') { out.push(badge('', 'Not eligible: ' + reasonText(item), reasonTip(item))); }
         else if (item.status === 'attempted') { out.push(badge('attempted', 'Previously attempted', item.message)); }
-        if (item.subtitleHi) { out.push(badge('hi', 'HI', 'The English subtitle is for the hearing impaired (.hi.srt): it includes sound descriptions')); }
+        if (!item.subtitles && item.subtitleHi) { out.push(badge('hi', 'HI', 'The English subtitle is for the hearing impaired (.hi.srt): it includes sound descriptions')); }
         if (item.audioCheck && item.audioCheck.english) { out.push(badge('checked', 'Audio checked: English', item.audioCheck.message)); }
         return out;
+    }
+
+    // ---------- Subtitle chips (D52) ----------
+    // One chip per language. Grey: no such subtitle next to the video; a click searches for one (when Find subtitles
+    // is set up). Coloured: it's there (green when synced); a click opens a small menu: Sync again (or Sync) and
+    // Download new. "Outdated" marks a sync by SubSync before 1.4.1, whose lines could flash by too fast to read.
+    function subChips(item, label) {
+        var box = el('div', 'subs');
+        item.subtitles.forEach(function (s) {
+            var name = LANG_NAMES[s.language] || s.language;
+            var job = queueByLang.get(item.id + '|' + s.language);
+            var pending = job && (job.status === 'queued' || job.status === 'running');
+            var chip = el('button', 'sub-chip ' + (s.present ? 'present' : 'missing'));
+            chip.type = 'button';
+            chip.tabIndex = -1;
+            chip.dataset.lang = s.language;
+            if (s.present && s.status === 'done') { chip.classList.add('synced'); }
+            if (s.outdated) { chip.classList.add('outdated'); }
+            if (pending) { chip.classList.add('busy'); }
+            chip.appendChild(el('span', 'code', s.language.toUpperCase()));
+            if (s.hi) { chip.appendChild(el('span', 'hi', 'HI')); }
+            var tip;
+            if (pending) {
+                tip = name + ' subtitle: ' + (job.status === 'running' ? 'syncing now' : 'in the queue');
+            } else if (!s.present) {
+                tip = 'No ' + name + ' subtitle' + (canFindLang(item, s) ? '. Click to find one.' : '');
+            } else {
+                tip = name + ' subtitle' + (s.hi ? ' for the hearing impaired' : '') + ': '
+                    + (s.status === 'done' ? 'synced' + (s.syncedWith ? ' with SubSync ' + s.syncedWith : '') : s.status === 'attempted' ? 'tried before' + (s.message ? ' (' + s.message + ')' : '') : 'not synced yet')
+                    + (s.outdated ? '. Lines may flash by too fast to read; Sync again fixes that.' : '.') + ' Click for options.';
+            }
+            chip.title = tip;
+            chip.setAttribute('aria-label', tip + ' (' + label + ')');
+            var usable = pending ? false : s.present ? true : canFindLang(item, s);
+            if (!usable) { chip.setAttribute('aria-disabled', 'true'); }
+            chip.addEventListener('click', function (e) {
+                e.stopPropagation();
+                if (!usable) { return; }
+                if (!s.present) { openFind(item, s.language, false); return; }
+                openChipMenu(chip, item, s);
+            });
+            box.appendChild(chip);
+        });
+        return box;
+    }
+
+    function canFindLang(item, s) {
+        if (!bazarrEnabled || s.reason === 'no_english_audio' || s.reason === 'no_video_file') { return false; }
+        var job = queueByLang.get(item.id + '|' + s.language);
+        return !(job && (job.status === 'queued' || job.status === 'running'));
+    }
+
+    var chipMenu = null;
+    function closeChipMenu() {
+        if (chipMenu) { chipMenu.remove(); chipMenu = null; }
+    }
+    function openChipMenu(chip, item, s) {
+        closeChipMenu();
+        var name = LANG_NAMES[s.language] || s.language;
+        var menu = el('div', 'chip-menu');
+        menu.setAttribute('role', 'menu');
+        var add = function (text, enabled, why, action) {
+            var b = el('button', null, text);
+            b.type = 'button';
+            b.setAttribute('role', 'menuitem');
+            b.disabled = !enabled;
+            if (why) { b.title = why; }
+            b.addEventListener('click', function (e) { e.stopPropagation(); closeChipMenu(); action(); });
+            menu.appendChild(b);
+        };
+        var canSync = s.reason !== 'no_english_audio' && s.reason !== 'no_video_file' && !(lastStatus && lastStatus.subsyncAvailable === false);
+        add(s.status === 'done' ? 'Sync again' : 'Sync', canSync, canSync ? null : 'Needs English audio and SubSync', function () { syncAgain(item, s.language); });
+        if (bazarrEnabled) {
+            add('Download new', canFindLang(item, s), null, function () { openFind(item, s.language, true); });
+        }
+        document.body.appendChild(menu);
+        var r = chip.getBoundingClientRect();
+        menu.style.top = (window.scrollY + r.bottom + 4) + 'px';
+        menu.style.left = Math.max(8, Math.min(window.scrollX + r.left, window.scrollX + document.documentElement.clientWidth - menu.offsetWidth - 8)) + 'px';
+        menu.setAttribute('aria-label', name + ' subtitle');
+        chipMenu = menu;
+        var first = menu.querySelector('button:not(:disabled)');
+        if (first) { first.focus(); }
+    }
+    document.addEventListener('click', function (e) { if (chipMenu && !chipMenu.contains(e.target)) { closeChipMenu(); } });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && chipMenu) { closeChipMenu(); } });
+
+    // Sync again (D51): one episode or movie, one language, also when it is already synced.
+    function syncAgain(item, lang) {
+        api('POST', 'Jobs', { itemIds: [item.id], languages: [lang], again: true }).then(function () {
+            showHint(videoLabel(item) + ': the ' + LANG_NAMES[lang] + ' subtitle is in the queue to be synced again.');
+            pollNow();
+        }, function (err) { failed(err); });
     }
 
     // ---------- Find subtitles (BAZARR-PLAN.md phase 1: read-only) ----------
@@ -794,10 +865,13 @@
         return !(job && (job.status === 'queued' || job.status === 'running'));
     }
 
-    function openFind(item) {
+    // lang: the chip it was opened from (en / da, D52), or none; replace: Download new (the subtitle that is there
+    // is replaced, and the previous one kept as .old).
+    function openFind(item, lang, replace) {
         var dlg = $('find');
         var seq = ++findSeq;
-        $('find-item').textContent = videoLabel(item) + (item.type === 'Episode' && item.seriesName ? ' · ' + item.seriesName : '');
+        $('find-item').textContent = videoLabel(item) + (item.type === 'Episode' && item.seriesName ? ' · ' + item.seriesName : '')
+            + (lang ? ' · ' + (replace ? 'new ' : '') + LANG_NAMES[lang] + ' subtitle' : '');
         $('find-list').replaceChildren();
         dlg.classList.remove('has-hits');
         setFindStatus('busy', 'Searching for subtitles. This can take a while…');
@@ -805,10 +879,11 @@
         dlg.returnTo = item.id;
         if (!dlg.open) { dlg.showModal(); }
 
-        findState = { item: item, results: null };
-        $('find-lang').value = prefs.findLang;
+        findState = { item: item, results: null, lang: lang || null, replace: !!replace };
+        $('find-lang').value = lang ? lang.toUpperCase() : prefs.findLang;
         $('find-hide-hi').checked = prefs.findHideHi;
-        api('GET', 'Bazarr/Search?itemId=' + encodeURIComponent(item.id)).then(function (r) {
+        var query = 'Bazarr/Search?itemId=' + encodeURIComponent(item.id) + (lang ? '&language=' + lang : '') + (replace ? '&replace=true' : '');
+        api('GET', query).then(function (r) {
             if (seq !== findSeq || !dlg.open) { return; }
             findState.results = r.results;
             applyFindFilters();
@@ -819,8 +894,9 @@
     }
 
     // Show only (language codes, "EN" or "DA, EN") and Hide hearing impaired, both remembered per viewer (D48).
-    var findState = { item: null, results: null };
+    var findState = { item: null, results: null, lang: null, replace: false };
     function findLanguages() {
+        if (findState.lang) { return [findState.lang]; }  // opened from a chip: that language, until the box is edited
         return prefs.findLang.toLowerCase().split(/[\s,;]+/).filter(Boolean);
     }
     function findKeeps(h) {
@@ -864,7 +940,7 @@
         button.querySelector('.get-text').textContent = 'Getting…';
         setFindStatus('busy', 'Downloading the subtitle. This usually takes a few seconds…');
 
-        api('POST', 'Bazarr/Download', { itemId: item.id, resultId: hit.id }).then(function (r) {
+        api('POST', 'Bazarr/Download', { itemId: item.id, resultId: hit.id, replace: !!findState.replace }).then(function (r) {
             if (r.queued) {
                 closeFind();
                 showHint('Subtitle downloaded. It’s in the queue to be re-timed to the audio.');
@@ -923,29 +999,6 @@
             }
             li.appendChild(rel);
 
-            var miss = h.dontMatches || [];
-            var matches = h.matches || [];
-            var tip = miss.length
-                ? 'Doesn’t match: ' + miss.map(humanize).join(', ') + (matches.length ? '. Matches: ' + matches.map(humanize).join(', ') : '')
-                : 'Matches the file' + (matches.length ? ': ' + matches.map(humanize).join(', ') : '');
-            var match = el('button', 'hit-match ' + (miss.length ? 'partial' : 'full'));
-            match.type = 'button';
-            match.title = tip;
-            match.setAttribute('aria-label', (miss.length ? 'Partial match. ' : 'Full match. ') + tip);
-            match.setAttribute('aria-expanded', 'false');
-            var mi = icon(miss.length ? 'partial' : 'check');
-            mi.setAttribute('class', 'icon');
-            match.appendChild(mi);
-            match.appendChild(el('span', 'match-text', miss.length ? 'Partial' : 'Match'));
-            // No hover on touch screens: a tap shows the details inline.
-            var detail = el('span', 'hit-detail', tip);
-            detail.hidden = true;
-            match.addEventListener('click', function () {
-                detail.hidden = !detail.hidden;
-                match.setAttribute('aria-expanded', String(!detail.hidden));
-            });
-            li.appendChild(match);
-
             var get = el('button', 'hit-get primary');
             get.type = 'button';
             get.setAttribute('aria-label', 'Get the ' + h.score + '% subtitle' + (h.releases && h.releases[0] ? ' for ' + h.releases[0] : ''));
@@ -955,7 +1008,6 @@
             get.appendChild(el('span', 'get-text', 'Get'));
             get.addEventListener('click', function () { getHit(item, h, get); });
             li.appendChild(get);
-            li.appendChild(detail);
 
             list.appendChild(li);
         });
@@ -1169,7 +1221,14 @@
         var previous = queueByItem;
         lastStatus = s;
         queueByItem = new Map();
-        s.items.forEach(function (i) { if (i.itemId) { queueByItem.set(i.itemId, i); } });
+        queueByLang = new Map();
+        var isPending = function (j) { return j && (j.status === 'queued' || j.status === 'running'); };
+        s.items.forEach(function (i) {
+            if (!i.itemId) { return; }
+            if (!isPending(queueByItem.get(i.itemId))) { queueByItem.set(i.itemId, i); }
+            var key = i.itemId + '|' + (i.language || 'en');
+            if (!isPending(queueByLang.get(key))) { queueByLang.set(key, i); }
+        });
 
         var t = s.totals;
         var finished = t.done + t.check + t.failed + t.cancelled + t.skipped;
@@ -1243,7 +1302,8 @@
             if (i.itemId) { li.dataset.item = i.itemId; }
             var main = el('div', 'main');
             main.appendChild(el('span', 'name', i.name));
-            var sub = [i.seriesName, i.message].filter(Boolean).join(' · ');
+            var langBit = (LANG_NAMES[i.language || 'en'] || i.language) + ' subtitle' + (i.again ? ', synced again' : '');
+            var sub = [i.seriesName, langBit, i.message].filter(Boolean).join(' · ');
             if (sub) { main.appendChild(el('span', 'sub', sub)); }
             li.appendChild(main);
             var badges = el('div', 'badges');
@@ -1553,14 +1613,14 @@
         var langTimer = null;
         $('find-lang').addEventListener('input', function () {
             clearTimeout(langTimer);
-            langTimer = setTimeout(function () { prefs.findLang = $('find-lang').value.slice(0, 40); savePrefs(); applyFindFilters(); }, 150);
+            langTimer = setTimeout(function () { findState.lang = null; prefs.findLang = $('find-lang').value.slice(0, 40); savePrefs(); applyFindFilters(); }, 150);
         });
         $('find-hide-hi').addEventListener('change', function () { prefs.findHideHi = $('find-hide-hi').checked; savePrefs(); applyFindFilters(); });
         $('find').addEventListener('close', function () {
             findSeq++;
             var id = $('find').returnTo;
             var r = id ? $('list').querySelector('[data-id="' + CSS.escape(id) + '"]') : null;
-            var back = r && (r.querySelector('.find-btn') || r);
+            var back = r && (r.querySelector('.sub-chip.missing, .sub-chip') || r);
             if (back) { back.focus(); }
         });
         $('find').addEventListener('click', function (e) { if (e.target === $('find')) { closeFind(); } });  // backdrop click
